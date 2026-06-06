@@ -1,0 +1,32 @@
+# Dependabot — github-actions (Fleet-Standard, angelegt 2026-06-06)
+# Repo ist aktuell spec-only (0 Workflows, keine Paket-Manifeste) — diese
+# Konfiguration greift automatisch, sobald Workflows dazukommen. Schema-
+# Kanon: USK/.github/dependabot.yml (cooldown>=7 zizmor-konform).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Zurich"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
