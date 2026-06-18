@@ -1,0 +1,50 @@
+{
+  "tool": "adaptiverg_qec",
+  "version": "0.1.0.dev0",
+  "n_pass": 8,
+  "n_total": 8,
+  "all_pass": true,
+  "elapsed_s": 1.239,
+  "gates": [
+    {
+      "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
+      "pass": true,
+      "detail": "<H>mcmc=4.9858 <H>exact=4.9604 |err|=0.0254 tol=0.15"
+    },
+    {
+      "gate": "G2 Drift-Guard holds (equilib lambda<1)",
+      "pass": true,
+      "detail": "lambda_hat=0.8970 d=3.91 n_out=3431"
+    },
+    {
+      "gate": "G3 Drift-Guard fires (non-contract lambda>=1)",
+      "pass": true,
+      "detail": "lambda_hat=1.0277 holds=False (expected fire)"
+    },
+    {
+      "gate": "G4 Jacobian-Consistency (CS==FD==analytic)",
+      "pass": true,
+      "detail": "max|CS-analytic|=1.11e-16 max|CS-FD|=1.18e-11"
+    },
+    {
+      "gate": "G5 RG-Fixpoint (R(0)=0, iter->0)",
+      "pass": true,
+      "detail": "R(0)=0.00e+00 K_after_60_iter=0.00e+00 (-> trivial fixpoint 0)"
+    },
+    {
+      "gate": "G6 Reproducibility (seed->bit-identical)",
+      "pass": true,
+      "detail": "H_traj identical=True mean_H eq=True"
+    },
+    {
+      "gate": "G7 Diminishing-Adaptation (sum a_t<inf)",
+      "pass": true,
+      "detail": "sum_200k=50.2258 sum_400k=50.2383 converging=True"
+    },
+    {
+      "gate": "G8 Negative/Edge-Input rejection",
+      "pass": true,
+      "detail": "9 edge checks; all invalid inputs rejected"
+    }
+  ]
+}
