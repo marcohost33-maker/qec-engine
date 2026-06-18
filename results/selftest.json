@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
   "version": "0.1.0.dev0",
-  "n_pass": 8,
-  "n_total": 8,
+  "n_pass": 12,
+  "n_total": 12,
   "all_pass": true,
-  "elapsed_s": 1.239,
+  "elapsed_s": 1.769,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -44,7 +44,27 @@
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "9 edge checks; all invalid inputs rejected"
+      "detail": "15 edge checks; all invalid inputs rejected"
+    },
+    {
+      "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
+      "pass": true,
+      "detail": "K=0.3:0.5345vs0.5370(0.2s) K=0.5:0.7585vs0.7616(0.2s) K=0.7:0.8833vs0.8854(0.1s) K=0.9:0.9414vs0.9468(0.5s) | worst=0.54sigma (<=3) L=64 N=3000 seeds=8"
+    },
+    {
+      "gate": "G10 Connected-corr vs exact enumeration",
+      "pass": true,
+      "detail": "L=8 K=0.6 T_exact=0.8336546070 tanh(2K)=0.8336546070 |err|=1.11e-16"
+    },
+    {
+      "gate": "G11 Swendsen reproducibility (seed)",
+      "pass": true,
+      "detail": "seed-eq identical=True diff-seed differs=True T_hat_eq=True"
+    },
+    {
+      "gate": "G12 Swendsen bias decreases with N",
+      "pass": true,
+      "detail": "std(N=1k)=0.0303 std(N=8k)=0.0134 ratio=0.442 (~0.354 ideal)"
     }
   ]
 }

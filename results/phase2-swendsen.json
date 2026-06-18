@@ -1,0 +1,51 @@
+{
+  "tool": "adaptiverg_qec.mcrg",
+  "method": "Swendsen-MCRG scalar (1D-Ising decimation b=2)",
+  "estimator": "T_hat(K) = <S'S>_c / <S'S'>_c",
+  "oracle": "R'(K) = tanh(2K)",
+  "sampler": "exact i.i.d. open 1D-Ising chain (vectorized)",
+  "L": 64,
+  "rows": [
+    {
+      "K": 0.3,
+      "oracle_tanh2K": 0.5370495669980352,
+      "T_hat_mean": 0.5345009967961105,
+      "T_hat_std": 0.01628291817021637,
+      "T_hat_sem": 0.005756880927832822,
+      "n_sigma": 0.15651802553342967,
+      "n_seeds": 8,
+      "n_samples": 3000
+    },
+    {
+      "K": 0.5,
+      "oracle_tanh2K": 0.7615941559557649,
+      "T_hat_mean": 0.7584965970128583,
+      "T_hat_std": 0.01582604764646575,
+      "T_hat_sem": 0.005595352805098665,
+      "n_sigma": 0.19572536441834065,
+      "n_seeds": 8,
+      "n_samples": 3000
+    },
+    {
+      "K": 0.7,
+      "oracle_tanh2K": 0.8853516482022624,
+      "T_hat_mean": 0.8832837344002611,
+      "T_hat_std": 0.014490741515000625,
+      "T_hat_sem": 0.005123250794839183,
+      "n_sigma": 0.14270586497320747,
+      "n_seeds": 8,
+      "n_samples": 3000
+    },
+    {
+      "K": 0.9,
+      "oracle_tanh2K": 0.9468060128462683,
+      "T_hat_mean": 0.9414238861451365,
+      "T_hat_std": 0.00988708127344694,
+      "T_hat_sem": 0.003495611107298428,
+      "n_sigma": 0.54435950836029,
+      "n_seeds": 8,
+      "n_samples": 3000
+    }
+  ],
+  "all_within_3sigma": true
+}
