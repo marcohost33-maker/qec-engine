@@ -3,8 +3,7 @@ name: Encoding Guard
 on:
   push:
     paths: [".github/**"]
-  pull_request:
-    paths: [".github/**"]
+  pull_request:   # no path filter: runs on every PR so it can be a required gate
 
 # Least privilege; the job only needs to read the checked-out tree.
 permissions: {}

@@ -8,10 +8,7 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/dependabot.yml"
-  pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/dependabot.yml"
+  pull_request:   # no path filter: runs on every PR so it can be a required gate
   schedule:
     - cron: "13 6 * * 1"   # Mondays 06:13 UTC
 
