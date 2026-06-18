@@ -265,7 +265,7 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
 
 def run_selftest(json_path: str | None = None) -> int:
     """Fuehre alle Gates aus; gib 0 zurueck gdw alle PASS, sonst 1."""
-    print("AdaptiveRG-QEC Phase-1 MVP -- selftest")
+    print("AdaptiveRG-QEC Phase-1/2 MVP -- selftest")
     print(
         f"MVP-Instanz: 1D-Repetition-Code Ring L={_CFG.L}, "
         f"Theta=[{_CFG.beta_min},{_CFG.beta_max}], V=1+H, R(K)=0.5*ln cosh(2K)"
@@ -360,7 +360,7 @@ def run_demo() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
-        description="AdaptiveRG-QEC Phase-1 MVP (Diagnostik-/Verifikations-Harness).",
+        description="AdaptiveRG-QEC Phase-1/2 MVP (Diagnostik-/Verifikations-Harness).",
     )
     parser.add_argument(
         "command",

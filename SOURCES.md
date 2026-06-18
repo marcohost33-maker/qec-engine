@@ -54,7 +54,7 @@ explizit dokumentiert in `src/adaptiverg_qec/mvp_instance.py` (als MVP-Wahl geke
   Andrieu & Moulines (2006), Vehtari et al. (2021), Lyness & Moler (1967, Complex-Step).
 
 **Code-Provenienz:** Alle `src/`+`tests/`-Dateien neu erstellt 2026-06-18 (kein importierter Fremdcode).
-Gate-Log-Evidenz: `results/selftest.json` (8/8 [PASS]; SHA-256 lauf-spezifisch, daher nicht gepinnt —
+Gate-Log-Evidenz: `results/selftest.json` (12/12 [PASS]; SHA-256 lauf-spezifisch, daher nicht gepinnt —
 Reproduktion via `adaptiverg-qec selftest`).
 
 *Codie | 2026-06-18 | Phase-1-MVP-Append | Reality-Anchor: dev/Prototyp-Reife, nicht selbst-zertifiziert*
