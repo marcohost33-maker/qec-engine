@@ -1,0 +1,53 @@
+# pip-audit — independent CVE scan of resolved dependencies.
+# Complements Dependabot (which is GitHub's advisory feed) with a second,
+# tool-independent scanner over the actually-installed numpy/scipy versions.
+# Closes the Aegis supply-chain finding "Dependabot is the only CVE source".
+name: pip-audit (CVE scan)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  schedule:
+    - cron: "23 6 * * 1"   # Mondays 06:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package (runtime deps only)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Freeze project dependency closure (excl. the local editable package)
+        # Freeze BEFORE installing pip-audit so its own deps are not audited;
+        # exclude the editable local package (not on PyPI -> "could not be audited").
+        run: |
+          python -m pip freeze --exclude-editable | grep -ivE '^adaptiverg' > audit-deps.txt
+          echo "----- audit targets -----"; cat audit-deps.txt
+
+      - name: Audit resolved dependencies (pip-audit)
+        # Requirements-mode (-r) audits exactly the frozen closure — deterministic,
+        # no environment-introspection quirk. --strict fails on any known CVE.
+        # Not (yet) a required status check, so a surprise transitive advisory
+        # surfaces here without dead-locking all merges; promote once green-stable.
+        run: |
+          pip install pip-audit
+          pip-audit -r audit-deps.txt --desc --strict
