@@ -84,6 +84,11 @@ class SampleResult:
     """sum_t a_t (muss endlich/summierbar sein -> Diminishing Adaptation)."""
     final_state: np.ndarray = field(repr=False)
     """Endkonfiguration x (fuer Checkpoint/Restart)."""
+    configs: np.ndarray | None = field(default=None, repr=False)
+    """Optionale Konfigurations-Snapshots (n_steps, L) in {0,1}, je Sweep nach
+    dem Sweep aufgezeichnet. Nur gefuellt, wenn run_adaptive_mcmc(record_configs=True);
+    Quelle der korrelierten S/S'-Zeitreihen fuer den autokorr-bewussten Swendsen-
+    Schaetzer (Phase-3a). None spart Speicher, wenn nur H_traj gebraucht wird."""
 
 
 def run_adaptive_mcmc(
@@ -96,6 +101,7 @@ def run_adaptive_mcmc(
     beta_start: float | None = None,
     adapt_c: float = 0.5,
     adapt_T0: float = 100.0,
+    record_configs: bool = False,
 ) -> SampleResult:
     """Fuehre den adaptiven Single-Spin-Flip-Metropolis-Sampler aus.
 
@@ -107,6 +113,10 @@ def run_adaptive_mcmc(
         seed: reproduzierbarer Seed (Philox).
         beta_start: Start-beta (Default: beta_min) -> Adaptation laeuft.
         adapt_c, adapt_T0: Schedule-Parameter a_t = c/(1+t/T0)^2.
+        record_configs: wenn True, speichere je Sweep die Konfiguration x in
+            SampleResult.configs (n_steps, L) -- Quelle der korrelierten
+            S/S'-Zeitreihen fuer den Phase-3a-Swendsen-Schaetzer. Default False
+            (spart Speicher: O(n_steps*L) statt O(n_steps)).
 
     Returns:
         SampleResult mit Trajektorien + Schaetzern.
@@ -136,6 +146,7 @@ def run_adaptive_mcmc(
     beta = float(beta_start)
     H_traj = np.empty(n_steps, dtype=np.float64)
     beta_traj = np.empty(n_steps, dtype=np.float64)
+    configs = np.empty((n_steps, L), dtype=np.int8) if record_configs else None
     accepted = 0
     attempted = 0
 
@@ -157,6 +168,8 @@ def run_adaptive_mcmc(
 
         H_traj[t] = H
         beta_traj[t] = beta
+        if configs is not None:
+            configs[t] = x
 
     post = H_traj[burn_in:]
     return SampleResult(
@@ -166,4 +179,5 @@ def run_adaptive_mcmc(
         acceptance=accepted / attempted,
         adaptation_sum=adaptation_sum,
         final_state=x.copy(),
+        configs=configs,
     )
