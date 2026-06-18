@@ -43,6 +43,19 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 ## Phase 4 — Sampling (SNIS) + Surrogate-Beschleunigung + Fehlerbudgets
 - Self-Normalized Importance Sampling mit χ²-Divergenz-Varianz-Bound; Surrogate-Drift-Kontrolle.
 - **Akzeptanz:** Bias O(1/N) belegt; Surrogate-Drift unter Schwelle.
+- **Phase-4 [DONE 2026-06-18, Branch `claude/phase4-wolff-multirg`] — MCRG-Präzision** (adressiert die
+  drei vom Cross-Family-Review benannten Schwächen; SNIS/Surrogate bleiben offen):
+  1. **Wolff-Single-Cluster-Algorithmus** (`wolff2d.py`): `P_add = 1−e^{−2K}` (web-verifiziert), vektorisierte
+     BFS-Cluster-Bildung, rejection-free. Schlägt das kritische Slowing-Down: `τ_int(Wolff) ≪ τ_int(Metropolis)`
+     (gemessen ×12–16 @ L=32, |m|-Reihe). Korrektheit: Energie gegen exakte L=4-Enumeration (|err|<0.008),
+     Cluster-Fraktion wächst monoton mit K.
+  2. **Mehrere RG-Iterationen** (`mcrg_multirg.py`): iterierte Majority-b=2-Stufen (L=32→16→8→4); `y_t(n)`
+     konvergiert zum Onsager-Fixpunkt — **bester `|y_t−1| ≈ 0.006`** (3 Seeds) vs Phase-3b 0.035.
+  3. **Ungerader (magnetischer) Sektor** → `y_h`: Operatoren `O_1=M`, `O_2=` 3-Spin-L-Cluster (echt ungerade);
+     ungerade Swendsen-Matrix `T_h=A·B⁻¹` (rohe Momente); tiefste RG-Iteration **`|y_h − 15/8| ≈ 0.002`**
+     gegen Onsager `y_h = 15/8 = 1.875` (web-verifiziert: β=1/8, ν=1 → y_h=d−β/ν).
+  - Gates G24–G29, `results/phase4-wolff-multirg.json`. **Ehrliche Scope-Grenze:** Rest-finite-Size-Systematik
+    bleibt; **keine** volle `L→∞`-FSS-Extrapolation, **kein** Frontier-Hochpräzisionswert. Keine neuen Deps.
 
 ## Phase 5 — Konvergenzdiagnostik + Reproducibility + CLT
 - Integrierte Autokorrelationszeit τ_int, CLT-Varianz σ²_g; vollständige Reproduzierbarkeit (Seeds/Manifest).

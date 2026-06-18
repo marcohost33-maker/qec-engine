@@ -1,0 +1,144 @@
+{
+  "tool": "adaptiverg_qec.mcrg_multirg",
+  "method": "Phase-4: Wolff single-cluster sampling + multi-RG-iteration (even y_t) + odd sector (y_h) on 2D-Ising",
+  "wolff": "P_add=1-exp(-2K); single-cluster BFS; z~0.25 (web-verified this run)",
+  "even_operators": [
+    "S1=NN",
+    "S2=NNN",
+    "S3=plaquette"
+  ],
+  "odd_operators": [
+    "O1=magnetization M",
+    "O2=3-spin L-cluster (odd)"
+  ],
+  "oracle_y_t": 1.0,
+  "oracle_y_h": 1.875,
+  "oracle_source": "Onsager 1944: nu=1 -> y_t=1; eta=1/4,beta=1/8 -> y_h=15/8 (web-verified)",
+  "K": 0.44068679350977147,
+  "T_c": 2.269185314213022,
+  "L": 32,
+  "phase3b_y_t_reference": 0.965,
+  "scope_note": "Wolff beats critical slowing-down (smaller tau_int -> more effective independent samples) and multi-RG iteration contracts irrelevant operators -> y_t, y_h converge to the Onsager fixed point. RESIDUAL finite-size systematics remain at small L; this is NOT a full L->inf FSS extrapolation, NOT a frontier high-precision value. Honest band.",
+  "rows": [
+    {
+      "seed": 0,
+      "y_t_per_iter": [
+        0.9300108484561757,
+        0.9956698050798066,
+        1.0219696993830758
+      ],
+      "y_t_err_per_iter": [
+        0.023375888974070447,
+        0.022268876815738393,
+        0.022553185950075737
+      ],
+      "y_t_abs_err_per_iter": [
+        0.06998915154382435,
+        0.004330194920193375,
+        0.021969699383075803
+      ],
+      "y_t_best_abs_err": 0.004330194920193375,
+      "y_h_per_iter": [
+        1.8809880939402193,
+        1.8728283632124236,
+        1.8710143051843333
+      ],
+      "y_h_err_per_iter": [
+        0.0007798049668828549,
+        0.0013884662786459575,
+        0.002523636665580784
+      ],
+      "y_h_abs_err_per_iter": [
+        0.0059880939402192634,
+        0.00217163678757637,
+        0.003985694815666685
+      ],
+      "y_h_best_abs_err": 0.00217163678757637,
+      "tau_int_wolff": 2.8048948088192778,
+      "tau_int_metropolis": 45.868154037227725,
+      "tau_ratio_metro_over_wolff": 16.352896334296386,
+      "mean_cluster_fraction": 0.45346248851102944
+    },
+    {
+      "seed": 1,
+      "y_t_per_iter": [
+        0.9511674785369428,
+        1.0018521587307372,
+        0.9772596907030568
+      ],
+      "y_t_err_per_iter": [
+        0.02121857283050567,
+        0.021384623734982365,
+        0.027062828232580285
+      ],
+      "y_t_abs_err_per_iter": [
+        0.048832521463057166,
+        0.0018521587307371856,
+        0.02274030929694315
+      ],
+      "y_t_best_abs_err": 0.0018521587307371856,
+      "y_h_per_iter": [
+        1.8818738251638143,
+        1.8773650370592705,
+        1.8797913359995964
+      ],
+      "y_h_err_per_iter": [
+        0.0007371943566163144,
+        0.0013432812124068113,
+        0.0023584694388396154
+      ],
+      "y_h_abs_err_per_iter": [
+        0.0068738251638142955,
+        0.0023650370592704917,
+        0.004791335999596358
+      ],
+      "y_h_best_abs_err": 0.0023650370592704917,
+      "tau_int_wolff": 2.2252076610591995,
+      "tau_int_metropolis": 26.997274792427625,
+      "tau_ratio_metro_over_wolff": 12.1324743145891,
+      "mean_cluster_fraction": 0.45551671645220587
+    },
+    {
+      "seed": 2,
+      "y_t_per_iter": [
+        0.9839328834061714,
+        1.0122269043974723,
+        0.9856284941274613
+      ],
+      "y_t_err_per_iter": [
+        0.020402384021764607,
+        0.021701359113449857,
+        0.023390115584646282
+      ],
+      "y_t_abs_err_per_iter": [
+        0.016067116593828645,
+        0.012226904397472316,
+        0.014371505872538659
+      ],
+      "y_t_best_abs_err": 0.012226904397472316,
+      "y_h_per_iter": [
+        1.881775212139035,
+        1.877433948460453,
+        1.874656697234665
+      ],
+      "y_h_err_per_iter": [
+        0.0007649463551989142,
+        0.0013849452387626887,
+        0.002429899789878017
+      ],
+      "y_h_abs_err_per_iter": [
+        0.006775212139034981,
+        0.0024339484604529726,
+        0.00034330276533500736
+      ],
+      "y_h_best_abs_err": 0.00034330276533500736,
+      "tau_int_wolff": 2.7994646805179157,
+      "tau_int_metropolis": 32.91937002274189,
+      "tau_ratio_metro_over_wolff": 11.759166047650092,
+      "mean_cluster_fraction": 0.4456201171875
+    }
+  ],
+  "y_t_best_abs_err_mean": 0.006136419349467626,
+  "y_h_best_abs_err_mean": 0.0016266588707272895,
+  "tau_ratio_mean": 13.41484556551186
+}
