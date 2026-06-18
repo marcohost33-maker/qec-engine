@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import a_kernel, drift, ising1d, mcrg, rg_map
+from . import a_kernel, autocorr, drift, ising1d, mcrg, rg_map
 from .mvp_instance import MVPConfig
 
 _CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
@@ -163,6 +163,51 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
         ),
         ("mcrg spins bad x", lambda: mcrg.spins_from_bits(np.array([0, 2, 1]))),
         ("mcrg validate <2 seeds", lambda: mcrg.validate_swendsen(seeds=(0,))),
+        # Phase-3a autocorr edge cases (Silent-Failure-Gate).
+        ("autocorr rho N<2", lambda: autocorr.autocorr_function_fft(np.array([1.0]))),
+        (
+            "autocorr rho constant series",
+            lambda: autocorr.autocorr_function_fft(np.full(100, 3.0)),
+        ),
+        (
+            "autocorr c_window<=0",
+            lambda: autocorr.integrated_autocorr_time(np.arange(100.0), c_window=0.0),
+        ),
+        ("autocorr binning N<64", lambda: autocorr.binning_error(np.arange(10.0))),
+        (
+            "autocorr binning max_block<1",
+            lambda: autocorr.binning_error(np.arange(100.0), max_block=0),
+        ),
+        (
+            "jackknife block_size<1",
+            lambda: autocorr.jackknife_ratio(
+                np.ones((100, 1)), np.ones((100, 1)), block_size=0, combine=lambda a, b: 1.0
+            ),
+        ),
+        (
+            "jackknife <2 blocks",
+            lambda: autocorr.jackknife_ratio(
+                np.ones((100, 1)), np.ones((100, 1)), block_size=100, combine=lambda a, b: 1.0
+            ),
+        ),
+        (
+            "jackknife num/den len mismatch",
+            lambda: autocorr.jackknife_ratio(
+                np.ones((100, 1)), np.ones((50, 1)), block_size=5, combine=lambda a, b: 1.0
+            ),
+        ),
+        (
+            "swendsen_chain N<64",
+            lambda: mcrg.swendsen_T_from_chain(np.arange(10.0), np.arange(10.0), K=0.5),
+        ),
+        (
+            "swendsen_chain S/Sp len mismatch",
+            lambda: mcrg.swendsen_T_from_chain(np.arange(100.0), np.arange(80.0), K=0.5),
+        ),
+        (
+            "op_timeseries L<4",
+            lambda: mcrg.operator_timeseries_from_configs(np.zeros((100, 2), dtype=np.int8)),
+        ),
     ]
     failures = []
     for name, fn in checks:
@@ -247,6 +292,141 @@ def _g12_swendsen_bias_decreases() -> tuple[bool, str]:
     return ok, f"std(N=1k)={s_small:.4f} std(N=8k)={s_large:.4f} ratio={ratio:.3f} (~0.354 ideal)"
 
 
+def _ar1(n: int, phi: float, seed: int) -> np.ndarray:
+    """AR(1)-Prozess x_t = phi x_{t-1} + eps mit bekanntem tau_int (Test-Orakel).
+
+    rho(t) = phi^|t| => tau_int = 1/2 + phi/(1-phi) (geschlossen, unabhaengig).
+    """
+    rng = np.random.default_rng(seed)
+    e = rng.standard_normal(n)
+    x = np.empty(n)
+    x[0] = e[0] / np.sqrt(1.0 - phi**2)
+    for t in range(1, n):
+        x[t] = phi * x[t - 1] + e[t]
+    return x
+
+
+def _g13_tau_int_ar1_oracle() -> tuple[bool, str]:
+    """tau_int (Gamma+Wolff-Windowing) trifft das analytische AR(1)-Orakel.
+
+    AR(1): tau_int = 1/2 + phi/(1-phi). Mittel ueber Seeds; Toleranz auf den
+    relativen Fehler (Wolff-Windowing hat endliche-N-Streuung, aber kleinen Bias).
+    """
+    worst_rel = 0.0
+    detail_parts = []
+    for phi in (0.0, 0.5, 0.8):
+        tau_true = 0.5 + phi / (1.0 - phi)
+        taus = [autocorr.integrated_autocorr_time(_ar1(20000, phi, sd)).tau_int for sd in range(8)]
+        tau_hat = float(np.mean(taus))
+        rel = abs(tau_hat - tau_true) / tau_true
+        worst_rel = max(worst_rel, rel)
+        detail_parts.append(f"phi={phi}:{tau_hat:.2f}/{tau_true:.2f}")
+    ok = worst_rel < 0.10  # <10% rel. Fehler gegen geschlossenes Orakel
+    return ok, f"{' '.join(detail_parts)} worst_rel={worst_rel:.3f} (<0.10)"
+
+
+def _g14_gamma_vs_binning() -> tuple[bool, str]:
+    """Gamma-Methode (tau_int -> sem) == Binning-Plateau (unabh. Cross-Check).
+
+    Rigorose Validierung (Wolff): beide Fehler-Schaetzer muessen im Plateau
+    uebereinstimmen. Mittel ueber Seeds eines AR(1)-Prozesses (phi=0.8).
+    """
+    ratios = []
+    for sd in range(6):
+        x = _ar1(20000, 0.8, sd)
+        g = autocorr.integrated_autocorr_time(x)
+        b = autocorr.binning_error(x)
+        ratios.append(b.sem_plateau / g.sem)
+    r = float(np.mean(ratios))
+    ok = 0.85 <= r <= 1.15  # Plateau-Uebereinstimmung +/-15%
+    return ok, f"sem_binning/sem_gamma={r:.3f} (in [0.85,1.15]) over 6 AR(1) seeds phi=0.8"
+
+
+def _g15_akernel_T_within_correlated_error() -> tuple[bool, str]:
+    """T_hat(A-Kernel) trifft tanh(2K) innerhalb k*sigma (KORRELIERTER Fehler).
+
+    Gegated auf K in {0.3,0.5,0.7}: dort ist die finite-L-Systematik (L=64) klein
+    gegen den statistischen Fehler, sodass das L->oo-Orakel tanh(2K) eine saubere
+    Referenz ist. K=0.9 wird BEWUSST NICHT gegated (siehe G16): dort waechst die
+    Korrelationslaenge, die endliche-L-Abweichung wird vergleichbar mit dem
+    Fehlerbalken (kein Ueber-Claim eines sauberen 3sigma-Treffers am Rand von
+    Theta). Mehr-Seed-Median entschaerft Einzel-Seed-Ausreisser.
+    """
+    K_values = (0.3, 0.5, 0.7)
+    worst_sigma = 0.0
+    parts = []
+    for K in K_values:
+        # 3 Seeds, Median der n_sigma -> robust gegen Einzel-Seed-Glueck/Pech.
+        ests = [
+            mcrg.validate_swendsen_akernel(
+                K_values=(K,), L=64, n_steps=14000, burn_in=2000, seed=sd
+            )[0]
+            for sd in range(3)
+        ]
+        med_sigma = float(np.median([e.n_sigma for e in ests]))
+        worst_sigma = max(worst_sigma, med_sigma)
+        e0 = ests[0]
+        parts.append(f"K={K}:{e0.T_hat:.3f}vs{e0.oracle:.3f}(med{med_sigma:.1f}s)")
+    ok = worst_sigma <= 3.0
+    return ok, f"{' '.join(parts)} worst_median={worst_sigma:.2f}sigma(<=3) L=64 3seeds"
+
+
+def _g16_neff_less_than_n_and_inflation() -> tuple[bool, str]:
+    """N_eff < N (korrelierte Kette) UND korrelierter Fehler > i.i.d.-Fehler.
+
+    Wissenschaftlicher Kernpunkt von Phase-3a: korrelierte Samples tragen weniger
+    Information (tau_int>0.5 => N_eff<N), die korrekten Fehlerbalken sind GROESSER.
+    """
+    rows = mcrg.validate_swendsen_akernel(
+        K_values=(0.5, 0.7, 0.9), L=64, n_steps=14000, burn_in=2000, seed=1
+    )
+    # N_eff<N und tau>0.5: muss fuer ALLE korrelierten Ketten gelten (Kernpunkt).
+    all_neff_lt_n = all(r.n_eff < r.n_samples for r in rows)
+    all_tau_gt_half = all(max(r.tau_int_S, r.tau_int_Sp, r.tau_int_product) > 0.5 for r in rows)
+    # Fehler-Inflation des RATIOS: bei kleinem K (tau~0.6) liegt sie bei ~1.00
+    # (Zaehler/Nenner-Fluktuationen kuerzen sich, s. AKernelSwendsenEstimate-Doc);
+    # gegated auf K>=0.7, wo der Effekt eindeutig > 1 ist (sonst Ueber-Claim).
+    strong = [r for r in rows if r.K >= 0.7]
+    strong_inflated = all(r.error_inflation > 1.0 for r in strong)
+    monotone = all(r.error_correlated >= r.error_iid_naive for r in rows)  # nie kleiner
+    ok = all_neff_lt_n and all_tau_gt_half and strong_inflated and monotone
+    parts = " ".join(
+        f"K={r.K}:tau={max(r.tau_int_S, r.tau_int_Sp, r.tau_int_product):.2f}"
+        f",Neff/N={r.n_eff / r.n_samples:.2f},infl={r.error_inflation:.3f}"
+        for r in rows
+    )
+    return ok, (
+        f"{parts} | Neff<N={all_neff_lt_n} tau>0.5={all_tau_gt_half} "
+        f"infl(K>=0.7)>1={strong_inflated} err_c>=err_iid(all)={monotone}"
+    )
+
+
+def _g17_autocorr_reproducible() -> tuple[bool, str]:
+    """Reproduzierbarkeit: gleicher Seed -> bit-identische A-Kernel-T_hat + Fehler."""
+    a = mcrg.validate_swendsen_akernel(K_values=(0.6,), L=64, n_steps=8000, burn_in=1000, seed=7)
+    b = mcrg.validate_swendsen_akernel(K_values=(0.6,), L=64, n_steps=8000, burn_in=1000, seed=7)
+    c = mcrg.validate_swendsen_akernel(K_values=(0.6,), L=64, n_steps=8000, burn_in=1000, seed=8)
+    same = a[0].T_hat == b[0].T_hat and a[0].error_correlated == b[0].error_correlated
+    diff = a[0].T_hat != c[0].T_hat
+    ok = same and diff
+    return ok, f"seed-eq T_hat&err identical={same} diff-seed differs={diff}"
+
+
+def _g18_iid_limit_no_inflation() -> tuple[bool, str]:
+    """Grenzfall-Sanity: auf i.i.d.-Daten ergibt die Gamma-Methode tau~0.5, infl~1.
+
+    Schuetzt vor einem stillen Bug, der IMMER aufbloeht (false positive in G16).
+    """
+    rng = np.random.default_rng(123)
+    x = rng.standard_normal(20000)
+    r = autocorr.integrated_autocorr_time(x)
+    ok = abs(r.tau_int - 0.5) < 0.05 and abs(r.inflation - 1.0) < 0.05 and r.n_eff > 0.95 * r.n
+    return ok, (
+        f"iid: tau_int={r.tau_int:.3f}(~0.5) inflation={r.inflation:.3f}(~1) "
+        f"Neff/N={r.n_eff / r.n:.3f}"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -260,6 +440,15 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G10 Connected-corr vs exact enumeration", _g10_connected_corr_exact),
     ("G11 Swendsen reproducibility (seed)", _g11_swendsen_reproducible),
     ("G12 Swendsen bias decreases with N", _g12_swendsen_bias_decreases),
+    ("G13 tau_int (Gamma+Wolff) vs AR(1) oracle", _g13_tau_int_ar1_oracle),
+    ("G14 Gamma-method == Binning plateau", _g14_gamma_vs_binning),
+    (
+        "G15 A-Kernel T-hat vs tanh(2K) (correlated <=3sigma)",
+        _g15_akernel_T_within_correlated_error,
+    ),
+    ("G16 N_eff<N AND correlated err > i.i.d. err", _g16_neff_less_than_n_and_inflation),
+    ("G17 A-Kernel autocorr-T reproducibility (seed)", _g17_autocorr_reproducible),
+    ("G18 i.i.d.-limit sanity (tau~0.5, no inflation)", _g18_iid_limit_no_inflation),
 ]
 
 

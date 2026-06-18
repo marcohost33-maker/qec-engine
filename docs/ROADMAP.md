@@ -24,6 +24,13 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 ## Phase 3 — RG-Analyse + Jacobian-Extraktion
 - Stochastische RG-Map R̂, Fixpunkt-Konsistenz (Bias O(n^−β), β>1/2), hyperbolischer Fixpunkt.
 - **Akzeptanz:** ĝ_k → g* in Wahrscheinlichkeit innerhalb Linearisierungsumgebung.
+- **Phase-3a [DONE 2026-06-18, Branch `claude/phase3a-akernel-autocorr`]:** skalarer Swendsen-T̂ aus dem
+  KORRELIERTEN A-Kernel-MCMC (statt exakt-i.i.d.) + autokorrelations-bewusste Fehlerbalken (`autocorr.py`:
+  FFT-ρ via Wiener-Khinchin, τ_int + Wolff-g-Windowing hep-lat/0306017, Binning-Cross-Check, Block-Jackknife
+  fürs Verhältnis). Belegt: τ_int>0.5, N_eff<N, σ_korr>σ_iid; T̂ trifft tanh(2K) innerhalb σ_korr (K≤0.7).
+  Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau. Gates G13–G18, `results/phase3a-akernel-autocorr.json`.
+- **Phase-3b [OFFEN]:** Multi-Operator-Swendsen-MATRIX (mehrere S_a, lineares Gleichungssystem dK'_a/dK_b),
+  Bias-Ordnung O(n^−β) empirisch, hyperbolischer Fixpunkt im Mehr-Kopplungs-Fall.
 
 ## Phase 4 — Sampling (SNIS) + Surrogate-Beschleunigung + Fehlerbudgets
 - Self-Normalized Importance Sampling mit χ²-Divergenz-Varianz-Bound; Surrogate-Drift-Kontrolle.
@@ -32,6 +39,8 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 ## Phase 5 — Konvergenzdiagnostik + Reproducibility + CLT
 - Integrierte Autokorrelationszeit τ_int, CLT-Varianz σ²_g; vollständige Reproduzierbarkeit (Seeds/Manifest).
 - **Akzeptanz:** CLT empirisch bestätigt; Run reproduzierbar aus Manifest.
+- **Teil-vorgezogen (Phase-3a):** τ_int (Wolff Γ-Methode + g-Windowing) + autokorr-Fehler bereits real in
+  `autocorr.py` (validiert gegen AR(1)-Orakel). Offen für Phase-5: CLT-Varianz σ²_g, Run-Manifest.
 
 ---
 *Coworker Research | aus AdaptiveRG-QEC Spec v1.0 hardened | alle Phasen offen 2026-06-02*

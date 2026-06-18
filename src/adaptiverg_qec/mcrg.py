@@ -55,6 +55,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from . import autocorr
+
 __all__ = [
     "spins_from_bits",
     "nn_operator",
@@ -64,6 +66,10 @@ __all__ = [
     "swendsen_T_scalar",
     "SwendsenEstimate",
     "validate_swendsen",
+    "operator_timeseries_from_configs",
+    "swendsen_T_from_chain",
+    "AKernelSwendsenEstimate",
+    "validate_swendsen_akernel",
 ]
 
 
@@ -330,6 +336,254 @@ def validate_swendsen(
 def K_seed(K: float, sd: int) -> int:
     """Deterministischer, K-abhaengiger Seed (reproduzierbar, dekorreliert K's)."""
     return (int(round(K * 1000)) * 100003 + sd) % (2**31 - 1)
+
+
+# ===========================================================================
+# PHASE-3a: Swendsen-T_hat aus dem KORRELIERTEN A-Kernel-MCMC + autokorr-Fehler
+# ===========================================================================
+#
+# Phase-2 nutzte den exakten i.i.d.-Sampler (sample_ising_open_chain) -- bewusst,
+# damit der 1/sqrt(N)-Test sauber war. Phase-3a verdrahtet die ECHTE Sample-Quelle:
+# die korrelierte Markov-Kette des adaptiven A-Kernels (a_kernel.run_adaptive_mcmc).
+# Aufeinanderfolgende Samples sind nun NICHT unabhaengig; die Fehlerbalken muessen
+# autokorrelations-bewusst sein (autocorr.py: Gamma-Methode + Binning-Cross-Check;
+# Jackknife-ueber-Bloecke fuer das Verhaeltnis T_hat = <S'S>_c / <S'S'>_c).
+#
+# WISSENSCHAFTLICHER KERNPUNKT: weil korrelierte Samples weniger Information tragen
+# (N_eff = N/(2 tau_int) < N), sind die korrekten Fehler GROESSER als die naiven
+# i.i.d.-Fehler aus Phase-2. Das ehrlich zu zeigen ist der Zweck dieser Phase.
+
+
+def operator_timeseries_from_configs(
+    configs: np.ndarray, *, periodic: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bilde aus A-Kernel-Konfigurations-Snapshots die S- und S'-Zeitreihen.
+
+    Der A-Kernel speichert je Sweep x in {0,1}^L (record_configs=True). Hier
+    werden daraus pro Sweep der NN-Operator S = sum s_i s_{i+1} und der geblockte
+    Operator S' (auf dem b=2-decimierten Gitter) berechnet -- vektorisiert ueber
+    die ganze Trajektorie. Die Randbedingung MUSS zur Sampler-Konvention passen:
+    der A-Kernel ist PERIODISCH (H = #Domaenenwaende mit np.roll), also periodic=True.
+
+    Args:
+        configs: (n_steps, L) in {0,1} (SampleResult.configs).
+        periodic: Randbedingung fuer S/S' (A-Kernel -> True).
+
+    Returns:
+        (S_traj, Sp_traj): je (n_steps,) float-Zeitreihen.
+    """
+    configs = np.asarray(configs)
+    if configs.ndim != 2:
+        raise ValueError(f"configs must be 2D (n_steps, L), got ndim={configs.ndim}")
+    if configs.shape[1] < 4:
+        raise ValueError(
+            f"need L>=4 so the decimated chain has >=2 sites, got L={configs.shape[1]}"
+        )
+    s = spins_from_bits(configs)  # (n_steps, L) in {+1,-1}, validiert {0,1}
+    S = nn_operator(s, periodic=periodic)
+    Sp = nn_operator(decimate_b2(s), periodic=periodic)
+    return S, Sp
+
+
+@dataclass(frozen=True)
+class AKernelSwendsenEstimate:
+    """Swendsen-T_hat aus korrelierten A-Kernel-Samples, autokorr-bewusst.
+
+    EHRLICHE NUANCE (kein Ueber-Claim): tau_int_S/Sp/product sind die Autokorr-
+    Zeiten der ROHEN Operatoren. Der RATIO-Schaetzer T_hat erbt diese Autokorr-
+    Zeit aber NICHT voll: Zaehler und Nenner sind aus denselben korrelierten
+    Konfigurationen gebaut, ihre fuehrenden Fluktuationen kuerzen sich im
+    Verhaeltnis teilweise, sodass die effektive Autokorr-Zeit von T_hat (und
+    damit error_inflation) kleiner ist als sqrt(2*tau_int_S). Der Block-Jackknife
+    misst die KORREKTE Inflation des Verhaeltnisses direkt (Plateau in b), nicht
+    die der Rohfelder. error_inflation > 1 bleibt der belegte Kernpunkt.
+    """
+
+    K: float
+    """Ising-Kopplung K = beta/2 (Sampler-Konvention)."""
+    T_hat: float
+    """Swendsen-Schaetzer <S'S>_c / <S'S'>_c (Voll-Sample-Punktschaetzer)."""
+    oracle: float
+    """Analytisches Orakel tanh(2K)."""
+    error_correlated: float
+    """Autokorr-bewusster Fehler von T_hat (Block-Jackknife, b >~ tau_int)."""
+    error_iid_naive: float
+    """Naiver i.i.d.-Jackknife-Fehler (b=1) -- IGNORIERT Autokorrelation."""
+    tau_int_S: float
+    """tau_int des NN-Operators S (Gamma-Methode)."""
+    tau_int_Sp: float
+    """tau_int des geblockten Operators S' (Gamma-Methode)."""
+    tau_int_product: float
+    """tau_int des Produkts S'*S (relevant fuer den Zaehler-Korrelator)."""
+    block_size: int
+    """Jackknife-Block-Groesse b (>~ max tau_int)."""
+    n_blocks: int
+    """Anzahl Jackknife-Bloecke."""
+    n_samples: int
+    """Kettenlaenge nach Burn-in."""
+    n_eff: float
+    """Effektive Stichprobe N/(2 max(tau_int)) (Faustwert)."""
+
+    @property
+    def abs_error(self) -> float:
+        """|T_hat - tanh(2K)|."""
+        return abs(self.T_hat - self.oracle)
+
+    @property
+    def n_sigma(self) -> float:
+        """Abweichung vom Orakel in Einheiten des KORRELIERTEN Fehlers."""
+        return self.abs_error / self.error_correlated if self.error_correlated > 0 else 0.0
+
+    @property
+    def error_inflation(self) -> float:
+        """Wievielmal groesser der korrelierte Fehler ggue. dem naiven i.i.d. ist."""
+        return (
+            self.error_correlated / self.error_iid_naive
+            if self.error_iid_naive > 0
+            else float("nan")
+        )
+
+
+def _T_ratio_combine(num_means: np.ndarray, den_means: np.ndarray) -> float:
+    """combine() fuer den Jackknife: T_hat = <S'S>_c / <S'S'>_c aus Spalten-Mitteln.
+
+    Spalten-Layout:
+        num_means = [<S'S>, <S'>, <S>]   -> Zaehler = <S'S> - <S'><S>
+        den_means = [<S'S'>, <S'>]       -> Nenner  = <S'S'> - <S'>^2
+    """
+    cov_sps = num_means[0] - num_means[1] * num_means[2]
+    cov_spsp = den_means[0] - den_means[1] * den_means[1]
+    if cov_spsp == 0.0:
+        return float("nan")
+    return float(cov_sps / cov_spsp)
+
+
+def swendsen_T_from_chain(
+    S: np.ndarray,
+    Sp: np.ndarray,
+    *,
+    K: float,
+    block_size: int | None = None,
+    c_window: float = 1.5,
+) -> AKernelSwendsenEstimate:
+    """Skalarer Swendsen-T_hat aus korrelierten S/S'-Zeitreihen + autokorr-Fehler.
+
+    Schritte:
+      1. tau_int von S, S' und dem Produkt S'*S via Gamma-Methode (autocorr.py).
+      2. Block-Groesse b := ceil(2 * max tau_int) (>~ Autokorr-Zeit -> Bloecke
+         quasi-unabhaengig), sofern nicht explizit gesetzt.
+      3. Block-Jackknife auf das VERHAELTNIS T_hat = <S'S>_c/<S'S'>_c -> korrekter,
+         autokorr-bewusster Fehler (propagiert korrelierte Zaehler/Nenner sauber).
+      4. Zum Vergleich: derselbe Jackknife mit b=1 (naiv i.i.d., ignoriert
+         Autokorrelation) -- demonstriert, dass der korrelierte Fehler GROESSER ist.
+
+    Args:
+        S: NN-Operator-Zeitreihe (n_samples,) aus dem A-Kernel (nach Burn-in).
+        Sp: geblockte Operator-Zeitreihe (n_samples,).
+        K: Ising-Kopplung der Kette (= beta/2), fuer das Orakel tanh(2K).
+        block_size: Jackknife-Block-Groesse b; Default ceil(2*max tau_int).
+        c_window: Wolff-Windowing-Parameter S.
+
+    Returns:
+        AKernelSwendsenEstimate.
+    """
+    S = np.asarray(S, dtype=np.float64).ravel()
+    Sp = np.asarray(Sp, dtype=np.float64).ravel()
+    if S.shape != Sp.shape:
+        raise ValueError(f"S, Sp must have equal length, got {S.shape} vs {Sp.shape}")
+    n = S.size
+    if n < 64:
+        raise ValueError(f"need >=64 samples for autocorr-aware errors, got {n}")
+    if not np.isfinite(K):
+        raise ValueError(f"K must be finite, got {K}")
+
+    prod = Sp * S
+    ac_S = autocorr.integrated_autocorr_time(S, c_window=c_window)
+    ac_Sp = autocorr.integrated_autocorr_time(Sp, c_window=c_window)
+    ac_prod = autocorr.integrated_autocorr_time(prod, c_window=c_window)
+    tau_max = max(ac_S.tau_int, ac_Sp.tau_int, ac_prod.tau_int)
+
+    if block_size is None:
+        block_size = max(1, int(np.ceil(2.0 * tau_max)))
+    # Genug Bloecke sicherstellen (>=16) -> Block ggf. verkleinern.
+    if n // block_size < 16:
+        block_size = max(1, n // 16)
+
+    # Spalten fuer den Jackknife (pro-Sample-Beitraege).
+    num_terms = np.column_stack([prod, Sp, S])  # [<S'S>, <S'>, <S>]
+    den_terms = np.column_stack([Sp * Sp, Sp])  # [<S'S'>, <S'>]
+
+    jk = autocorr.jackknife_ratio(
+        num_terms, den_terms, block_size=block_size, combine=_T_ratio_combine
+    )
+    # Naiver i.i.d.-Vergleich: derselbe Jackknife mit b=1.
+    jk_iid = autocorr.jackknife_ratio(num_terms, den_terms, block_size=1, combine=_T_ratio_combine)
+
+    oracle = float(np.tanh(2.0 * K))
+    n_eff = n / (2.0 * tau_max) if tau_max > 0 else float(n)
+    return AKernelSwendsenEstimate(
+        K=float(K),
+        T_hat=float(jk.ratio),
+        oracle=oracle,
+        error_correlated=float(jk.error),
+        error_iid_naive=float(jk_iid.error),
+        tau_int_S=float(ac_S.tau_int),
+        tau_int_Sp=float(ac_Sp.tau_int),
+        tau_int_product=float(ac_prod.tau_int),
+        block_size=int(block_size),
+        n_blocks=int(jk.n_blocks),
+        n_samples=int(n),
+        n_eff=float(n_eff),
+    )
+
+
+def validate_swendsen_akernel(
+    K_values: tuple[float, ...] = (0.3, 0.5, 0.7, 0.9),
+    *,
+    L: int = 64,
+    n_steps: int = 20000,
+    burn_in: int = 2000,
+    seed: int = 0,
+    c_window: float = 1.5,
+) -> list[AKernelSwendsenEstimate]:
+    """T_hat(K) aus dem A-Kernel-MCMC mit autokorr-Fehlern, fuer mehrere K.
+
+    Fuer jedes K: laufe den adaptiven A-Kernel bei beta_target = 2K (Konvention
+    K = beta/2), zeichne Konfigurationen auf, bilde S/S'-Zeitreihen (periodisch),
+    schaetze T_hat + autokorr-Fehler. Klein gehalten (Anti-Stall): kurze Ketten.
+
+    Args:
+        K_values: Kopplungen (beta_target = 2K muss in [beta_min, beta_max] des
+            cfg liegen; hier cfg = MVPConfig(L, 0.1, 2.0) -> K in [0.05, 1.0]).
+        L, n_steps, burn_in: Ketten-Parameter (klein halten).
+        seed: Basis-Seed.
+        c_window: Wolff-Parameter.
+
+    Returns:
+        Liste von AKernelSwendsenEstimate, eine je K.
+    """
+    from .a_kernel import run_adaptive_mcmc
+    from .mvp_instance import MVPConfig
+
+    cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
+    out: list[AKernelSwendsenEstimate] = []
+    for K in K_values:
+        beta = 2.0 * K  # K = beta/2
+        res = run_adaptive_mcmc(
+            cfg,
+            beta_target=beta,
+            n_steps=n_steps,
+            burn_in=burn_in,
+            seed=K_seed(K, seed),
+            beta_start=beta,  # bei beta_target starten -> kuerzere Equilibrierung
+            record_configs=True,
+        )
+        if res.configs is None:  # pragma: no cover - defensive
+            raise RuntimeError("record_configs=True did not populate configs")
+        post = res.configs[burn_in:]
+        S, Sp = operator_timeseries_from_configs(post, periodic=True)
+        out.append(swendsen_T_from_chain(S, Sp, K=K, c_window=c_window))
+    return out
 
 
 def _write_validation_report(path: str = "results/phase2-swendsen.json") -> int:

@@ -52,7 +52,7 @@ jobs:
       - name: Pytest
         run: pytest
 
-      - name: Selftest gates (8/8 [PASS], exit 0)
+      - name: Selftest gates (all [PASS], exit 0)
         run: python -m adaptiverg_qec.cli --selftest --json results/selftest-ci.json
 
       - name: Upload gate-log

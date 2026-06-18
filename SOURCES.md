@@ -58,3 +58,34 @@ Gate-Log-Evidenz: `results/selftest.json` (12/12 [PASS]; SHA-256 lauf-spezifisch
 Reproduktion via `adaptiverg-qec selftest`).
 
 *Codie | 2026-06-18 | Phase-1-MVP-Append | Reality-Anchor: dev/Prototyp-Reife, nicht selbst-zertifiziert*
+
+---
+
+## Lineage-Append (append-only) — 2026-06-18 — Phase-3a
+
+### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorrelations-bewusste Fehler
+**Branch `claude/phase3a-akernel-autocorr` (Agent: Claude/Codie).**
+
+Punkt-2-Richtung des Marco-Entscheids: T̂ = ⟨S'S⟩_c/⟨S'S'⟩_c jetzt aus dem korrelierten adaptiven
+A-Kernel-MCMC (Phase-2 nutzte einen exakten i.i.d.-Sampler), mit korrekten autokorrelations-bewussten
+Fehlerbalken statt naiver i.i.d.-Balken. NEU: `src/adaptiverg_qec/autocorr.py`. KEINE neuen Runtime-Deps
+(alles numpy; scipy unverändert). Multi-Operator-Swendsen-MATRIX = Phase-3b (separat, offen).
+
+**Methoden-Referenzen (validiert, NICHT als Dependency):**
+- U. Wolff, *Monte Carlo errors with less errors*, Comput. Phys. Commun. 156 (2004) 143, arXiv:hep-lat/0306017
+  — Γ-Methode (τ_int = ½ + Σρ), automatic windowing via g-Funktion (S≈1.5), σ² = 2·τ_int·Var/N.
+- pyerrors, arXiv:2209.14371 — unabhängige Methoden-Referenz (Γ-Methode/Autokorrelation), nur Referenz.
+- Wiener-Khinchin-Theorem — FFT-basierte Autokorrelationsfunktion (O(N log N)).
+
+**Validierungs-Orakel (unabhängig):**
+- AR(1)-Prozess mit geschlossener Autokorrelation ρ(t)=φ^t → τ_int = ½ + φ/(1−φ) (Gate G13, rel. Fehler <3%).
+- Γ-Methode == Binning-Plateau (rigorose Cross-Validierung, Gate G14, Übereinstimmung ±2%).
+- T̂(A-Kernel) trifft tanh(2K) innerhalb σ_korr für K≤0.7 (Gate G15); N_eff<N + σ_korr>σ_iid (Gate G16).
+
+**Gemessene Zahlen (Evidenz `results/phase3a-akernel-autocorr.json`, L=64, N=18000):** τ_int wächst 0.65→2.81
+mit K∈{0.3..0.9}; Fehler-Inflation 1.006→1.129; N_eff 13745→3198 (< N durchgehend).
+
+**Code-Provenienz:** `autocorr.py` + `tests/test_autocorr.py` neu erstellt 2026-06-18; `a_kernel.py`/`mcrg.py`/
+`cli.py` erweitert (record_configs, swendsen_T_from_chain, Gates G13–G18). Kein importierter Fremdcode.
+
+*Codie | 2026-06-18 | Phase-3a-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*

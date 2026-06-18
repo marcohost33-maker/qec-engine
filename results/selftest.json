@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
-  "version": "0.1.0.dev0",
-  "n_pass": 12,
-  "n_total": 12,
+  "version": "0.1.0.dev1",
+  "n_pass": 18,
+  "n_total": 18,
   "all_pass": true,
-  "elapsed_s": 1.769,
+  "elapsed_s": 88.752,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -44,7 +44,7 @@
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "15 edge checks; all invalid inputs rejected"
+      "detail": "26 edge checks; all invalid inputs rejected"
     },
     {
       "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
@@ -65,6 +65,36 @@
       "gate": "G12 Swendsen bias decreases with N",
       "pass": true,
       "detail": "std(N=1k)=0.0303 std(N=8k)=0.0134 ratio=0.442 (~0.354 ideal)"
+    },
+    {
+      "gate": "G13 tau_int (Gamma+Wolff) vs AR(1) oracle",
+      "pass": true,
+      "detail": "phi=0.0:0.50/0.50 phi=0.5:1.52/1.50 phi=0.8:4.62/4.50 worst_rel=0.026 (<0.10)"
+    },
+    {
+      "gate": "G14 Gamma-method == Binning plateau",
+      "pass": true,
+      "detail": "sem_binning/sem_gamma=1.008 (in [0.85,1.15]) over 6 AR(1) seeds phi=0.8"
+    },
+    {
+      "gate": "G15 A-Kernel T-hat vs tanh(2K) (correlated <=3sigma)",
+      "pass": true,
+      "detail": "K=0.3:0.534vs0.537(med0.8s) K=0.5:0.774vs0.762(med1.3s) K=0.7:0.879vs0.885(med1.0s) worst_median=1.34sigma(<=3) L=64 3seeds"
+    },
+    {
+      "gate": "G16 N_eff<N AND correlated err > i.i.d. err",
+      "pass": true,
+      "detail": "K=0.5:tau=0.94,Neff/N=0.53,infl=1.001 K=0.7:tau=1.68,Neff/N=0.30,infl=1.056 K=0.9:tau=2.81,Neff/N=0.18,infl=1.099 | Neff<N=True tau>0.5=True infl(K>=0.7)>1=True err_c>=err_iid(all)=True"
+    },
+    {
+      "gate": "G17 A-Kernel autocorr-T reproducibility (seed)",
+      "pass": true,
+      "detail": "seed-eq T_hat&err identical=True diff-seed differs=True"
+    },
+    {
+      "gate": "G18 i.i.d.-limit sanity (tau~0.5, no inflation)",
+      "pass": true,
+      "detail": "iid: tau_int=0.500(~0.5) inflation=1.000(~1) Neff/N=1.000"
     }
   ]
 }

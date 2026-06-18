@@ -43,16 +43,43 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 12 Gates, JSON-Log) | **real** (12/12 [PASS], exit 0) |
+| Selftest-Gates (`cli.py --selftest`, 18 Gates, JSON-Log) | **real** (18/18 [PASS], exit 0) |
 | SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4) |
-| Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)` validiert (≤0.54σ, Bias↓ mit 1/√N). Sampler = exakt i.i.d.; A-Kernel-Autokorrelation + Multi-Operator-Matrix = Phase-3 |
-| Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phasen 2–5) |
+| Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
+| **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
+| Multi-Operator-Swendsen-MATRIX (mehrere S_a, lineares System) | **offen** (Phase-3b) |
+| Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phasen 4–5) |
+
+### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
+
+Phase-2 nutzte einen exakten **i.i.d.**-Sampler (sauberer 1/√N-Test). Phase-3a verdrahtet die **echte**
+Sample-Quelle — die korrelierte Markov-Kette des adaptiven A-Kernels — und ersetzt die naiven Fehlerbalken
+durch **autokorrelations-bewusste** (Wolff Γ-Methode + g-Funktions-Windowing, hep-lat/0306017; Binning als
+Cross-Check; Block-Jackknife für das Verhältnis T̂). Alles in numpy (keine neuen Runtime-Deps).
+
+**Wissenschaftlicher Kernpunkt (ehrlich belegt, `results/phase3a-akernel-autocorr.json`):** korrelierte
+Samples tragen weniger Information, also ist N_eff = N/(2·τ_int) < N und die **korrekten Fehler sind GRÖSSER
+als die naiven i.i.d.-Fehler**. Gemessen (A-Kernel, L=64, N=18 000 nach Burn-in):
+
+| K | T̂ ± σ_korr | tanh(2K) | σ_iid (naiv) | Inflation | τ_int(max) | N_eff |
+|---|---|---|---|---|---|---|
+| 0.3 | 0.537 ± 0.0096 | 0.537 | 0.0095 | 1.006 | 0.65 | 13 745 |
+| 0.5 | 0.768 ± 0.0078 | 0.762 | 0.0076 | 1.026 | 0.90 |  9 951 |
+| 0.7 | 0.878 ± 0.0065 | 0.885 | 0.0060 | 1.073 | 1.66 |  5 438 |
+| 0.9 | 0.924 ± 0.0054 | 0.947 | 0.0048 | 1.129 | 2.81 |  3 198 |
+
+τ_int wächst mit K (langsameres Mischen näher am T=0-Fixpunkt); Inflation > 1 durchgehend; N_eff < N immer.
+**Ehrliche Nuance (kein Über-Claim):** das *Verhältnis* T̂ erbt die τ_int der Rohfelder nicht voll (Zähler/
+Nenner-Fluktuationen kürzen sich teilweise), daher ist die Inflation moderat; der Block-Jackknife misst die
+korrekte Verhältnis-Inflation direkt. K≤0.7 wird gegen das L→∞-Orakel gegated (finite-L-Bias ≪ Fehler);
+**K=0.9 ist ein Autokorrelations-Diagnostik-Punkt** — am Rand von Θ wird die endliche-L-Systematik
+vergleichbar mit dem Fehlerbalken (kein sauberer 3σ-Treffer behauptet).
 
 ## Schnellstart
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 12 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 18 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
 ```
