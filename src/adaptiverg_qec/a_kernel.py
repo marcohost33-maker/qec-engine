@@ -1,0 +1,169 @@
+"""A-Kernel: adaptiver MCMC-Sampler auf z=(x, theta)  [Spec 3-5].
+
+MVP-Instanz (mvp_instance.py): x in {0,1}^L (Repetition-Code-Ring),
+theta = beta in kompaktem [beta_min, beta_max]. Ziel: pi_beta(x) ~ exp(-beta H(x)),
+H = #Domaenenwaende. Single-Spin-Flip-Metropolis (detailed balance gegen pi_beta).
+
+Adaptive Komponente (Spec 4.1, Diminishing Adaptation):
+    Containment via KOMPAKTEM Theta (Spec 4.2). theta wird mit einem
+    summierbaren Schedule a_t = c / (1 + t/T0)^2 (=> sum a_t < inf) Richtung
+    theta_target bewegt. sum a_t < inf ist die staerkste Form (P1.2 Schritt 3,
+    DOCX: starkes Gesetz d. grossen Zahlen unter sum a_t < inf).
+
+Diese Datei implementiert REAL (kein Stub):
+- exakte Metropolis-Akzeptanz mit detailliertem Gleichgewicht,
+- Philox-counter-basiertes, reproduzierbares RNG (Spec 10.3a),
+- Drift-Trajektorie H(z_t) fuer den Guard (drift.py),
+- Diminishing-Adaptation-Schedule mit Summierbarkeits-Pruefung + Containment-Clip.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from .mvp_instance import MVPConfig
+
+
+def _initial_state(rng: np.random.Generator, L: int) -> np.ndarray:
+    """Zufaellige Startkonfiguration x in {0,1}^L."""
+    return rng.integers(0, 2, size=L, dtype=np.int8)
+
+
+def hamiltonian(x: np.ndarray) -> int:
+    """H(x) = #Domaenenwaende (periodisch). Vektorisiert, exakt."""
+    x = np.asarray(x)
+    return int(np.sum(x != np.roll(x, -1)))
+
+
+def _delta_H_flip(x: np.ndarray, i: int) -> int:
+    """Aenderung von H beim Flip von Bit i (lokal, O(1)).
+
+    Nur die beiden Kanten (i-1,i) und (i,i+1) aendern sich.
+    """
+    L = x.size
+    left = x[(i - 1) % L]
+    right = x[(i + 1) % L]
+    xi = x[i]
+    xi_new = 1 - xi
+    before = int(xi != left) + int(xi != right)
+    after = int(xi_new != left) + int(xi_new != right)
+    return after - before
+
+
+def diminishing_step_sizes(n: int, c: float, T0: float) -> np.ndarray:
+    """Summierbarer Adaptions-Schedule a_t = c / (1 + t/T0)^2, t=0..n-1.
+
+    sum_t a_t konvergiert (p=2 > 1). Erfuellt Spec 4.1 (Diminishing Adaptation)
+    in der staerksten summierbaren Form.
+    """
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+    if c <= 0:
+        raise ValueError(f"c must be > 0, got {c}")
+    if T0 <= 0:
+        raise ValueError(f"T0 must be > 0, got {T0}")
+    t = np.arange(n, dtype=np.float64)
+    return c / (1.0 + t / T0) ** 2
+
+
+@dataclass
+class SampleResult:
+    """Ausgabe eines A-Kernel-Laufs."""
+
+    H_traj: np.ndarray
+    """H(z_t) je gespeichertem Schritt (fuer Drift-Guard + Observablen)."""
+    beta_traj: np.ndarray
+    """theta_t = beta_t je Schritt (Containment-Beleg)."""
+    mean_H: float
+    """Ergodisches Mittel von H nach Burn-in (Schaetzer)."""
+    acceptance: float
+    """Empirische Metropolis-Akzeptanzrate."""
+    adaptation_sum: float
+    """sum_t a_t (muss endlich/summierbar sein -> Diminishing Adaptation)."""
+    final_state: np.ndarray = field(repr=False)
+    """Endkonfiguration x (fuer Checkpoint/Restart)."""
+
+
+def run_adaptive_mcmc(
+    cfg: MVPConfig,
+    *,
+    beta_target: float,
+    n_steps: int,
+    burn_in: int,
+    seed: int,
+    beta_start: float | None = None,
+    adapt_c: float = 0.5,
+    adapt_T0: float = 100.0,
+) -> SampleResult:
+    """Fuehre den adaptiven Single-Spin-Flip-Metropolis-Sampler aus.
+
+    Args:
+        cfg: MVP-Konfiguration (L, Theta-Grenzen).
+        beta_target: Ziel-beta (muss in [beta_min, beta_max] liegen).
+        n_steps: Sweeps (1 Sweep = L Einzel-Flip-Versuche).
+        burn_in: zu verwerfende Anfangs-Sweeps.
+        seed: reproduzierbarer Seed (Philox).
+        beta_start: Start-beta (Default: beta_min) -> Adaptation laeuft.
+        adapt_c, adapt_T0: Schedule-Parameter a_t = c/(1+t/T0)^2.
+
+    Returns:
+        SampleResult mit Trajektorien + Schaetzern.
+    """
+    if n_steps < 1:
+        raise ValueError(f"n_steps must be >= 1, got {n_steps}")
+    if not (0 <= burn_in < n_steps):
+        raise ValueError(f"need 0 <= burn_in < n_steps, got {burn_in}/{n_steps}")
+    if not (cfg.beta_min <= beta_target <= cfg.beta_max):
+        raise ValueError(
+            f"beta_target {beta_target} outside compact Theta "
+            f"[{cfg.beta_min}, {cfg.beta_max}] (Containment violation)"
+        )
+
+    beta_start = cfg.beta_min if beta_start is None else beta_start
+    if not (cfg.beta_min <= beta_start <= cfg.beta_max):
+        raise ValueError(f"beta_start {beta_start} outside compact Theta")
+
+    rng = np.random.Generator(np.random.Philox(key=seed))
+    L = cfg.L
+    x = _initial_state(rng, L)
+    H = hamiltonian(x)
+
+    a_t = diminishing_step_sizes(n_steps, adapt_c, adapt_T0)
+    adaptation_sum = float(np.sum(a_t))
+
+    beta = float(beta_start)
+    H_traj = np.empty(n_steps, dtype=np.float64)
+    beta_traj = np.empty(n_steps, dtype=np.float64)
+    accepted = 0
+    attempted = 0
+
+    for t in range(n_steps):
+        # Diminishing Adaptation Richtung beta_target, in Theta geclippt (Containment).
+        beta += a_t[t] * (beta_target - beta)
+        beta = min(max(beta, cfg.beta_min), cfg.beta_max)
+
+        # Ein Sweep = L Einzel-Flip-Metropolis-Schritte (detailed balance).
+        for _ in range(L):
+            i = int(rng.integers(0, L))
+            dH = _delta_H_flip(x, i)
+            attempted += 1
+            # Akzeptanz min(1, exp(-beta dH)). dH<=0 immer akzeptiert.
+            if dH <= 0 or rng.random() < np.exp(-beta * dH):
+                x[i] = 1 - x[i]
+                H += dH
+                accepted += 1
+
+        H_traj[t] = H
+        beta_traj[t] = beta
+
+    post = H_traj[burn_in:]
+    return SampleResult(
+        H_traj=H_traj,
+        beta_traj=beta_traj,
+        mean_H=float(np.mean(post)),
+        acceptance=accepted / attempted,
+        adaptation_sum=adaptation_sum,
+        final_state=x.copy(),
+    )
