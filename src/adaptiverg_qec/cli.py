@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import a_kernel, autocorr, drift, ising1d, mcrg, rg_map
+from . import a_kernel, autocorr, drift, ising1d, ising2d, mcrg, mcrg_matrix, rg_map
 from .mvp_instance import MVPConfig
 
 _CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
@@ -129,6 +129,12 @@ def _g7_diminishing_adaptation() -> tuple[bool, str]:
     return ok, f"sum_200k={s:.4f} sum_400k={s2:.4f} converging={converging}"
 
 
+def _dummy_ts() -> mcrg_matrix.OperatorTimeseries:
+    """Minimale OperatorTimeseries (>=64 Samples) fuer n_op<2-Edge-Check."""
+    n = 100
+    return mcrg_matrix.OperatorTimeseries(S=np.ones((n, 3)), Sp=np.ones((n, 3)), K=0.4, L=16)
+
+
 def _g8_negative_edge_input() -> tuple[bool, str]:
     """Silent-Failure-Gate: invalide Eingaben werfen sauber (kein stiller rc=0)."""
     checks: list[tuple[str, Callable[[], object]]] = [
@@ -207,6 +213,60 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
         (
             "op_timeseries L<4",
             lambda: mcrg.operator_timeseries_from_configs(np.zeros((100, 2), dtype=np.int8)),
+        ),
+        # Phase-3b 2D-Ising + Swendsen-matrix edge cases (Silent-Failure-Gate).
+        (
+            "ising2d K<=0",
+            lambda: ising2d.checkerboard_metropolis(0.0, 16, n_sweeps=5, burn_in=0, seed=1),
+        ),
+        (
+            "ising2d K not finite",
+            lambda: ising2d.checkerboard_metropolis(
+                float("inf"), 16, n_sweeps=5, burn_in=0, seed=1
+            ),
+        ),
+        (
+            "ising2d L<4",
+            lambda: ising2d.checkerboard_metropolis(0.4, 2, n_sweeps=5, burn_in=0, seed=1),
+        ),
+        (
+            "ising2d L odd",
+            lambda: ising2d.checkerboard_metropolis(0.4, 15, n_sweeps=5, burn_in=0, seed=1),
+        ),
+        (
+            "ising2d n_sweeps<1",
+            lambda: ising2d.checkerboard_metropolis(0.4, 16, n_sweeps=0, burn_in=0, seed=1),
+        ),
+        (
+            "ising2d burn_in<0",
+            lambda: ising2d.checkerboard_metropolis(0.4, 16, n_sweeps=5, burn_in=-1, seed=1),
+        ),
+        (
+            "ising2d record_every<1",
+            lambda: ising2d.checkerboard_metropolis(
+                0.4, 16, n_sweeps=5, burn_in=0, seed=1, record_every=0
+            ),
+        ),
+        ("ising2d exact-2x2 K<=0", lambda: ising2d.exact_energy_per_spin_2x2(-0.1)),
+        ("majority_block L odd", lambda: ising2d.majority_block_b2(np.ones((3, 3)))),
+        ("majority_block non-square", lambda: ising2d.majority_block_b2(np.ones((4, 6)))),
+        ("matrix n_op<2", lambda: mcrg_matrix.estimate_y_t(_dummy_ts(), n_op=1)),
+        (
+            "matrix N<64",
+            lambda: mcrg_matrix.estimate_y_t(
+                mcrg_matrix.OperatorTimeseries(
+                    S=np.ones((10, 3)), Sp=np.ones((10, 3)), K=0.4, L=16
+                ),
+                n_op=2,
+            ),
+        ),
+        (
+            "swendsen_matrix sample mismatch",
+            lambda: mcrg_matrix.swendsen_matrix(np.ones((100, 2)), np.ones((80, 2))),
+        ),
+        (
+            "exponents_from_T non-square",
+            lambda: mcrg_matrix.exponents_from_T(np.ones((2, 3))),
         ),
     ]
     failures = []
@@ -427,6 +487,124 @@ def _g18_iid_limit_no_inflation() -> tuple[bool, str]:
     )
 
 
+# ===========================================================================
+# PHASE-3b: Multi-Operator-Swendsen-MATRIX (2D-Ising, even sector) -> y_t
+# ===========================================================================
+
+
+def _g19_ising2d_energy_vs_exact() -> tuple[bool, str]:
+    """2D-Metropolis-Energie reproduziert die exakte L=4-Enumeration (Orakel).
+
+    Unabhaengiges Orakel: vollstaendige Aufzaehlung aller 2^16 Zustaende des
+    4x4-Gitters mit DERSELBEN Bond-Konvention (energy_per_spin). Klein gehalten
+    (L=4, <30s), aber ein scharfes Korrektheits-Orakel fuer den Sampler.
+    """
+    L = 4
+    n = L * L
+    states = np.arange(1 << n, dtype=np.int64)
+    bits = ((states[:, None] >> np.arange(n)[None, :]) & 1).astype(np.int8)
+    s = (1 - 2 * bits).reshape(-1, L, L).astype(np.float64)
+    e_all = ising2d.energy_per_spin(s)
+    worst = 0.0
+    parts = []
+    for K in (0.25, ising2d.KC_2D, 0.55):
+        w = np.exp(-K * n * e_all)
+        w /= w.sum()
+        e_exact = float((w * e_all).sum())
+        ch = ising2d.checkerboard_metropolis(
+            K, L, n_sweeps=20000, burn_in=3000, seed=7, record_every=2
+        )
+        e_mc = float(ising2d.energy_per_spin(ch.configs).mean())
+        err = abs(e_mc - e_exact)
+        worst = max(worst, err)
+        parts.append(f"K={K:.3f}:{e_mc:.4f}vs{e_exact:.4f}")
+    ok = worst < 0.02
+    return ok, f"{' '.join(parts)} worst|err|={worst:.4f}(<0.02) L=4 exact-enum oracle"
+
+
+def _g20_corr_matrices_psd_symmetric() -> tuple[bool, str]:
+    """A,B connected-corr-Matrizen plausibel: B symmetrisch + PSD, gut konditioniert.
+
+    B = <S'_a S'_c>_c ist eine Kovarianzmatrix -> MUSS symmetrisch + positiv
+    semidefinit sein (alle Eigenwerte >= 0) und nicht-degeneriert (cond < 1e12).
+    """
+    ch = ising2d.checkerboard_metropolis(
+        ising2d.KC_2D, 16, n_sweeps=10000, burn_in=3000, seed=0, record_every=2
+    )
+    ts = mcrg_matrix.operator_timeseries(ch, seed=0)
+    S = ts.S[:, :2]
+    Sp = ts.Sp[:, :2]
+    B = mcrg_matrix._connected_matrix(Sp, Sp)
+    A = mcrg_matrix._connected_matrix(Sp, S)
+    sym = float(np.max(np.abs(B - B.T)))
+    eigB = np.linalg.eigvalsh(B)
+    psd = bool(np.all(eigB > -1e-9 * abs(eigB).max()))
+    cond = float(np.linalg.cond(B))
+    ok = sym < 1e-9 and psd and np.isfinite(cond) and cond < 1e12 and np.all(np.isfinite(A))
+    return ok, (
+        f"B symmetric(max|B-B.T|={sym:.1e}) PSD(min_eig={eigB.min():.2e})={psd} "
+        f"cond(B)={cond:.1f} A_finite={bool(np.all(np.isfinite(A)))}"
+    )
+
+
+def _g21_T_linear_solve_consistency() -> tuple[bool, str]:
+    """T = A.B^-1 via np.linalg.solve: Residuum max|T@B - A| ~ Maschinen-eps.
+
+    Verifiziert, dass der lineare Solver T tatsaechlich T B = A loest (keine
+    explizite Inverse, kein Konditions-Bug).
+    """
+    ch = ising2d.checkerboard_metropolis(
+        ising2d.KC_2D, 16, n_sweeps=10000, burn_in=3000, seed=3, record_every=2
+    )
+    ts = mcrg_matrix.operator_timeseries(ch, seed=3)
+    S = ts.S[:, :2]
+    Sp = ts.Sp[:, :2]
+    A = mcrg_matrix._connected_matrix(Sp, S)
+    B = mcrg_matrix._connected_matrix(Sp, Sp)
+    T = mcrg_matrix.swendsen_matrix(S, Sp)
+    resid = float(np.max(np.abs(T @ B - A)))
+    scale = float(np.max(np.abs(A)))
+    rel = resid / scale if scale > 0 else resid
+    ok = rel < 1e-9
+    return ok, f"max|T@B - A|={resid:.2e} rel={rel:.2e}(<1e-9) (linear-solve, no explicit inverse)"
+
+
+def _g22_y_t_matches_oracle() -> tuple[bool, str]:
+    """y_t aus der Matrix trifft das exakte 2D-Orakel y_t=1 (EHRLICHE Toleranz).
+
+    EHRLICH (kein Cherry-Pick): Single-Spin-Metropolis nahe T_c + kleines L +
+    1 RG-Stufe -> y_t ist GROB. Wir gaten auf eine PHYSIKALISCH ehrliche absolute
+    Bande |y_t - 1| < 0.2 (die dokumentierte Coarseness-Erwartung), NICHT auf den
+    Jackknife-sigma allein -- der misst nur den STATISTISCHEN Fehler, nicht die
+    systematische finite-L/1-RG-Abweichung. Beide Zahlen werden berichtet.
+    Multi-Seed-Mittel (3 Seeds) entschaerft Einzel-Seed-Glueck/Pech.
+    """
+    ests = [mcrg_matrix.validate_y_t_2d(L=16, n_op=2, seed=sd) for sd in range(3)]
+    y_ts = np.array([e.y_t for e in ests])
+    y_mean = float(y_ts.mean())
+    spread = float(y_ts.std(ddof=1))
+    jk = float(np.mean([e.y_t_error for e in ests]))
+    abs_err = abs(y_mean - 1.0)
+    ok = abs_err < 0.2  # honest coarse band for single-spin + 1 RG step
+    parts = " ".join(f"{e.y_t:.3f}" for e in ests)
+    return ok, (
+        f"y_t per seed=[{parts}] mean={y_mean:.4f} oracle=1.0 |err|={abs_err:.3f}(<0.2) "
+        f"multiseed_spread={spread:.3f} jackknife_sigma~{jk:.3f} "
+        f"lambda_max~{ests[0].lambda_max:.3f} tau~{ests[0].tau_int_max:.1f} (COARSE by design)"
+    )
+
+
+def _g23_matrix_reproducible() -> tuple[bool, str]:
+    """Reproduzierbarkeit: gleicher Seed -> bit-identische y_t + Matrix T."""
+    a = mcrg_matrix.validate_y_t_2d(L=16, n_op=2, n_sweeps=6000, burn_in=2000, seed=11)
+    b = mcrg_matrix.validate_y_t_2d(L=16, n_op=2, n_sweeps=6000, burn_in=2000, seed=11)
+    c = mcrg_matrix.validate_y_t_2d(L=16, n_op=2, n_sweeps=6000, burn_in=2000, seed=12)
+    same = a.y_t == b.y_t and np.array_equal(a.T, b.T)
+    diff = a.y_t != c.y_t
+    ok = same and diff
+    return ok, f"seed-eq y_t&T identical={same} diff-seed differs={diff}"
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -449,6 +627,11 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G16 N_eff<N AND correlated err > i.i.d. err", _g16_neff_less_than_n_and_inflation),
     ("G17 A-Kernel autocorr-T reproducibility (seed)", _g17_autocorr_reproducible),
     ("G18 i.i.d.-limit sanity (tau~0.5, no inflation)", _g18_iid_limit_no_inflation),
+    ("G19 2D-Ising energy vs exact L=4 enumeration", _g19_ising2d_energy_vs_exact),
+    ("G20 corr-matrices A,B symmetric/PSD/conditioned", _g20_corr_matrices_psd_symmetric),
+    ("G21 T=A.B^-1 linear-solve consistency (resid~eps)", _g21_T_linear_solve_consistency),
+    ("G22 y_t matrix vs Onsager y_t=1 (honest band)", _g22_y_t_matches_oracle),
+    ("G23 Swendsen-matrix reproducibility (seed)", _g23_matrix_reproducible),
 ]
 
 
