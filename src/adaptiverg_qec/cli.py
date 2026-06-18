@@ -297,9 +297,10 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
             ),
         ),
         (
-            "wolff_cluster padd>=1",
+            # Codex-Fix 1: padd==1.0 ist GUELTIG (T->0); nur padd>1.0 ist invalide.
+            "wolff_cluster padd>1",
             lambda: wolff2d.wolff_cluster_update(
-                np.ones((4, 4), dtype=np.int8), 1.0, np.random.default_rng(0)
+                np.ones((4, 4), dtype=np.int8), 1.5, np.random.default_rng(0)
             ),
         ),
         (
@@ -333,6 +334,21 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
         ),
         ("estimate_y_h n_op<1", lambda: mcrg_multirg.estimate_y_h(_dummy_chain(128), n_op=0)),
         ("estimate_y_h N<64", lambda: mcrg_multirg.estimate_y_h(_dummy_chain(10), n_op=2)),
+        # Codex-Fix 2: n_op > verfuegbare Operator-Spalten -> fail-closed (kein
+        # stilles Truncation + Mislabel). Even: 3 Spalten -> n_op=4 wirft. Odd:
+        # 2 Spalten -> n_op=3 wirft (BEIDE multi_rg-Pfade UND estimate_y_h).
+        (
+            "multirg n_op>even-basis (truncation)",
+            lambda: mcrg_multirg.multi_rg_y_t(_dummy_chain(128), n_op=4),
+        ),
+        (
+            "estimate_y_h n_op>odd-basis (truncation)",
+            lambda: mcrg_multirg.estimate_y_h(_dummy_chain(128), n_op=3),
+        ),
+        (
+            "multi_rg_y_h n_op>odd-basis (truncation)",
+            lambda: mcrg_multirg.multi_rg_y_h(_dummy_chain(128), n_op=3),
+        ),
         (
             "swendsen_matrix_raw mismatch",
             lambda: mcrg_multirg.swendsen_matrix_raw(np.ones((100, 2)), np.ones((80, 2))),
@@ -824,6 +840,86 @@ def _g29_phase4_reproducible() -> tuple[bool, str]:
     return ok, f"seed-eq identical={same} diff-seed differs={diff}"
 
 
+def _g30_wolff_low_temperature_scan() -> tuple[bool, str]:
+    """Codex-Fix 1: Tieftemperatur-Scan (grosses K, p_add->1.0) bricht NICHT mehr.
+
+    p_add(K) saettigt fuer 2K>~38 auf exakt 1.0; der Updater muss padd==1.0
+    akzeptieren (T->0: alle aligned Nachbarn sicher im Cluster). Vor dem Fix
+    rejectete der (0,1)-Check und der Scan brach.
+    """
+    ks = (5.0, 10.0, 19.0, 30.0)
+    fracs = []
+    for K in ks:
+        if wolff2d.p_add(K) <= 0.0 or wolff2d.p_add(K) > 1.0:
+            return False, f"p_add({K})={wolff2d.p_add(K)} out of (0,1]"
+        ch = wolff2d.wolff_sample(K, 8, n_records=6, burn_in=4, seed=1)
+        fracs.append(wolff2d.mean_cluster_fraction(ch))
+    # padd==1.0 explizit + voll-aligned -> ganzer Cluster.
+    s_new, size = wolff2d.wolff_cluster_update(
+        np.ones((8, 8), dtype=np.int8), 1.0, np.random.default_rng(0)
+    )
+    ok = all(f > 0.5 for f in fracs) and size == 64 and bool(np.all(s_new == -1))
+    return ok, (
+        f"p_add(19)={wolff2d.p_add(19.0)} (==1.0 valid); K-scan fracs="
+        f"[{' '.join(f'{f:.2f}' for f in fracs)}] (>0.5); prob-1 cluster={size}/64"
+    )
+
+
+def _g31_n_op_overflow_fail_closed() -> tuple[bool, str]:
+    """Codex-Fix 2: n_op > Operator-Basis bricht laut (kein still-Truncation+Mislabel)."""
+    ch = _dummy_chain(128)
+    cases = [
+        ("even n_op=4", lambda: mcrg_multirg.multi_rg_y_t(ch, n_op=4)),
+        ("odd estimate n_op=3", lambda: mcrg_multirg.estimate_y_h(ch, n_op=3)),
+        ("odd multi n_op=3", lambda: mcrg_multirg.multi_rg_y_h(ch, n_op=3)),
+    ]
+    not_raised = []
+    for name, fn in cases:
+        try:
+            fn()
+            not_raised.append(name)
+        except ValueError:
+            pass
+    # Gegenprobe: gueltige n_op laufen (even=3, odd=2).
+    valid_ok = True
+    try:
+        mcrg_multirg.multi_rg_y_t(ch, n_op=3)
+        mcrg_multirg.estimate_y_h(ch, n_op=2)
+        mcrg_multirg.multi_rg_y_h(ch, n_op=2)
+    except ValueError:
+        valid_ok = False
+    ok = not not_raised and valid_ok
+    detail = "all 3 overflow cases rejected" if not not_raised else f"NOT rejected: {not_raised}"
+    return ok, f"{detail}; valid n_op (even=3,odd=2) run={valid_ok}"
+
+
+def _g32_jackknife_block_per_iter() -> tuple[bool, str]:
+    """Codex-Fix 3: Jackknife-Blockgroesse PRO ITERATION (nicht global Level 0).
+
+    Verifiziert (a) per-iter Blockgroessen werden gemeldet, (b) die y_t/y_h-
+    ZENTRALWERTE bleiben byte-identisch zur Baseline (nur Fehlerbalken aendern),
+    (c) per-iter Blockgroessen koennen zwischen Stufen variieren.
+    """
+    v = mcrg_multirg.validate_multirg_2d(
+        L=32, n_op_even=2, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
+    )
+    bsz_t = np.asarray(v.multirg.block_size_per_iter)
+    bsz_h = np.asarray(v.multirg_odd.block_size_per_iter)
+    base_yt = np.array([0.93001085, 0.99566981, 1.0219697])
+    base_yh = np.array([1.88098809, 1.87282836, 1.87101431])
+    yt_same = np.allclose(v.multirg.y_t_per_iter, base_yt, rtol=0, atol=1e-7)
+    yh_same = np.allclose(v.multirg_odd.y_h_per_iter, base_yh, rtol=0, atol=1e-7)
+    sized = bsz_t.shape[0] == v.multirg.n_iters and bsz_h.shape[0] == v.multirg_odd.n_iters
+    finite_err = np.all(np.isfinite(v.multirg.y_t_err_per_iter)) and np.all(
+        np.isfinite(v.multirg_odd.y_h_err_per_iter)
+    )
+    ok = bool(yt_same and yh_same and sized and finite_err and np.all(bsz_t >= 1))
+    return ok, (
+        f"y_t/y_h central UNCHANGED (yt={yt_same},yh={yh_same}); "
+        f"block/iter y_t={list(bsz_t)} y_h={list(bsz_h)}; err finite={bool(finite_err)}"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -857,6 +953,9 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G27 y_t multi-RG converges (beats Phase-3b)", _g27_y_t_multirg_converges),
     ("G28 y_h matrix vs Onsager 15/8 (best iter)", _g28_y_h_matches_onsager),
     ("G29 Phase-4 reproducibility (seed)", _g29_phase4_reproducible),
+    ("G30 Wolff low-T scan K=19 (Fix1 p_add->1.0)", _g30_wolff_low_temperature_scan),
+    ("G31 n_op>basis fail-closed (Fix2 no truncation)", _g31_n_op_overflow_fail_closed),
+    ("G32 Jackknife block-size per-iter (Fix3)", _g32_jackknife_block_per_iter),
 ]
 
 

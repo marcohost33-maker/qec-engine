@@ -236,7 +236,35 @@ class MultiRGResult:
     abs_err_per_iter: np.ndarray
     """|y_t(n) - 1| je Iteration."""
     n_iters: int
+    block_size_per_iter: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    """PRO-ITERATION gewaehlte Jackknife-Blockgroesse (Codex-Fix 3, autokorr-bewusst)."""
     oracle_y_t: float = Y_T_ORACLE
+
+
+def _block_size_from_series(series: np.ndarray, *, n: int, floor_blocks: int = 16) -> int:
+    """Jackknife-Blockgroesse b >~ 2*tau_int aus EINER Operator-Zeitreihe.
+
+    Codex-Fix 3: die Blockgroesse darf NICHT global aus Level 0 stammen. Ein
+    groeber-geblockter Operator kann anders (oft langsamer) dekorrelieren -> die
+    tieferen Iterationen brauchen ihre EIGENE, autokorr-bewusste Blockgroesse,
+    sonst werden die Fehlerbalken dort u.U. zu klein. Reuse der tau_int-Schaetzung
+    aus autocorr.py (Wolff-Gamma-Methode), genau wie die globale Variante zuvor.
+
+    Args:
+        series: 1D-Operator-Zeitreihe des JEWEILIGEN Levels.
+        n: Kettenlaenge (fuer das >=floor_blocks-Mindestmass).
+        floor_blocks: Mindestzahl Bloecke (Default 16), damit der Jackknife-
+            Fehler nicht aus zu wenigen Bloecken verrauscht.
+
+    Returns:
+        Block-Groesse b >= 1.
+    """
+    series = np.asarray(series, dtype=np.float64)
+    tau = autocorr.integrated_autocorr_time(series).tau_int if np.var(series) > 0 else 0.5
+    b = max(1, int(np.ceil(2.0 * tau)))
+    if n // b < floor_blocks:
+        b = max(1, n // floor_blocks)
+    return b
 
 
 def _y_t_even_from_levels(S_lo: np.ndarray, S_hi: np.ndarray, *, n_op: int, b: int = 2) -> float:
@@ -286,41 +314,75 @@ def multi_rg_y_t(
         raise ValueError(f"need >=64 samples, got {n}")
 
     levels = block_chain(configs, n_levels=n_levels, seed=seed)
-    S_levels = even_operators_at_levels(levels)  # Liste (n, 3) je Stufe
+    S_levels = even_operators_at_levels(levels)  # Liste (n, n_even) je Stufe
+    # Fail-closed gegen STILL-Truncation: wird n_op > verfuegbare Operator-Spalten
+    # angefragt, wuerde S[:, :n_op] still WENIGER Spalten nutzen, das Ergebnis aber
+    # mit dem angefragten n_op melden -> Mislabel. Laut brechen statt still kuerzen.
+    n_avail = S_levels[0].shape[1]
+    if n_op > n_avail:
+        raise ValueError(
+            f"n_op={n_op} exceeds available even operators ({n_avail}); "
+            "would silently truncate the operator basis -> mislabeled estimate"
+        )
     n_pairs = len(S_levels) - 1
     if n_pairs < 1:
         raise ValueError(f"need >=2 blocking levels; got {len(S_levels)} (L too small?)")
 
-    # Block-Groesse aus tau_int der feinsten geraden Operator-Reihe.
-    taus = []
+    # Gemeinsames Zentralwert-Fenster `keep` aus der FEINSTEN Stufe (Level 0) --
+    # der y_t(n)-PUNKTSCHAETZER nutzt fuer alle Iterationen dasselbe Fenster
+    # (vergleichbar + reproduzierbar). Die JACKKNIFE-Blockgroesse wird hingegen
+    # PRO ITERATION aus der jeweiligen Stufen-Zeitreihe gewaehlt (Codex-Fix 3).
+    tau0 = []
     for col in range(n_op):
         arr = S_levels[0][:, col]
         if np.var(arr) > 0:
-            taus.append(autocorr.integrated_autocorr_time(arr).tau_int)
-    tau_max = max(taus) if taus else 0.5
-    if block_size is None:
-        block_size = max(1, int(np.ceil(2.0 * tau_max)))
-    if n // block_size < 16:
-        block_size = max(1, n // 16)
-    n_blocks = n // block_size
-    if n_blocks < 2:
-        raise ValueError(f"need >=2 jackknife blocks; n={n}, block={block_size}")
-    keep = n_blocks * block_size
+            tau0.append(autocorr.integrated_autocorr_time(arr).tau_int)
+    tau_max0 = max(tau0) if tau0 else 0.5
+    keep_block = block_size if block_size is not None else max(1, int(np.ceil(2.0 * tau_max0)))
+    if n // keep_block < 16:
+        keep_block = max(1, n // 16)
+    n_blocks0 = n // keep_block
+    if n_blocks0 < 2:
+        raise ValueError(f"need >=2 jackknife blocks; n={n}, block={keep_block}")
+    keep = n_blocks0 * keep_block
 
     y_iter = np.empty(n_pairs)
     y_err = np.empty(n_pairs)
+    block_per_iter = np.empty(n_pairs, dtype=np.int64)
     for p in range(n_pairs):
         S_lo = S_levels[p][:keep]
         S_hi = S_levels[p + 1][:keep]
         y_iter[p] = _y_t_even_from_levels(S_lo, S_hi, n_op=n_op, b=b)
-        # Block-Jackknife je Iteration.
-        jack = np.empty(n_blocks)
-        for j in range(n_blocks):
-            sl = np.ones(keep, dtype=bool)
-            sl[j * block_size : (j + 1) * block_size] = False
-            jack[j] = _y_t_even_from_levels(S_lo[sl], S_hi[sl], n_op=n_op, b=b)
+        # PRO-ITERATION-Blockgroesse aus der GROEBEREN Stufe dieses Paares
+        # (S_hi, dem geblockten Operator -- dekorreliert potenziell langsamer).
+        # Bei explizit gesetztem block_size wird dieser respektiert (kein Override).
+        if block_size is not None:
+            bsz = block_size
+        else:
+            bsz = (
+                max(_block_size_from_series(S_lo[:, col], n=keep) for col in range(n_op))
+                if n_op
+                else 1
+            )
+            bsz = max(
+                bsz,
+                max(_block_size_from_series(S_hi[:, col], n=keep) for col in range(n_op)),
+            )
+        nb = keep // bsz
+        if nb < 2:
+            bsz = max(1, keep // 2)
+            nb = keep // bsz
+        block_per_iter[p] = bsz
+        kp = nb * bsz  # auf ganze Bloecke getrimmtes Jackknife-Fenster
+        S_lo_j = S_lo[:kp]
+        S_hi_j = S_hi[:kp]
+        jack = np.empty(nb)
+        for j in range(nb):
+            sl = np.ones(kp, dtype=bool)
+            sl[j * bsz : (j + 1) * bsz] = False
+            jack[j] = _y_t_even_from_levels(S_lo_j[sl], S_hi_j[sl], n_op=n_op, b=b)
         jm = jack.mean()
-        y_err[p] = float(np.sqrt((n_blocks - 1) / n_blocks * np.sum((jack - jm) ** 2)))
+        y_err[p] = float(np.sqrt((nb - 1) / nb * np.sum((jack - jm) ** 2)))
 
     abs_err = np.abs(y_iter - Y_T_ORACLE)
     return MultiRGResult(
@@ -331,6 +393,7 @@ def multi_rg_y_t(
         y_t_err_per_iter=y_err,
         abs_err_per_iter=abs_err,
         n_iters=int(n_pairs),
+        block_size_per_iter=block_per_iter,
     )
 
 
@@ -397,7 +460,16 @@ def estimate_y_h(
         raise ValueError(f"need >=64 samples, got {n}")
 
     # Original- + Block-ungerade-Operatoren.
-    od = odd_operators(configs)[:, :n_op]
+    od_full = odd_operators(configs)
+    # Fail-closed gegen STILL-Truncation (s. multi_rg_y_t): mehr ungerade Operatoren
+    # angefragt als vorhanden -> laut brechen, nicht still die Basis kuerzen.
+    n_avail = od_full.shape[1]
+    if n_op > n_avail:
+        raise ValueError(
+            f"n_op={n_op} exceeds available odd operators ({n_avail}); "
+            "would silently truncate the operator basis -> mislabeled estimate"
+        )
+    od = od_full[:, :n_op]
     blocks = np.empty((n, configs.shape[1] // 2, configs.shape[2] // 2), dtype=np.int8)
     for i in range(n):
         blocks[i] = ising2d.majority_block_b2(configs[i], config_index=i, seed=seed)
@@ -457,6 +529,8 @@ class MultiRGOddResult:
     y_h_err_per_iter: np.ndarray
     abs_err_per_iter: np.ndarray
     n_iters: int
+    block_size_per_iter: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    """PRO-ITERATION gewaehlte Jackknife-Blockgroesse (Codex-Fix 3, autokorr-bewusst)."""
     oracle_y_h: float = Y_H_ORACLE
 
 
@@ -496,35 +570,64 @@ def multi_rg_y_h(
         raise ValueError(f"need >=64 samples, got {n}")
 
     levels = block_chain(configs, n_levels=n_levels, seed=seed)
-    od_levels = [odd_operators(lv)[:, :n_op] for lv in levels]
+    od_full_levels = [odd_operators(lv) for lv in levels]
+    # Fail-closed gegen STILL-Truncation (derselbe Pattern wie multi_rg_y_t /
+    # estimate_y_h): n_op > verfuegbare ungerade Spalten -> laut brechen.
+    n_avail = od_full_levels[0].shape[1]
+    if n_op > n_avail:
+        raise ValueError(
+            f"n_op={n_op} exceeds available odd operators ({n_avail}); "
+            "would silently truncate the operator basis -> mislabeled estimate"
+        )
+    od_levels = [lv[:, :n_op] for lv in od_full_levels]
     n_pairs = len(od_levels) - 1
     if n_pairs < 1:
         raise ValueError(f"need >=2 blocking levels; L too small ({configs.shape[1]})")
 
-    arr = od_levels[0][:, 0]
-    tau = autocorr.integrated_autocorr_time(arr).tau_int if np.var(arr) > 0 else 0.5
-    if block_size is None:
-        block_size = max(1, int(np.ceil(2.0 * tau)))
-    if n // block_size < 16:
-        block_size = max(1, n // 16)
-    n_blocks = n // block_size
-    if n_blocks < 2:
-        raise ValueError(f"need >=2 jackknife blocks; n={n}, block={block_size}")
-    keep = n_blocks * block_size
+    # Gemeinsames Zentralwert-Fenster `keep` aus Level 0 (Punktschaetzer-Fenster,
+    # reproduzierbar). JACKKNIFE-Blockgroesse PRO ITERATION aus der jeweiligen
+    # ungeraden Stufen-Reihe (Codex-Fix 3; vorher fix aus od_levels[0][:,0]).
+    arr0 = od_levels[0][:, 0]
+    tau0 = autocorr.integrated_autocorr_time(arr0).tau_int if np.var(arr0) > 0 else 0.5
+    keep_block = block_size if block_size is not None else max(1, int(np.ceil(2.0 * tau0)))
+    if n // keep_block < 16:
+        keep_block = max(1, n // 16)
+    n_blocks0 = n // keep_block
+    if n_blocks0 < 2:
+        raise ValueError(f"need >=2 jackknife blocks; n={n}, block={keep_block}")
+    keep = n_blocks0 * keep_block
 
     y_iter = np.empty(n_pairs)
     y_err = np.empty(n_pairs)
+    block_per_iter = np.empty(n_pairs, dtype=np.int64)
     for p in range(n_pairs):
         od_lo = od_levels[p][:keep]
         od_hi = od_levels[p + 1][:keep]
         y_iter[p] = _y_h_from_columns(od_lo, od_hi, b=b)
-        jack = np.empty(n_blocks)
-        for j in range(n_blocks):
-            sl = np.ones(keep, dtype=bool)
-            sl[j * block_size : (j + 1) * block_size] = False
-            jack[j] = _y_h_from_columns(od_lo[sl], od_hi[sl], b=b)
+        # PRO-ITERATION-Blockgroesse aus der GROEBEREN ungeraden Stufe (od_hi).
+        if block_size is not None:
+            bsz = block_size
+        else:
+            bsz = max(_block_size_from_series(od_lo[:, col], n=keep) for col in range(n_op))
+            bsz = max(
+                bsz,
+                max(_block_size_from_series(od_hi[:, col], n=keep) for col in range(n_op)),
+            )
+        nb = keep // bsz
+        if nb < 2:
+            bsz = max(1, keep // 2)
+            nb = keep // bsz
+        block_per_iter[p] = bsz
+        kp = nb * bsz
+        od_lo_j = od_lo[:kp]
+        od_hi_j = od_hi[:kp]
+        jack = np.empty(nb)
+        for j in range(nb):
+            sl = np.ones(kp, dtype=bool)
+            sl[j * bsz : (j + 1) * bsz] = False
+            jack[j] = _y_h_from_columns(od_lo_j[sl], od_hi_j[sl], b=b)
         jm = jack.mean()
-        y_err[p] = float(np.sqrt((n_blocks - 1) / n_blocks * np.sum((jack - jm) ** 2)))
+        y_err[p] = float(np.sqrt((nb - 1) / nb * np.sum((jack - jm) ** 2)))
 
     abs_err = np.abs(y_iter - Y_H_ORACLE)
     return MultiRGOddResult(
@@ -535,6 +638,7 @@ def multi_rg_y_h(
         y_h_err_per_iter=y_err,
         abs_err_per_iter=abs_err,
         n_iters=int(n_pairs),
+        block_size_per_iter=block_per_iter,
     )
 
 

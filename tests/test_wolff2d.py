@@ -105,6 +105,47 @@ def test_wolff_sample_rejects_invalid() -> None:
             wolff2d.wolff_sample(**kw)
 
 
+def test_padd_saturates_to_one_at_large_K() -> None:
+    """Codex-Fix 1: bei grossem K saettigt p_add auf EXAKT 1.0 (kein Verbot)."""
+    assert wolff2d.p_add(19.0) == 1.0  # exp(-38) < float-eps -> exakt 1.0
+    assert wolff2d.p_add(50.0) == 1.0
+
+
+def test_cluster_update_allows_padd_one() -> None:
+    """Codex-Fix 1: padd == 1.0 ist physikalisch gueltig (T -> 0), darf NICHT brechen.
+
+    Auf einem voll-aligned Gitter fuellt der prob-1-Cluster die GANZE Domaene
+    (alle gleich-orientierten Spins werden sicher hinzugefuegt).
+    """
+    rng = np.random.default_rng(0)
+    s = np.ones((8, 8), dtype=np.int8)
+    s_new, size = wolff2d.wolff_cluster_update(s, 1.0, rng)
+    assert size == 64, f"prob-1 cluster on aligned lattice must be full, got {size}"
+    assert np.all(s_new == -1), "full aligned cluster must flip every spin"
+
+
+def test_cluster_update_rejects_padd_above_one() -> None:
+    """Codex-Fix 1: padd > 1.0 (und <= 0.0) bleibt invalide -> lauter ValueError."""
+    rng = np.random.default_rng(0)
+    s = np.ones((4, 4), dtype=np.int8)
+    for bad in (1.0 + 1e-9, 1.5, 2.0, 0.0, -0.1):
+        with pytest.raises(ValueError):
+            wolff2d.wolff_cluster_update(s, bad, rng)
+
+
+def test_low_temperature_scan_does_not_break() -> None:
+    """Codex-Fix 1 (Regressions-Guard): ein Tieftemperatur-Scan inkl. K=19 laeuft.
+
+    Vor dem Fix brach wolff_sample bei grossem K, weil p_add -> 1.0 vom
+    (0,1)-Check des Updaters abgewiesen wurde.
+    """
+    for K in (5.0, 10.0, 19.0, 30.0):
+        ch = wolff2d.wolff_sample(K, 8, n_records=4, burn_in=3, seed=1)
+        assert ch.configs.shape == (4, 8, 8)
+        # Tieftemperatur -> grosse Cluster (Bruchteil nahe 1).
+        assert wolff2d.mean_cluster_fraction(ch) > 0.5
+
+
 def test_tau_wolff_below_metropolis() -> None:
     """tau_int(Wolff) < tau_int(Metropolis) bei K_c (Slowing-Down geschlagen)."""
     from adaptiverg_qec import autocorr

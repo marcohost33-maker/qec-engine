@@ -104,3 +104,78 @@ def test_reproducible() -> None:
     a = mcrg_multirg.multi_rg_y_t(_wolff_chain(16, 800, seed=4), n_levels=2)
     b = mcrg_multirg.multi_rg_y_t(_wolff_chain(16, 800, seed=4), n_levels=2)
     assert np.array_equal(a.y_t_per_iter, b.y_t_per_iter)
+
+
+# --------------------------------------------------------------------------
+# Codex-Fix 2: fail-closed gegen still-Truncation bei n_op > Operator-Basis.
+# --------------------------------------------------------------------------
+def test_n_op_overflow_raises_even() -> None:
+    """multi_rg_y_t: n_op > 3 (verfuegbare gerade Operatoren) MUSS laut brechen."""
+    chain = _wolff_chain(L=16, n=200, seed=0)
+    # n_op=3 ist gueltig (genau 3 gerade Operatoren), n_op=4 nicht.
+    mcrg_multirg.multi_rg_y_t(chain, n_op=3, n_levels=2)  # darf NICHT werfen
+    with pytest.raises(ValueError, match="exceeds available even operators"):
+        mcrg_multirg.multi_rg_y_t(chain, n_op=4, n_levels=2)
+
+
+def test_n_op_overflow_raises_odd() -> None:
+    """estimate_y_h + multi_rg_y_h: n_op > 2 (ungerade Basis) MUSS laut brechen.
+
+    Vor dem Fix wurde [:, :n_op] still auf 2 Spalten gekuerzt, das Resultat aber
+    mit n_op=3 gemeldet -> Mislabel. Jetzt fail-closed in BEIDEN Pfaden.
+    """
+    chain = _wolff_chain(L=16, n=200, seed=0)
+    mcrg_multirg.estimate_y_h(chain, n_op=2)  # gueltig
+    mcrg_multirg.multi_rg_y_h(chain, n_op=2, n_levels=2)  # gueltig
+    with pytest.raises(ValueError, match="exceeds available odd operators"):
+        mcrg_multirg.estimate_y_h(chain, n_op=3)
+    with pytest.raises(ValueError, match="exceeds available odd operators"):
+        mcrg_multirg.multi_rg_y_h(chain, n_op=3, n_levels=2)
+
+
+# --------------------------------------------------------------------------
+# Codex-Fix 3: Jackknife-Blockgroesse PRO ITERATION (nicht global aus Level 0).
+# --------------------------------------------------------------------------
+def test_block_size_per_iter_exposed() -> None:
+    """Pro-Iteration-Blockgroesse wird gemeldet und ist autokorr-bewusst (>=1)."""
+    chain = _wolff_chain(L=32, n=3000, seed=0)
+    res = mcrg_multirg.multi_rg_y_t(chain, n_op=2, n_levels=3)
+    bsz = np.asarray(res.block_size_per_iter)
+    assert bsz.shape[0] == res.n_iters
+    assert np.all(bsz >= 1)
+    res_odd = mcrg_multirg.multi_rg_y_h(chain, n_op=2, n_levels=3)
+    assert np.asarray(res_odd.block_size_per_iter).shape[0] == res_odd.n_iters
+
+
+def test_fix3_central_values_unchanged() -> None:
+    """Codex-Fix 3 aendert NUR Fehlerbalken, NICHT die y_t/y_h-Zentralwerte.
+
+    Der Punktschaetzer nutzt weiter das gemeinsame Level-0-Fenster `keep`; nur
+    die Jackknife-Partition wird pro Iteration gewaehlt. Verankert die EXAKTEN
+    G27/G28-Zentralwerte (validate_multirg_2d, seed=0, L=32, n_op=2, burn_in=400)
+    gegen einen Regress. Die Baseline ist tool-gemessen VOR Fix 3 und wird nach
+    Fix 3 byte-identisch reproduziert (nur die Fehlerbalken duerfen sich aendern).
+    """
+    v = mcrg_multirg.validate_multirg_2d(
+        L=32, n_op_even=2, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
+    )
+    np.testing.assert_allclose(
+        v.multirg.y_t_per_iter, [0.93001085, 0.99566981, 1.0219697], rtol=0, atol=1e-7
+    )
+    np.testing.assert_allclose(
+        v.multirg_odd.y_h_per_iter, [1.88098809, 1.87282836, 1.87101431], rtol=0, atol=1e-7
+    )
+    # Alle Fehlerbalken endlich + nicht-negativ.
+    assert np.all(np.isfinite(v.multirg.y_t_err_per_iter)) and np.all(
+        v.multirg.y_t_err_per_iter >= 0
+    )
+    assert np.all(np.isfinite(v.multirg_odd.y_h_err_per_iter)) and np.all(
+        v.multirg_odd.y_h_err_per_iter >= 0
+    )
+
+
+def test_explicit_block_size_respected() -> None:
+    """Explizites block_size wird respektiert (kein per-iter-Override)."""
+    chain = _wolff_chain(L=32, n=3000, seed=0)
+    res = mcrg_multirg.multi_rg_y_t(chain, n_op=2, n_levels=3, block_size=10)
+    assert np.all(np.asarray(res.block_size_per_iter) == 10)

@@ -76,7 +76,11 @@ def p_add(K: float) -> float:
         K: Kopplung J/T > 0.
 
     Returns:
-        P_add in (0, 1).
+        P_add in (0, 1]. Bei grossem K (Tieftemperatur, T -> 0) saettigt
+        exp(-2K) -> 0 und P_add -> 1.0 (Floating-Point exakt 1.0 sobald
+        2K > ~38, da exp(-38) < float-eps). P_add == 1.0 ist PHYSIKALISCH
+        gueltig: jeder gleich-orientierte Nachbar wird mit Wahrscheinlichkeit 1
+        zum Cluster hinzugefuegt (der Cluster fuellt die ganze aligned Domaene).
     """
     if not np.isfinite(K) or K <= 0.0:
         raise ValueError(f"K must be finite and > 0 (ferromagnetic), got {K}")
@@ -102,8 +106,13 @@ def wolff_cluster_update(
     s = np.asarray(s, dtype=np.int8)
     if s.ndim != 2 or s.shape[0] != s.shape[1]:
         raise ValueError(f"s must be square (L,L), got shape {s.shape}")
-    if not (0.0 < padd < 1.0):
-        raise ValueError(f"padd must be in (0,1), got {padd}")
+    # padd == 1.0 ist physikalisch gueltig (T -> 0: alle aligned Nachbarn sicher
+    # hinzugefuegt). Bei grossem K saettigt p_add() durch Floating-Point auf exakt
+    # 1.0 -- ein Tieftemperatur-Scan darf daran NICHT brechen. Der prob-1-Pfad ist
+    # korrekt: rng.random() liefert [0,1), also ist "< 1.0" stets True -> jeder
+    # aligned Bond wird akzeptiert. Nur padd > 1.0 / <= 0.0 ist invalide.
+    if not (0.0 < padd <= 1.0):
+        raise ValueError(f"padd must be in (0,1], got {padd}")
     L = s.shape[0]
     s = s.copy()
 
