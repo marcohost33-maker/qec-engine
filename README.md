@@ -38,11 +38,12 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 - **Phase-4 (NEU) adressiert die drei vom Cross-Family-Review benannten Präzisions-Schwächen:**
   (1) **Wolff-Single-Cluster-Sampler** (`wolff2d.py`, `P_add = 1−e^{−2K}`) schlägt das kritische
   Slowing-Down — `τ_int(Wolff) ≪ τ_int(Metropolis)` (gemessen `×12–16` bei L=32);
-  (2) **mehrere iterierte RG-Stufen** (`mcrg_multirg.py`) → `y_t` konvergiert zum Fixpunkt:
-  bester Iterations-`|y_t−1| ≈ 0.006` (vs Phase-3b 0.035);
+  (2) **mehrere iterierte RG-Stufen** (`mcrg_multirg.py`) → `y_t` rückt näher an den Fixpunkt:
+  bester Iterationswert `|y_t−1| ≈ 0.006`, tiefste-Iter `≈ 0.020` — **beide** schlagen Phase-3b `0.035`;
   (3) **ungerader (magnetischer) Sektor** → `y_h` gegen das exakte Onsager-Orakel `y_h = 15/8 = 1.875`:
-  tiefste RG-Iteration `|y_h − 15/8| ≈ 0.002`. **Ehrlich:** Rest-finite-Size-Systematik bleibt; das ist
-  **keine** volle `L→∞`-FSS-Extrapolation, **kein** Frontier-Hochpräzisionswert.
+  bester Iterationswert `|y_h − 15/8| ≈ 0.002`, tiefste-Iter `≈ 0.003`. **Ehrlich:** „best" = Minimum
+  über Iterationen (proximity-selektiert, optimistisch; NICHT die tiefste Stufe — bei kleinem L kein klarer
+  Plateau, alle Iterationen geloggt); Rest-finite-Size-Systematik bleibt, **keine** `L→∞`-FSS, **kein** Frontier-Wert.
 - Surrogate-Layer, SNIS, MMD-Drift, Checkpoint/Restart, R-hat-Multichain-Diagnostik (Spec-Phasen 2–5)
   sind **noch nicht** implementiert.
 

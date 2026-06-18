@@ -761,9 +761,12 @@ def _g26_tau_wolff_below_metropolis() -> tuple[bool, str]:
 def _g27_y_t_multirg_converges() -> tuple[bool, str]:
     """y_t verbessert sich ueber RG-Iterationen Richtung Onsager y_t=1.
 
-    EHRLICH: einzelne Iterationen schwanken; wir gaten darauf, dass eine TIEFERE
-    Iteration y_t naeher an 1 bringt als die erste (Swendsen-Konvergenz) UND der
-    beste Iterationswert klar besser ist als Phase-3b (|err|~0.035). Toleranz
+    EHRLICH: einzelne Iterationen schwanken; KEINE saubere monotone Konvergenz bei
+    diesem kleinen L (die tiefste Iter ist NICHT die beste -- Minimum liegt bei
+    Iter 1). Wir gaten darauf, dass der beste Iterationswert (Minimum |y_t-1| ueber
+    Iterationen, proximity-selektiert) y_t naeher an 1 bringt als Iteration 0 UND
+    klar besser ist als Phase-3b (|err|~0.035). Tool-gemessen (3 Seeds): bester
+    |err|~0.006, tiefste-Iter |err|~0.020 -- BEIDE schlagen Phase-3b. Toleranz
     systematik-begruendet (finite-L Rest-Bias bleibt), kein eps.
     """
     v = mcrg_multirg.validate_multirg_2d(
@@ -783,14 +786,15 @@ def _g27_y_t_multirg_converges() -> tuple[bool, str]:
 
 
 def _g28_y_h_matches_onsager() -> tuple[bool, str]:
-    """y_h trifft das exakte Onsager-Orakel 15/8=1.875 (TIEFSTE RG-Iteration).
+    """y_h trifft das exakte Onsager-Orakel 15/8=1.875 (bester Iterationswert).
 
     Der ungerade (magnetische) Sektor: groesster ungerader Eigenwert ->
-    y_h = ln lambda_h/ln 2. EHRLICH: einzelne RG-Stufe bei kleinem L gibt y_h zu
-    GROSS (1-Stufe-Bias); die TIEFSTE Iteration kontrahiert irrelevante
-    magnetische Richtungen heraus und konvergiert zu 15/8 (Swendsen). Gate auf
-    eine systematik-ehrliche Bande |y_h - 15/8| < 0.05 fuer den besten
-    (tiefsten) Iterationswert; alle Iterationen werden berichtet.
+    y_h = ln lambda_h/ln 2. EHRLICH zur Iterations-Auswahl: 'best' = MINIMUM von
+    |y_h-15/8| ueber die RG-Iterationen (proximity-selektiert, optimistisch) --
+    NICHT zwingend die tiefste Stufe (bei kleinem L gibt es keinen klaren
+    Plateau). Tool-gemessen (3 Seeds): bester |err|~0.002, tiefste-Iter |err|~0.003
+    -- BEIDE klein. Alle Iterationen werden berichtet. Gate auf systematik-ehrliche
+    Bande |y_h - 15/8| < 0.05 fuer den besten Iterationswert.
     """
     v = mcrg_multirg.validate_multirg_2d(
         L=32, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
@@ -803,7 +807,7 @@ def _g28_y_h_matches_onsager() -> tuple[bool, str]:
     return ok, (
         f"y_h per iter=[{parts}] oracle=15/8=1.8750 |err|=[{' '.join(f'{e:.4f}' for e in errs)}] "
         f"best|err|={best:.4f}(<0.05) sigma_jk~{float(v.multirg_odd.y_h_err_per_iter.min()):.4f} "
-        f"L=32 (deep RG iter -> Onsager fixed point)"
+        f"L=32 (best=min over iters, NOT deepest; deepest|err|={float(errs[-1]):.4f})"
     )
 
 
@@ -851,7 +855,7 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G25 Wolff cluster-fraction grows with K", _g25_wolff_cluster_fraction_grows),
     ("G26 tau_int(Wolff) < tau_int(Metropolis)", _g26_tau_wolff_below_metropolis),
     ("G27 y_t multi-RG converges (beats Phase-3b)", _g27_y_t_multirg_converges),
-    ("G28 y_h matrix vs Onsager 15/8 (deep RG)", _g28_y_h_matches_onsager),
+    ("G28 y_h matrix vs Onsager 15/8 (best iter)", _g28_y_h_matches_onsager),
     ("G29 Phase-4 reproducibility (seed)", _g29_phase4_reproducible),
 ]
 

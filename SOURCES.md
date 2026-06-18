@@ -159,7 +159,7 @@ quergeprüft gegen mehrere RG-/Cluster-/Lehrbuch-Quellen vor der Validierung.
 - **`τ_int(Wolff) < τ_int(Metropolis)`** bei K_c, |m|-Reihe (G26) — Kern-Beleg, dass das Slowing-Down
   geschlagen wird.
 - `y_t` über iterierte RG-Stufen → Konvergenz zum Onsager-Wert, besser als Phase-3b (G27).
-- `y_h` aus der ungeraden Swendsen-Matrix, tiefste RG-Iteration vs Onsager `15/8` (G28); Reproduzierbarkeit (G29).
+- `y_h` aus der ungeraden Swendsen-Matrix, bester Iterationswert (Minimum über Iterationen, proximity-selektiert; NICHT die tiefste Stufe) vs Onsager `15/8` (G28); Reproduzierbarkeit (G29).
 
 **Gemessene Zahlen (Evidenz `results/phase4-wolff-multirg.json`, L=32, K=K_c, 3 Seeds):**
 - `y_t` (gerader Sektor) über Iterationen L=32→16→8: typ. `[0.93–0.95, 1.00, 0.98–1.02]` →
