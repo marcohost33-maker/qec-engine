@@ -6,7 +6,7 @@ Stabilitäts-Guards. Coworker-Research Säule 3 (Physik/Methodik).
 
 > **Ehrlicher Status (2026-06-18):** Die gehärtete Theorie (`spec/`) liegt vor; ein **bounded Phase-1-MVP**
 > (`src/adaptiverg_qec/`, Version `0.1.0.dev0`) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
-> und einen minimalen MCRG-C-Kernel. Reifegrad **dev/Prototyp** — nicht release-fertig, nicht selbst-zertifiziert.
+> einen MCRG-C-Kernel und einen Swendsen-MCRG-Schätzer (skalare sample-geschätzte R̂). Reifegrad **dev/Prototyp** — nicht release-fertig, nicht selbst-zertifiziert.
 > Was MVP-real vs. offen ist, steht unten und in `src/adaptiverg_qec/mvp_instance.py`.
 
 ## Was dieses Tool IST — und was NICHT (Positionierung)
@@ -43,16 +43,16 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 8 Gates, JSON-Log) | **real** (8/8 [PASS], exit 0) |
+| Selftest-Gates (`cli.py --selftest`, 12 Gates, JSON-Log) | **real** (12/12 [PASS], exit 0) |
 | SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4) |
-| MCRG aus echten MCMC-Samples (stochastische R̂, Spec §6 Kopplung A↔C) | **offen** — MVP nutzt die *exakte* RG-Map, nicht die sample-geschätzte |
+| Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)` validiert (≤0.54σ, Bias↓ mit 1/√N). Sampler = exakt i.i.d.; A-Kernel-Autokorrelation + Multi-Operator-Matrix = Phase-3 |
 | Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phasen 2–5) |
 
 ## Schnellstart
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 8 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 12 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
 ```

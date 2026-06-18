@@ -24,10 +24,11 @@ import math
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
-from . import a_kernel, drift, ising1d, rg_map
+from . import a_kernel, drift, ising1d, mcrg, rg_map
 from .mvp_instance import MVPConfig
 
 _CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
@@ -153,6 +154,15 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
         ),
         ("drift d<1", lambda: drift.estimate_drift(np.array([1.0, 2.0, 3.0]), d=0.5)),
         ("neg H in V", lambda: drift.lyapunov_V(np.array([-1.0, 0.0]))),
+        ("mcrg K<=0", lambda: mcrg.sample_ising_open_chain(0.0, 16, 100, seed=1)),
+        ("mcrg n_samples<2", lambda: mcrg.sample_ising_open_chain(0.5, 16, 1, seed=1)),
+        ("mcrg L<2 sample", lambda: mcrg.sample_ising_open_chain(0.5, 1, 100, seed=1)),
+        (
+            "mcrg T L<4",
+            lambda: mcrg.swendsen_T_scalar(np.ones((10, 2))),
+        ),
+        ("mcrg spins bad x", lambda: mcrg.spins_from_bits(np.array([0, 2, 1]))),
+        ("mcrg validate <2 seeds", lambda: mcrg.validate_swendsen(seeds=(0,))),
     ]
     failures = []
     for name, fn in checks:
@@ -166,6 +176,77 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
     return ok, f"{len(checks)} edge checks; {detail}"
 
 
+def _g9_swendsen_vs_oracle() -> tuple[bool, str]:
+    """Phase-2: Swendsen-T-hat(K) trifft tanh(2K) innerhalb 3 sigma (Multi-Seed)."""
+    rows = mcrg.validate_swendsen(
+        K_values=(0.3, 0.5, 0.7, 0.9), L=64, n_samples=3000, seeds=(0, 1, 2, 3, 4, 5, 6, 7)
+    )
+    worst = max(rows, key=lambda r: r.n_sigma)
+    ok = all(r.n_sigma <= 3.0 for r in rows)
+    parts = " ".join(f"K={r.K}:{r.T_hat_mean:.4f}vs{r.oracle:.4f}({r.n_sigma:.1f}s)" for r in rows)
+    return ok, f"{parts} | worst={worst.n_sigma:.2f}sigma (<=3) L=64 N=3000 seeds=8"
+
+
+def _g10_connected_corr_exact() -> tuple[bool, str]:
+    """Connected-corr-Schaetzer == exakte Enumeration (kleines L, unabh. Orakel).
+
+    Swendsen-Identitaet im EXAKTEN Ensemble: T-hat = tanh(2K) bis Maschinen-eps.
+    """
+    L = 8
+    K = 0.6
+    states = np.arange(1 << L, dtype=np.int64)
+    bits = ((states[:, None] >> np.arange(L)[None, :]) & 1).astype(np.int8)
+    s = mcrg.spins_from_bits(bits)
+    Sfull = mcrg.nn_operator(s, periodic=False)
+    Sp = mcrg.nn_operator(mcrg.decimate_b2(s), periodic=False)
+    w = np.exp(K * Sfull)
+    w /= w.sum()
+    # exakte ensemble-gewichtete connected correlations (kein Sampling).
+    e_s, e_sp = float((w * Sfull).sum()), float((w * Sp).sum())
+    cov_sps = float((w * Sp * Sfull).sum()) - e_sp * e_s
+    cov_spsp = float((w * Sp * Sp).sum()) - e_sp * e_sp
+    T_exact = cov_sps / cov_spsp
+    oracle = math.tanh(2.0 * K)
+    err = abs(T_exact - oracle)
+    ok = err < 1e-10
+    return ok, f"L={L} K={K} T_exact={T_exact:.10f} tanh(2K)={oracle:.10f} |err|={err:.2e}"
+
+
+def _g11_swendsen_reproducible() -> tuple[bool, str]:
+    """Reproduzierbarkeit: gleicher Seed -> bit-identische Spin-Stichprobe + T-hat."""
+    a = mcrg.sample_ising_open_chain(0.7, 32, 1000, seed=12345)
+    b = mcrg.sample_ising_open_chain(0.7, 32, 1000, seed=12345)
+    c = mcrg.sample_ising_open_chain(0.7, 32, 1000, seed=54321)
+    same = np.array_equal(a, b)
+    diff = not np.array_equal(a, c)
+    ta = mcrg.swendsen_T_scalar(a).T_hat
+    tb = mcrg.swendsen_T_scalar(b).T_hat
+    ok = same and diff and ta == tb
+    return ok, f"seed-eq identical={same} diff-seed differs={diff} T_hat_eq={ta == tb}"
+
+
+def _g12_swendsen_bias_decreases() -> tuple[bool, str]:
+    """Bias/Streuung sinkt mit N: Multi-Seed-std(T-hat) faellt ~1/sqrt(N)."""
+    K, L, seeds = 0.6, 64, tuple(range(8))
+
+    def spread(n: int) -> float:
+        vals = np.array(
+            [
+                mcrg.swendsen_T_scalar(
+                    mcrg.sample_ising_open_chain(K, L, n, seed=mcrg.K_seed(K, sd))
+                ).T_hat
+                for sd in seeds
+            ]
+        )
+        return float(vals.std(ddof=1))
+
+    s_small = spread(1000)
+    s_large = spread(8000)  # 8x N -> erwartet ~ /sqrt(8) ~ 0.354x
+    ratio = s_large / s_small if s_small > 0 else float("inf")
+    ok = s_large < s_small and ratio < 0.7  # klar fallend, in Naehe von 1/sqrt(8)
+    return ok, f"std(N=1k)={s_small:.4f} std(N=8k)={s_large:.4f} ratio={ratio:.3f} (~0.354 ideal)"
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -175,12 +256,16 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G6 Reproducibility (seed->bit-identical)", _g6_reproducibility),
     ("G7 Diminishing-Adaptation (sum a_t<inf)", _g7_diminishing_adaptation),
     ("G8 Negative/Edge-Input rejection", _g8_negative_edge_input),
+    ("G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)", _g9_swendsen_vs_oracle),
+    ("G10 Connected-corr vs exact enumeration", _g10_connected_corr_exact),
+    ("G11 Swendsen reproducibility (seed)", _g11_swendsen_reproducible),
+    ("G12 Swendsen bias decreases with N", _g12_swendsen_bias_decreases),
 ]
 
 
 def run_selftest(json_path: str | None = None) -> int:
     """Fuehre alle Gates aus; gib 0 zurueck gdw alle PASS, sonst 1."""
-    print("AdaptiveRG-QEC Phase-1 MVP -- selftest")
+    print("AdaptiveRG-QEC Phase-1/2 MVP -- selftest")
     print(
         f"MVP-Instanz: 1D-Repetition-Code Ring L={_CFG.L}, "
         f"Theta=[{_CFG.beta_min},{_CFG.beta_max}], V=1+H, R(K)=0.5*ln cosh(2K)"
@@ -213,11 +298,41 @@ def run_selftest(json_path: str | None = None) -> int:
             "elapsed_s": round(elapsed, 3),
             "gates": results,
         }
-        with open(json_path, "w", encoding="utf-8") as fh:
+        out_path = _resolve_json_path(json_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
-        print(f"gate-log -> {json_path}")
+        print(f"gate-log -> {out_path}")
 
     return 0 if n_pass == len(_GATES) else 1
+
+
+def _resolve_json_path(json_path: str) -> Path:
+    """Normalisiere den --json-Pfad (Aegis-P3 Pfad-Traversal-Defense).
+
+    Politik (fail-closed nur fuer den Angriffsvektor, nicht fuer legitime
+    Operator-Pfade):
+      - Nackter Dateiname (z.B. 'gate.json') -> cwd/results/gate.json.
+      - RELATIVER Pfad -> gegen cwd aufgeloest; er MUSS innerhalb von cwd bleiben,
+        '..'-Ausbruch wird abgewiesen (das ist der eigentliche Traversal-Vektor).
+      - ABSOLUTER Pfad -> als explizite Operator-Wahl akzeptiert, aber via
+        resolve() normalisiert (entfernt '..'/Symlink-Tricks im Pfad selbst).
+    """
+    cwd = Path.cwd().resolve()
+    p = Path(json_path)
+    if p.is_absolute():
+        return p.resolve()
+    if p.parent == Path("."):
+        p = Path("results") / p  # nackter Dateiname -> results/
+    candidate = (cwd / p).resolve()
+    try:
+        candidate.relative_to(cwd)
+    except ValueError as exc:
+        raise ValueError(
+            f"--json path {json_path!r} resolves outside cwd ({candidate}); "
+            "refusing path traversal (Aegis-P3 fail-closed)"
+        ) from exc
+    return candidate
 
 
 def run_demo() -> int:
@@ -245,7 +360,7 @@ def run_demo() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
-        description="AdaptiveRG-QEC Phase-1 MVP (Diagnostik-/Verifikations-Harness).",
+        description="AdaptiveRG-QEC Phase-1/2 MVP (Diagnostik-/Verifikations-Harness).",
     )
     parser.add_argument(
         "command",

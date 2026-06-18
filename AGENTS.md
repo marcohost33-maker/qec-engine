@@ -4,14 +4,14 @@ version: "1.0"
 project: AdaptiveRG-QEC
 ---
 
-# AGENTS.md — AdaptiveRG-QEC Engine (Spec + Phase-1-MVP)
+# AGENTS.md — AdaptiveRG-QEC Engine (Spec + Phase-1/2-MVP)
 
 Reihenfolge: §1 Working agreements > §2 Conventions > §3 Don't > §4 When stuck.
 
 ## Project
 - **Was:** Adaptiver RG-QEC-Simulator als **Diagnostik-/Verifikations-Harness mit Konvergenz-Guards** (KEIN Frontier-Threshold-Tool). Spec/Theorie + lauffähiger Phase-1-MVP (seit PR#4).
 - **Inhalt:** gehärtete Kernel-Spec v1.0 + Proof-Block v1.1 / KernelSpec v1.2 (`spec/`) + Phase-1-MVP-Code (`src/adaptiverg_qec/`, `tests/`, CI).
-- **MVP-Stand:** real = A-Kernel-MCMC + Foster-Lyapunov-Drift-Guard + MCRG-Map/Jacobian (1D-Ising-Instanz). Offen/gestubbt (ehrlich): sample-geschätzte stochastische R̂, SNIS, Multichain/R-hat, Surrogate, Checkpoint — Phasen 2-5 der ROADMAP.
+- **MVP-Stand:** real = A-Kernel-MCMC + Foster-Lyapunov-Drift-Guard + MCRG-Map/Jacobian + **skalarer Swendsen-MCRG-Schätzer** (sample-geschätzte R̂ `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)` validiert; 1D-Ising-Instanz, exakt-i.i.d.-Sampler). Offen/gestubbt (ehrlich): **Multi-Operator-Swendsen-Matrix** + A-Kernel-Autokorrelations-Fehlerbalken (Phase-3), SNIS, Multichain/R-hat, Surrogate, Checkpoint, Lockfile — Phasen 3-5 der ROADMAP.
 
 ## Working agreements
 1. **Kein Overclaim „implementiert".** `src/` enthält den Phase-1-MVP; README/SOURCES/Status nennen ehrlich, was MVP-real vs. gestubbt ist (stochastische R̂, SNIS, Multichain offen). Keine Komponente als „validiert" behaupten ohne lauffähigen Code + Gate-Log in `results/`.

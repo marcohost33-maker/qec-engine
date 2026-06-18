@@ -11,3 +11,6 @@ build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local CI-run gate-log (uploaded as CI artifact, not committed)
+results/selftest-ci.json
