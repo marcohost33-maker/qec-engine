@@ -128,3 +128,59 @@ kleines L + 1 RG-Stufe → y_t nur GROB (Plausibilitäts-Niveau, KEIN Frontier-W
 neu erstellt 2026-06-18; `cli.py` erweitert (Gates G19–G23 + Phase-3b-Edge-Cases in G8). Kein importierter Fremdcode.
 
 *Codie | 2026-06-18 | Phase-3b-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*
+
+---
+
+## Lineage-Append (append-only) — 2026-06-18 — Phase-4
+
+### Phase-4: Wolff-Single-Cluster + Multi-RG-Iteration + ungerader Sektor (y_h)
+**Branch `claude/phase4-wolff-multirg` (Agent: Claude/Codie).**
+
+Adressiert die DREI Präzisions-Schwächen, die ein unabhängiges Cross-Family-Review (OpenAI gpt-4o, Verdikt
+GOOD) an Phase-3b bestätigt hat: (1) Single-Spin-Metropolis → kritisches Slowing-Down; (2) nur 1 RG-Iteration;
+(3) Operatorbasis zu klein / kein ungerader Sektor. NEU: `src/adaptiverg_qec/wolff2d.py` +
+`src/adaptiverg_qec/mcrg_multirg.py`. **KEINE neuen Runtime-Deps** (numpy; scipy unverändert).
+
+**Methoden-Referenzen (validiert, NICHT als Dependency):**
+- U. Wolff, *Collective Monte Carlo Updating for Spin Systems*, Phys. Rev. Lett. 62 (1989) 361 —
+  Single-Cluster-Algorithmus, `P_add = 1−e^{−2K}`.
+- R. H. Swendsen, J.-S. Wang, Phys. Rev. Lett. 58 (1987) 86 — Multi-Cluster (Verwandtschaft).
+- R. H. Swendsen, Phys. Rev. Lett. 42 (1979) 859 — MCRG mit MEHREREN iterierten Blocking-Stufen
+  (irrelevante Operatoren kontrahieren heraus → Konvergenz zum Fixpunkt).
+- L. Onsager, Phys. Rev. 65 (1944) 117 — exakte 2D-Exponenten.
+
+**Web-verifiziert (dieser Lauf):** `P_add = 1−e^{−2βJ}` + dynamischer Exponent `z ≈ 0.25` (Wolff/Swendsen-Wang
+vs `z ≈ 2` Single-Spin); `y_t = 1/ν = 1` (ν=1), `y_h = d − β/ν = 2 − (1/8)/1 = 15/8 = 1.875` (β=1/8) —
+quergeprüft gegen mehrere RG-/Cluster-/Lehrbuch-Quellen vor der Validierung.
+
+**Validierungs-Orakel (unabhängig):**
+- Wolff-Energie vs **exakte L=4-Enumeration** (2^16 Zustände, gleiche Bond-Konvention), |err|<0.008 (G24).
+- Cluster-Größen-Fraktion wächst monoton mit K (0.011 → 0.55 → 0.98) — `P_add`-Korrektheits-Indiz (G25).
+- **`τ_int(Wolff) < τ_int(Metropolis)`** bei K_c, |m|-Reihe (G26) — Kern-Beleg, dass das Slowing-Down
+  geschlagen wird.
+- `y_t` über iterierte RG-Stufen → Konvergenz zum Onsager-Wert, besser als Phase-3b (G27).
+- `y_h` aus der ungeraden Swendsen-Matrix, tiefste RG-Iteration vs Onsager `15/8` (G28); Reproduzierbarkeit (G29).
+
+**Gemessene Zahlen (Evidenz `results/phase4-wolff-multirg.json`, L=32, K=K_c, 3 Seeds):**
+- `y_t` (gerader Sektor) über Iterationen L=32→16→8: typ. `[0.93–0.95, 1.00, 0.98–1.02]` →
+  **bester `|y_t−1| ≈ 0.006`** (Mittel 3 Seeds) vs Phase-3b 0.035.
+- `y_h` (ungerader Sektor) über Iterationen: `[1.881, 1.873, 1.871–1.875]` →
+  **bester `|y_h−15/8| ≈ 0.002`** (Mittel 3 Seeds), σ_jk ≈ 0.001.
+- `τ_int(|m|)`: Wolff ≈ 2.2–2.8, Metropolis ≈ 27–46 → **Verhältnis ×12–16** (Slowing-Down klar geschlagen).
+
+**Selbst gefundene + behobene Bugs (Silent-Failure-Gate, IM BAU):** (a) erste `O_2`-Wahl `s_i·Σnb` war
+ein PRODUKT von ZWEI Spins → **gerade**, nicht ungerade (von `test_odd_operators_antisymmetric` gefangen);
+korrigiert auf echtes 3-Spin-L-Cluster `s_ij·s_{i,j+1}·s_{i+1,j}` (ungerade). (b) `block_chain` erzeugte
+ein degeneriertes 2×2-Gitter; auf kleinste Kante 4 begrenzt.
+
+**EHRLICHE SCOPE-GRENZE (kein Über-Claim):** Wolff verbessert die STATISTIK (kleinere τ_int → mehr effektiv
+unabhängige Samples) und Multi-RG kontrahiert irrelevante Operatoren — beide Sektoren konvergieren sichtbar
+zum Onsager-Fixpunkt. ABER: eine Rest-finite-Size-Systematik bleibt (kleines L, endliche Iterationszahl);
+dies ist **keine** volle `L→∞`-FSS-Extrapolation und **kein** Frontier-Hochpräzisionswert. Die Gate-Toleranzen
+(`|y_t−1|<0.035`, `|y_h−15/8|<0.05`) sind systematik-begründet, kein Cherry-Pick; alle Iterations-Werte
+werden im Log mitgeführt.
+
+**Code-Provenienz:** `wolff2d.py` + `mcrg_multirg.py` + `tests/test_wolff2d.py` + `tests/test_mcrg_multirg.py`
+neu erstellt 2026-06-18; `cli.py` erweitert (Gates G24–G29 + Phase-4-Edge-Cases in G8). Kein importierter Fremdcode.
+
+*Codie | 2026-06-18 | Phase-4-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*

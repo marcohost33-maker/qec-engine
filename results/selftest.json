@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
   "version": "0.1.0.dev2",
-  "n_pass": 23,
-  "n_total": 23,
+  "n_pass": 29,
+  "n_total": 29,
   "all_pass": true,
-  "elapsed_s": 100.898,
+  "elapsed_s": 192.329,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -44,7 +44,7 @@
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "40 edge checks; all invalid inputs rejected"
+      "detail": "58 edge checks; all invalid inputs rejected"
     },
     {
       "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
@@ -120,6 +120,36 @@
       "gate": "G23 Swendsen-matrix reproducibility (seed)",
       "pass": true,
       "detail": "seed-eq y_t&T identical=True diff-seed differs=True"
+    },
+    {
+      "gate": "G24 Wolff-cluster energy vs exact L=4 enum",
+      "pass": true,
+      "detail": "K=0.250:-0.6218vs-0.6255 K=0.441:-1.5632vs-1.5656 K=0.550:-1.8466vs-1.8508 worst|err|=0.0042(<0.02) L=4 exact-enum oracle (CLUSTER)"
+    },
+    {
+      "gate": "G25 Wolff cluster-fraction grows with K",
+      "pass": true,
+      "detail": "clfrac(K=0.20)=0.011 clfrac(K_c)=0.547 clfrac(K=0.70)=0.976 monotone=True plausible-bands=True"
+    },
+    {
+      "gate": "G26 tau_int(Wolff) < tau_int(Metropolis)",
+      "pass": true,
+      "detail": "tau_int(|m|): Wolff=2.25 Metropolis=10.75 ratio=4.77(>1.5) L=16 n=4000 (cluster beats slowing-down)"
+    },
+    {
+      "gate": "G27 y_t multi-RG converges (beats Phase-3b)",
+      "pass": true,
+      "detail": "y_t per iter=[0.9300 0.9957 1.0220] oracle=1.0 |err|=[0.0700 0.0043 0.0220] best|err|=0.0043(<0.035 Phase-3b) improved-vs-iter1=True L=32"
+    },
+    {
+      "gate": "G28 y_h matrix vs Onsager 15/8 (deep RG)",
+      "pass": true,
+      "detail": "y_h per iter=[1.8810 1.8728 1.8710] oracle=15/8=1.8750 |err|=[0.0060 0.0022 0.0040] best|err|=0.0022(<0.05) sigma_jk~0.0008 L=32 (deep RG iter -> Onsager fixed point)"
+    },
+    {
+      "gate": "G29 Phase-4 reproducibility (seed)",
+      "pass": true,
+      "detail": "seed-eq identical=True diff-seed differs=True"
     }
   ]
 }

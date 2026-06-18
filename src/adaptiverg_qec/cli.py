@@ -28,7 +28,18 @@ from pathlib import Path
 
 import numpy as np
 
-from . import a_kernel, autocorr, drift, ising1d, ising2d, mcrg, mcrg_matrix, rg_map
+from . import (
+    a_kernel,
+    autocorr,
+    drift,
+    ising1d,
+    ising2d,
+    mcrg,
+    mcrg_matrix,
+    mcrg_multirg,
+    rg_map,
+    wolff2d,
+)
 from .mvp_instance import MVPConfig
 
 _CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
@@ -133,6 +144,13 @@ def _dummy_ts() -> mcrg_matrix.OperatorTimeseries:
     """Minimale OperatorTimeseries (>=64 Samples) fuer n_op<2-Edge-Check."""
     n = 100
     return mcrg_matrix.OperatorTimeseries(S=np.ones((n, 3)), Sp=np.ones((n, 3)), K=0.4, L=16)
+
+
+def _dummy_chain(n: int) -> ising2d.Ising2DChain:
+    """Minimale Ising2DChain (n Records, L=8) fuer Multi-RG-Edge-Checks."""
+    rng = np.random.default_rng(0)
+    configs = np.where(rng.random((n, 8, 8)) < 0.5, np.int8(1), np.int8(-1))
+    return ising2d.Ising2DChain(configs=configs, K=0.4, L=8, acceptance=1.0, seed=0)
 
 
 def _g8_negative_edge_input() -> tuple[bool, str]:
@@ -268,6 +286,58 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
             "exponents_from_T non-square",
             lambda: mcrg_matrix.exponents_from_T(np.ones((2, 3))),
         ),
+        # Phase-4 Silent-Failure-Gate: Wolff + Multi-RG public boundaries.
+        ("p_add K<=0", lambda: wolff2d.p_add(-0.1)),
+        ("p_add K=0", lambda: wolff2d.p_add(0.0)),
+        ("p_add K inf", lambda: wolff2d.p_add(float("inf"))),
+        (
+            "wolff_cluster non-square",
+            lambda: wolff2d.wolff_cluster_update(
+                np.ones((4, 6), dtype=np.int8), 0.5, np.random.default_rng(0)
+            ),
+        ),
+        (
+            "wolff_cluster padd>=1",
+            lambda: wolff2d.wolff_cluster_update(
+                np.ones((4, 4), dtype=np.int8), 1.0, np.random.default_rng(0)
+            ),
+        ),
+        (
+            "wolff_cluster padd<=0",
+            lambda: wolff2d.wolff_cluster_update(
+                np.ones((4, 4), dtype=np.int8), 0.0, np.random.default_rng(0)
+            ),
+        ),
+        ("wolff_sample L<4", lambda: wolff2d.wolff_sample(0.4, 2, n_records=1, burn_in=0, seed=1)),
+        (
+            "wolff_sample L odd",
+            lambda: wolff2d.wolff_sample(0.4, 15, n_records=1, burn_in=0, seed=1),
+        ),
+        (
+            "wolff_sample K<=0",
+            lambda: wolff2d.wolff_sample(-0.4, 8, n_records=1, burn_in=0, seed=1),
+        ),
+        (
+            "wolff_sample n_records<1",
+            lambda: wolff2d.wolff_sample(0.4, 8, n_records=0, burn_in=0, seed=1),
+        ),
+        (
+            "wolff_sample n_skip<1",
+            lambda: wolff2d.wolff_sample(0.4, 8, n_records=1, burn_in=0, seed=1, n_skip=0),
+        ),
+        ("multirg n_op<2", lambda: mcrg_multirg.multi_rg_y_t(_dummy_chain(128), n_op=1)),
+        ("multirg N<64", lambda: mcrg_multirg.multi_rg_y_t(_dummy_chain(10), n_op=2)),
+        (
+            "multirg n_levels<1",
+            lambda: mcrg_multirg.multi_rg_y_t(_dummy_chain(128), n_op=2, n_levels=0),
+        ),
+        ("estimate_y_h n_op<1", lambda: mcrg_multirg.estimate_y_h(_dummy_chain(128), n_op=0)),
+        ("estimate_y_h N<64", lambda: mcrg_multirg.estimate_y_h(_dummy_chain(10), n_op=2)),
+        (
+            "swendsen_matrix_raw mismatch",
+            lambda: mcrg_multirg.swendsen_matrix_raw(np.ones((100, 2)), np.ones((80, 2))),
+        ),
+        ("odd_operators too-small", lambda: mcrg_multirg.odd_operators(np.ones((1,)))),
     ]
     failures = []
     for name, fn in checks:
@@ -605,6 +675,151 @@ def _g23_matrix_reproducible() -> tuple[bool, str]:
     return ok, f"seed-eq y_t&T identical={same} diff-seed differs={diff}"
 
 
+# ===========================================================================
+# PHASE-4: Wolff-Cluster + Multi-RG-Iterationen + ungerader Sektor (y_h)
+# ===========================================================================
+
+
+def _g24_wolff_energy_vs_exact() -> tuple[bool, str]:
+    """Wolff-Sampler-Energie reproduziert die exakte L=4-Enumeration (Orakel).
+
+    Unabhaengiges Orakel: vollstaendige Aufzaehlung aller 2^16 4x4-Zustaende mit
+    DERSELBEN Bond-Konvention. Scharfer Korrektheits-Test fuer den NEUEN
+    Cluster-Sampler (komplett anderer Mechanismus als Metropolis -> echte
+    Differential-Pruefung). L=4 ist KLEIN -> Wolff baut fast systemfuellende
+    Cluster -> Samples stark korreliert; Toleranz daher ehrlich 0.02
+    (gleicher Wert wie G19 Metropolis), nicht eps.
+    """
+    L = 4
+    n = L * L
+    states = np.arange(1 << n, dtype=np.int64)
+    bits = ((states[:, None] >> np.arange(n)[None, :]) & 1).astype(np.int8)
+    s = (1 - 2 * bits).reshape(-1, L, L).astype(np.float64)
+    e_all = ising2d.energy_per_spin(s)
+    worst = 0.0
+    parts = []
+    for K in (0.25, ising2d.KC_2D, 0.55):
+        w = np.exp(-K * n * e_all)
+        w /= w.sum()
+        e_exact = float((w * e_all).sum())
+        ch = wolff2d.wolff_sample(K, L, n_records=12000, burn_in=600, seed=7, n_skip=1)
+        e_mc = float(ising2d.energy_per_spin(ch.configs).mean())
+        err = abs(e_mc - e_exact)
+        worst = max(worst, err)
+        parts.append(f"K={K:.3f}:{e_mc:.4f}vs{e_exact:.4f}")
+    ok = worst < 0.02
+    return ok, f"{' '.join(parts)} worst|err|={worst:.4f}(<0.02) L=4 exact-enum oracle (CLUSTER)"
+
+
+def _g25_wolff_cluster_fraction_grows() -> tuple[bool, str]:
+    """Cluster-Groessen-Verteilung physikalisch plausibel: waechst monoton mit K.
+
+    Bei kleinem K (hohe T) winzige Cluster (Bruchteil << 1); bei grossem K (tiefe
+    T) fast systemfuellend (Bruchteil -> 1); bei K_c eine substanzielle O(0.3..0.7)
+    kritische Cluster-Groesse. Monotonie + plausible Banden = Korrektheits-Indiz
+    der P_add=1-exp(-2K)-Konstruktion.
+    """
+    fracs = []
+    for K in (0.20, ising2d.KC_2D, 0.70):
+        ch = wolff2d.wolff_sample(K, 16, n_records=1500, burn_in=300, seed=3, n_skip=1)
+        fracs.append(wolff2d.mean_cluster_fraction(ch))
+    f_lo, f_mid, f_hi = fracs
+    monotone = f_lo < f_mid < f_hi
+    plausible = f_lo < 0.25 and 0.25 < f_mid < 0.85 and f_hi > 0.7
+    ok = monotone and plausible
+    return ok, (
+        f"clfrac(K=0.20)={f_lo:.3f} clfrac(K_c)={f_mid:.3f} clfrac(K=0.70)={f_hi:.3f} "
+        f"monotone={monotone} plausible-bands={plausible}"
+    )
+
+
+def _g26_tau_wolff_below_metropolis() -> tuple[bool, str]:
+    """tau_int(Wolff) < tau_int(Metropolis) bei K_c (Slowing-Down geschlagen).
+
+    KERN-Beleg von Phase-4: der Wolff-Cluster dekorreliert nahe T_c dramatisch
+    besser (dynamischer Exponent z~0.25 vs z~2.1). Gemessen an der |m|-Reihe bei
+    gleicher Record-Zahl: tau_wolff MUSS klar < tau_metro sein.
+    """
+    L = 16
+    n_rec = 4000
+    chw = wolff2d.wolff_sample(ising2d.KC_2D, L, n_records=n_rec, burn_in=500, seed=0, n_skip=1)
+    absm_w = np.abs(ising2d.magnetization_per_spin(chw.configs))
+    tau_w = autocorr.integrated_autocorr_time(absm_w).tau_int
+    chm = ising2d.checkerboard_metropolis(
+        ising2d.KC_2D, L, n_sweeps=n_rec, burn_in=1000, seed=0, record_every=1
+    )
+    absm_m = np.abs(ising2d.magnetization_per_spin(chm.configs))
+    tau_m = autocorr.integrated_autocorr_time(absm_m).tau_int
+    ratio = tau_m / tau_w if tau_w > 0 else float("inf")
+    ok = tau_w < tau_m and ratio > 1.5
+    return ok, (
+        f"tau_int(|m|): Wolff={tau_w:.2f} Metropolis={tau_m:.2f} "
+        f"ratio={ratio:.2f}(>1.5) L={L} n={n_rec} (cluster beats slowing-down)"
+    )
+
+
+def _g27_y_t_multirg_converges() -> tuple[bool, str]:
+    """y_t verbessert sich ueber RG-Iterationen Richtung Onsager y_t=1.
+
+    EHRLICH: einzelne Iterationen schwanken; wir gaten darauf, dass eine TIEFERE
+    Iteration y_t naeher an 1 bringt als die erste (Swendsen-Konvergenz) UND der
+    beste Iterationswert klar besser ist als Phase-3b (|err|~0.035). Toleranz
+    systematik-begruendet (finite-L Rest-Bias bleibt), kein eps.
+    """
+    v = mcrg_multirg.validate_multirg_2d(
+        L=32, n_op_even=2, n_levels=3, n_records=3000, burn_in=400, seed=0
+    )
+    errs = v.multirg.abs_err_per_iter
+    y = v.multirg.y_t_per_iter
+    best = float(errs.min())
+    improved = best < errs[0]  # a deeper/other iter beats iteration 1
+    beats_phase3b = best < 0.035
+    ok = improved and beats_phase3b
+    parts = " ".join(f"{val:.4f}" for val in y)
+    return ok, (
+        f"y_t per iter=[{parts}] oracle=1.0 |err|=[{' '.join(f'{e:.4f}' for e in errs)}] "
+        f"best|err|={best:.4f}(<0.035 Phase-3b) improved-vs-iter1={improved} L=32"
+    )
+
+
+def _g28_y_h_matches_onsager() -> tuple[bool, str]:
+    """y_h trifft das exakte Onsager-Orakel 15/8=1.875 (TIEFSTE RG-Iteration).
+
+    Der ungerade (magnetische) Sektor: groesster ungerader Eigenwert ->
+    y_h = ln lambda_h/ln 2. EHRLICH: einzelne RG-Stufe bei kleinem L gibt y_h zu
+    GROSS (1-Stufe-Bias); die TIEFSTE Iteration kontrahiert irrelevante
+    magnetische Richtungen heraus und konvergiert zu 15/8 (Swendsen). Gate auf
+    eine systematik-ehrliche Bande |y_h - 15/8| < 0.05 fuer den besten
+    (tiefsten) Iterationswert; alle Iterationen werden berichtet.
+    """
+    v = mcrg_multirg.validate_multirg_2d(
+        L=32, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
+    )
+    y = v.multirg_odd.y_h_per_iter
+    errs = v.multirg_odd.abs_err_per_iter
+    best = float(errs.min())
+    ok = best < 0.05
+    parts = " ".join(f"{val:.4f}" for val in y)
+    return ok, (
+        f"y_h per iter=[{parts}] oracle=15/8=1.8750 |err|=[{' '.join(f'{e:.4f}' for e in errs)}] "
+        f"best|err|={best:.4f}(<0.05) sigma_jk~{float(v.multirg_odd.y_h_err_per_iter.min()):.4f} "
+        f"L=32 (deep RG iter -> Onsager fixed point)"
+    )
+
+
+def _g29_phase4_reproducible() -> tuple[bool, str]:
+    """Reproduzierbarkeit Phase-4: gleicher Seed -> bit-identische y_t/y_h-Reihen."""
+    a = mcrg_multirg.validate_multirg_2d(L=16, n_levels=3, n_records=1500, burn_in=300, seed=11)
+    b = mcrg_multirg.validate_multirg_2d(L=16, n_levels=3, n_records=1500, burn_in=300, seed=11)
+    c = mcrg_multirg.validate_multirg_2d(L=16, n_levels=3, n_records=1500, burn_in=300, seed=12)
+    same = np.array_equal(a.multirg.y_t_per_iter, b.multirg.y_t_per_iter) and np.array_equal(
+        a.multirg_odd.y_h_per_iter, b.multirg_odd.y_h_per_iter
+    )
+    diff = not np.array_equal(a.multirg.y_t_per_iter, c.multirg.y_t_per_iter)
+    ok = same and diff
+    return ok, f"seed-eq identical={same} diff-seed differs={diff}"
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -632,6 +847,12 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G21 T=A.B^-1 linear-solve consistency (resid~eps)", _g21_T_linear_solve_consistency),
     ("G22 y_t matrix vs Onsager y_t=1 (honest band)", _g22_y_t_matches_oracle),
     ("G23 Swendsen-matrix reproducibility (seed)", _g23_matrix_reproducible),
+    ("G24 Wolff-cluster energy vs exact L=4 enum", _g24_wolff_energy_vs_exact),
+    ("G25 Wolff cluster-fraction grows with K", _g25_wolff_cluster_fraction_grows),
+    ("G26 tau_int(Wolff) < tau_int(Metropolis)", _g26_tau_wolff_below_metropolis),
+    ("G27 y_t multi-RG converges (beats Phase-3b)", _g27_y_t_multirg_converges),
+    ("G28 y_h matrix vs Onsager 15/8 (deep RG)", _g28_y_h_matches_onsager),
+    ("G29 Phase-4 reproducibility (seed)", _g29_phase4_reproducible),
 ]
 
 

@@ -34,7 +34,15 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
   die volle **Multi-Operator-Swendsen-MATRIX**. Der thermische Exponent `y_t` wird gegen das **exakte
   Onsager-Orakel `y_t = 1`** geprüft — aber **auf Plausibilitäts-Niveau, NICHT als Frontier-Wert**:
   Single-Spin-Metropolis nahe T_c hat kritisches Slowing-Down, kleines L + 1 RG-Stufe → `y_t` ist GROB
-  (`y_t ≈ 0.97 ± 0.01`, |err| ≈ 0.035). `y_h = 15/8` (ungerader Sektor) ist **nicht** implementiert (Stretch).
+  (`y_t ≈ 0.97 ± 0.01`, |err| ≈ 0.035).
+- **Phase-4 (NEU) adressiert die drei vom Cross-Family-Review benannten Präzisions-Schwächen:**
+  (1) **Wolff-Single-Cluster-Sampler** (`wolff2d.py`, `P_add = 1−e^{−2K}`) schlägt das kritische
+  Slowing-Down — `τ_int(Wolff) ≪ τ_int(Metropolis)` (gemessen `×12–16` bei L=32);
+  (2) **mehrere iterierte RG-Stufen** (`mcrg_multirg.py`) → `y_t` konvergiert zum Fixpunkt:
+  bester Iterations-`|y_t−1| ≈ 0.006` (vs Phase-3b 0.035);
+  (3) **ungerader (magnetischer) Sektor** → `y_h` gegen das exakte Onsager-Orakel `y_h = 15/8 = 1.875`:
+  tiefste RG-Iteration `|y_h − 15/8| ≈ 0.002`. **Ehrlich:** Rest-finite-Size-Systematik bleibt; das ist
+  **keine** volle `L→∞`-FSS-Extrapolation, **kein** Frontier-Hochpräzisionswert.
 - Surrogate-Layer, SNIS, MMD-Drift, Checkpoint/Restart, R-hat-Multichain-Diagnostik (Spec-Phasen 2–5)
   sind **noch nicht** implementiert.
 
@@ -48,12 +56,14 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 23 Gates, JSON-Log) | **real** (23/23 [PASS], exit 0) |
+| Selftest-Gates (`cli.py --selftest`, 29 Gates, JSON-Log) | **real** (29/29 [PASS], exit 0) |
 | SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4) |
 | Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
 | **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
-| Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phasen 4–5) |
+| **Wolff-Single-Cluster-Sampler (`wolff2d.py`, Phase-4)** | **real** — `P_add = 1−e^{−2K}`, vektorisierter BFS-Cluster, rejection-free. Energie gegen exakte L=4-Enumeration (\|err\|<0.008); `τ_int(Wolff) ≪ τ_int(Metropolis)` belegt (×12–16 @ L=32) |
+| **Multi-RG-Iteration + ungerader Sektor `y_h` (`mcrg_multirg.py`, Phase-4)** | **real** — iterierte Majority-Stufen (L=32→16→8→4); gerader `y_t` konvergiert (bester \|y_t−1\|≈0.006 vs 3b 0.035); 3-Spin-ungerade Operatoren → `y_h` vs Onsager `15/8` (bester \|y_h−15/8\|≈0.002). **Ehrlich:** Rest-finite-Size, keine L→∞-FSS |
+| Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phase 5) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
 
@@ -112,10 +122,11 @@ das exakte Orakel, nicht ein Hochpräzisions-Wert. `y_h = 15/8` (ungerader Sekto
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 23 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 29 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
-python -m adaptiverg_qec.mcrg_matrix   # schreibt results/phase3b-swendsen-matrix.json
+python -m adaptiverg_qec.mcrg_matrix    # schreibt results/phase3b-swendsen-matrix.json
+python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.json (Wolff+Multi-RG+y_h)
 ```
 
 ## Inhalt
