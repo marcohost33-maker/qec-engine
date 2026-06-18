@@ -2,7 +2,7 @@
 
 **Projekt:** AdaptiveRG-QEC Engine — Adaptive Renormalization-Group + Quantum-Error-Correction
 Simulation Engine. Coworker-Research Säule 3 (Physik/Methodik).
-**Typ:** ⚠ **Spec/Theorie-Repo — KEIN Code vorhanden** (G:-weit kein `.py` zu QEC/AdaptiveRG).
+**Typ:** Spec/Theorie-Repo **+ Phase-1-MVP-Code** (seit PR#4, 2026-06-18; `src/adaptiverg_qec/`, Diagnostik-/Verifikations-Harness). Ursprünglich Spec-only (kein `.py`); Code-Lineage im Append unten.
 
 ## Kanonische Quellen (gestaged in `spec/`)
 | Datei | Drive-Ort | Drive-ID | Größe |
