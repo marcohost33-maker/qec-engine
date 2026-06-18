@@ -29,7 +29,12 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 - Die Phase-1-**MVP-Instanz** ist der **1D-Repetition-Code-Ring** (= 1D-Ising). Der hat `T_c = 0`, also
   **keinen endlichen Threshold** und keinen nicht-trivialen 2D-Exponenten. Das MVP demonstriert die
   **Korrektheit der Maschinerie** gegen geschlossene analytische Orakel — es liefert **keinen** physikalischen
-  Frontier-Wert und behauptet die Spec-Phase-2-Ziele (2D-Ising `y_t=1`, `y_h=15/8`) **nicht**.
+  Frontier-Wert.
+- **Phase-3b (NEU) bringt das 2D-Ising-Modell** (`T_c = 2/ln(1+√2) ≈ 2.269`, nicht-trivialer Fixpunkt) und
+  die volle **Multi-Operator-Swendsen-MATRIX**. Der thermische Exponent `y_t` wird gegen das **exakte
+  Onsager-Orakel `y_t = 1`** geprüft — aber **auf Plausibilitäts-Niveau, NICHT als Frontier-Wert**:
+  Single-Spin-Metropolis nahe T_c hat kritisches Slowing-Down, kleines L + 1 RG-Stufe → `y_t` ist GROB
+  (`y_t ≈ 0.97 ± 0.01`, |err| ≈ 0.035). `y_h = 15/8` (ungerader Sektor) ist **nicht** implementiert (Stretch).
 - Surrogate-Layer, SNIS, MMD-Drift, Checkpoint/Restart, R-hat-Multichain-Diagnostik (Spec-Phasen 2–5)
   sind **noch nicht** implementiert.
 
@@ -43,11 +48,11 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 18 Gates, JSON-Log) | **real** (18/18 [PASS], exit 0) |
+| Selftest-Gates (`cli.py --selftest`, 23 Gates, JSON-Log) | **real** (23/23 [PASS], exit 0) |
 | SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4) |
 | Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
-| Multi-Operator-Swendsen-MATRIX (mehrere S_a, lineares System) | **offen** (Phase-3b) |
+| **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
 | Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phasen 4–5) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
@@ -75,13 +80,42 @@ korrekte Verhältnis-Inflation direkt. K≤0.7 wird gegen das L→∞-Orakel geg
 **K=0.9 ist ein Autokorrelations-Diagnostik-Punkt** — am Rand von Θ wird die endliche-L-Systematik
 vergleichbar mit dem Fehlerbalken (kein sauberer 3σ-Treffer behauptet).
 
+### Phase-3b: 2D-Ising + Multi-Operator-Swendsen-MATRIX (NEU)
+
+Phase-2/3a war **skalar** (1D-Ising, `T_c=0` → kein nicht-trivialer Exponent, nur die Schätz-Maschinerie
+prüfbar). Phase-3b bringt das **2D-Ising-Modell** (echter Fixpunkt bei `T_c ≈ 2.269`) und die volle
+**Multi-Operator-Matrix**:
+
+- `ising2d.py` — **vektorisierter** Checkerboard-(Schachbrett-)Metropolis (numpy, kein Python-Spin-Loop) +
+  Majority-Rule-Blocking `b=2` (Kadanoff) mit **unbiased, deterministischem** Tie-Break (50/50, getestet).
+- `mcrg_matrix.py` — gerade Operatoren `S₁=NN`, `S₂=NNN(Diag)`, `S₃=Plaquette`; connected-correlation-Matrizen
+  `A_ab=⟨S′_a S_b⟩_c`, `B_ac=⟨S′_a S′_c⟩_c`; RG-Matrix **`T = A·B⁻¹` via `np.linalg.solve`** (keine explizite
+  Inverse); Exponenten `y_i = ln|λ_i|/ln 2`; Block-Jackknife-Fehler über die Matrix-Pipeline.
+
+**Resultat (ehrlich, `results/phase3b-swendsen-matrix.json`, L=16, N_op=2, K=K_c, 3 Seeds):**
+
+| Größe | Wert | Orakel (Onsager, web-verifiziert) |
+|---|---|---|
+| `y_t` (multi-seed) | **0.965 ± 0.009** | `y_t = 1/ν = 1` |
+| |y_t − 1| | ≈ 0.035 | — |
+| λ_max | ≈ 1.95 | `b^{y_t} = 2` |
+| `T = A·B⁻¹` Residuum `max|T·B−A|` | ≈ 2e-13 | 0 (linear-solve) |
+| `cond(B)` | ≈ 87 | gut konditioniert |
+
+**Ehrliche Scope-Grenze (kein Über-Claim):** Single-Spin-Metropolis nahe T_c leidet unter **kritischem
+Slowing-Down**; kleines L + 1 RG-Stufe → `y_t` ist nur **grob** (Plausibilität, KEIN Frontier-Wert).
+Cluster-Algorithmus (Wolff/Swendsen-Wang) + mehrere RG-Iterationen wären für Präzision nötig — das ist
+**Phase-4**. Validiert wird die **MATRIX-MASCHINERIE** (≥2 Operatoren, `A·B⁻¹`, Eigenwert-Exponenten) gegen
+das exakte Orakel, nicht ein Hochpräzisions-Wert. `y_h = 15/8` (ungerader Sektor) ist nicht implementiert.
+
 ## Schnellstart
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 18 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 23 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
+python -m adaptiverg_qec.mcrg_matrix   # schreibt results/phase3b-swendsen-matrix.json
 ```
 
 ## Inhalt

@@ -29,8 +29,16 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
   FFT-ρ via Wiener-Khinchin, τ_int + Wolff-g-Windowing hep-lat/0306017, Binning-Cross-Check, Block-Jackknife
   fürs Verhältnis). Belegt: τ_int>0.5, N_eff<N, σ_korr>σ_iid; T̂ trifft tanh(2K) innerhalb σ_korr (K≤0.7).
   Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau. Gates G13–G18, `results/phase3a-akernel-autocorr.json`.
-- **Phase-3b [OFFEN]:** Multi-Operator-Swendsen-MATRIX (mehrere S_a, lineares Gleichungssystem dK'_a/dK_b),
-  Bias-Ordnung O(n^−β) empirisch, hyperbolischer Fixpunkt im Mehr-Kopplungs-Fall.
+- **Phase-3b [DONE 2026-06-18, Branch `claude/phase3b-swendsen-matrix`]:** Multi-Operator-Swendsen-MATRIX auf
+  dem **2D-Ising-Modell** (nicht-trivialer Fixpunkt `T_c = 2/ln(1+√2) ≈ 2.269`, anders als 1D `T_c=0`).
+  `ising2d.py`: vektorisierter Checkerboard-Metropolis (numpy, kein Spin-Loop) + Majority-Rule-Blocking b=2
+  (Kadanoff) mit unbiased-deterministischem Tie-Break. `mcrg_matrix.py`: gerade Operatoren (S₁=NN, S₂=NNN,
+  S₃=Plaquette); connected-correlation-Matrizen A=⟨S′S⟩_c, B=⟨S′S′⟩_c; **T = A·B⁻¹ via `np.linalg.solve`**
+  (keine explizite Inverse); Exponenten y_i = ln|λ_i|/ln 2; Block-Jackknife-Fehler über die Matrix-Pipeline.
+  Validiert: 2D-Energie vs exakte L=4-Enumeration (|err|<0.005); A,B symmetrisch/PSD; T·B−A-Residuum ~2e-13;
+  **y_t = 0.97 ± 0.01 vs Onsager-Orakel y_t=1** (|err|≈0.035). Gates G19–G23, `results/phase3b-swendsen-matrix.json`.
+  **Ehrliche Scope-Grenze:** single-spin Metropolis + 1 RG-Stufe + kleines L → y_t nur GROB (Plausibilität,
+  kein Frontier-Wert; Cluster-Algo + Multi-RG = Phase-4). y_h=15/8 (ungerader Sektor) nicht implementiert.
 
 ## Phase 4 — Sampling (SNIS) + Surrogate-Beschleunigung + Fehlerbudgets
 - Self-Normalized Importance Sampling mit χ²-Divergenz-Varianz-Bound; Surrogate-Drift-Kontrolle.

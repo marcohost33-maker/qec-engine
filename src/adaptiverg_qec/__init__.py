@@ -6,6 +6,10 @@ Bounded MVP-Implementierung der gehaerteten Kernel-Spec v1.0 (spec/):
 - C-Kernel: minimale MCRG-/RG-Map + Jacobian (Complex-Step / FD) + Exponenten.
 - Phase-3a: Swendsen-T_hat aus dem korrelierten A-Kernel + autokorrelations-bewusste
   Fehler (autocorr.py: FFT-rho, tau_int + Wolff-Windowing, Binning, Block-Jackknife).
+- Phase-3b: Multi-Operator-Swendsen-MATRIX auf 2D-Ising (ising2d.py: vektorisierter
+  Checkerboard-Metropolis + Majority-Rule-Blocking b=2; mcrg_matrix.py: gerade
+  Operatoren, connected-corr-Matrizen A,B, T=A.B^-1, Eigenwert-Exponent y_t vs
+  Onsager-Orakel y_t=1 -- ehrlich GROB, kein Frontier-Wert).
 
 EHRLICHER STATUS: Diagnostik- und Verifikations-Harness mit rigorosen
 Konvergenz-Guards, KEIN Frontier-Threshold-Tool. SOTA fuer Praezisions-
@@ -15,6 +19,6 @@ Die MVP-Instanz (Code/V/g) ist explizit in `mvp_instance.py` dokumentiert und
 als MVP-WAHL gekennzeichnet, nicht als die volle Spec.
 """
 
-__version__ = "0.1.0.dev1"  # PEP 440; Phase-1/2-MVP + Phase-3a (dev-Reife, NICHT release-fertig)
+__version__ = "0.1.0.dev2"  # PEP 440; Phase-1/2-MVP + Phase-3a/3b (dev-Reife, NICHT release-fertig)
 
 __all__ = ["__version__"]

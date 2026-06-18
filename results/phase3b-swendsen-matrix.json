@@ -1,0 +1,83 @@
+{
+  "tool": "adaptiverg_qec.mcrg_matrix",
+  "method": "Multi-operator Swendsen-MCRG matrix T=A.B^-1 (2D-Ising, even sector)",
+  "operators": [
+    "S1=NN-bonds",
+    "S2=NNN-bonds (diag)"
+  ],
+  "blocking": "majority-rule b=2 (Kadanoff), unbiased deterministic tie-break",
+  "oracle_y_t": 1.0,
+  "oracle_source": "Onsager 1944 (y_t=1/nu=1); web-verified this run",
+  "K": 0.44068679350977147,
+  "T_c": 2.269185314213022,
+  "L": 16,
+  "n_op": 2,
+  "scope_note": "Single-spin Metropolis near T_c -> critical slowing-down; small L + 1 RG step => y_t only coarse (plausibility, NOT a frontier value). Cluster algo + multi RG steps = Phase-4.",
+  "rows": [
+    {
+      "seed": 0,
+      "y_t": 0.9620743073104707,
+      "y_t_error_jackknife": 0.01282754451200649,
+      "abs_error_vs_oracle": 0.03792569268952928,
+      "n_sigma": 2.956582427293945,
+      "lambda_max": 1.9481088736086845,
+      "cond_B": 87.26739243966706,
+      "tau_int_max": 4.292362206104164,
+      "block_size": 9,
+      "n_blocks": 666,
+      "n_samples": 6000,
+      "eigenvalues_abs": [
+        1.9481088736086845,
+        0.20520006968096904
+      ],
+      "exponents": [
+        0.9620743073104707,
+        -2.2848968740380515
+      ]
+    },
+    {
+      "seed": 1,
+      "y_t": 0.9747667403326046,
+      "y_t_error_jackknife": 0.012729263847867515,
+      "abs_error_vs_oracle": 0.025233259667395425,
+      "n_sigma": 1.9823031377908515,
+      "lambda_max": 1.9653234114638973,
+      "cond_B": 88.49498716449236,
+      "tau_int_max": 4.754650650677398,
+      "block_size": 10,
+      "n_blocks": 600,
+      "n_samples": 6000,
+      "eigenvalues_abs": [
+        1.9653234114638973,
+        0.18004396177200732
+      ],
+      "exponents": [
+        0.9747667403326046,
+        -2.4735788789618196
+      ]
+    },
+    {
+      "seed": 2,
+      "y_t": 0.9586219810979993,
+      "y_t_error_jackknife": 0.013977778172939664,
+      "abs_error_vs_oracle": 0.04137801890200066,
+      "n_sigma": 2.960271538870648,
+      "lambda_max": 1.943452680453265,
+      "cond_B": 89.74556191382386,
+      "tau_int_max": 3.5879848820483846,
+      "block_size": 8,
+      "n_blocks": 750,
+      "n_samples": 6000,
+      "eigenvalues_abs": [
+        1.943452680453265,
+        0.24657952643829528
+      ],
+      "exponents": [
+        0.9586219810979993,
+        -2.0198750775154
+      ]
+    }
+  ],
+  "y_t_mean": 0.9651543429136916,
+  "y_t_multiseed_spread": 0.008501663200437526
+}

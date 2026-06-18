@@ -89,3 +89,42 @@ mit K∈{0.3..0.9}; Fehler-Inflation 1.006→1.129; N_eff 13745→3198 (< N durc
 `cli.py` erweitert (record_configs, swendsen_T_from_chain, Gates G13–G18). Kein importierter Fremdcode.
 
 *Codie | 2026-06-18 | Phase-3a-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*
+
+---
+
+## Lineage-Append (append-only) — 2026-06-18 — Phase-3b
+
+### Phase-3b: Multi-Operator-Swendsen-MATRIX auf 2D-Ising
+**Branch `claude/phase3b-swendsen-matrix` (Agent: Claude/Codie).**
+
+Punkt-1-Richtung des Marco-Entscheids (nach Punkt-2 = Phase-3a): Verallgemeinerung des SKALAREN Swendsen-
+Schätzers (eine Kopplung) auf die volle linearisierte RG-**MATRIX** `T_ab = dK′_a/dK_b`. Erfordert ein Modell
+mit nicht-trivialem Fixpunkt → **2D-Ising** (Quadratgitter, `T_c = 2/ln(1+√2) ≈ 2.269`, anders als 1D `T_c=0`).
+NEU: `src/adaptiverg_qec/ising2d.py` + `src/adaptiverg_qec/mcrg_matrix.py`. KEINE neuen Runtime-Deps (numpy).
+
+**Methoden-Referenzen (validiert, NICHT als Dependency):**
+- R. H. Swendsen, *Monte Carlo Renormalization Group*, Phys. Rev. Lett. 42 (1979) 859 — linearisierte
+  RG-Matrix aus connected correlations: `A_ab=⟨S′_a S_b⟩_c`, `B_ac=⟨S′_a S′_c⟩_c`, `T = A·B⁻¹`.
+- L. Onsager, Phys. Rev. 65 (1944) 117 — exakte 2D-Lösung: `T_c`, `y_t = 1/ν = 1`, `y_h = 2−η/2 = 15/8`.
+- L. P. Kadanoff, Physics 2 (1966) 263 — Block-Spin / Majority-Rule-Blocking.
+
+**Onsager-Orakel selbst web-verifiziert (dieser Lauf):** y_t = 1/ν = 1 (ν=1), y_h = 2−η/2 = 15/8 = 1.875
+(η=1/4), T_c ≈ 2.269 — quergeprüft gegen mehrere RG-/Lehrbuch-Quellen vor der Validierung.
+
+**Validierungs-Orakel (unabhängig):**
+- 2D-Metropolis-Energie vs **exakte L=4-Enumeration** (2^16 Zustände, gleiche Bond-Konvention), |err|<0.005 (G19).
+- A,B connected-corr-Matrizen symmetrisch + PSD + gut konditioniert (cond(B)≈87) (G20).
+- `T = A·B⁻¹` linear-solve-Konsistenz: Residuum `max|T·B−A| ≈ 2e-13` ~ Maschinen-eps (G21).
+- y_t aus den Eigenwerten vs Onsager `y_t=1` (G22); Reproduzierbarkeit per Seed (G23).
+
+**Gemessene Zahlen (Evidenz `results/phase3b-swendsen-matrix.json`, L=16, N_op=2, K=K_c, 3 Seeds):**
+y_t = **0.965 ± 0.009** (multi-seed), |err|≈0.035 vs Orakel 1.0; λ_max≈1.95; τ_int(max)≈4.3.
+
+**EHRLICHE SCOPE-GRENZE (kein Über-Claim):** Single-Spin-Metropolis nahe T_c hat kritisches Slowing-Down;
+kleines L + 1 RG-Stufe → y_t nur GROB (Plausibilitäts-Niveau, KEIN Frontier-Wert). Cluster-Algorithmus
+(Wolff/Swendsen-Wang) + mehrere RG-Iterationen = Phase-4. y_h (ungerader Sektor) nicht implementiert.
+
+**Code-Provenienz:** `ising2d.py` + `mcrg_matrix.py` + `tests/test_ising2d.py` + `tests/test_mcrg_matrix.py`
+neu erstellt 2026-06-18; `cli.py` erweitert (Gates G19–G23 + Phase-3b-Edge-Cases in G8). Kein importierter Fremdcode.
+
+*Codie | 2026-06-18 | Phase-3b-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*
