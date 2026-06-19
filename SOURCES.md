@@ -184,3 +184,53 @@ werden im Log mitgeführt.
 neu erstellt 2026-06-18; `cli.py` erweitert (Gates G24–G29 + Phase-4-Edge-Cases in G8). Kein importierter Fremdcode.
 
 *Codie | 2026-06-18 | Phase-4-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*
+
+---
+
+## Lineage-Append (append-only) — 2026-06-19 — QEC-Inkrement 3 (MWPM via Stim+PyMatching)
+
+### Inkr.3: ECHTES MWPM-Decoding hinter optional-dependency-Gate
+**Branch `claude/qec-inkr3` (Agent: Claude/Codie).**
+
+Schliesst die in der QEC-Diagnostik-Roadmap als Inkr.3 definierte Luecke: ein ECHTER Decoder
+(nicht das exakt-orakelbare Repetition-Modell, nicht der hand-gerollte, in Inkr.2 verworfene
+Prototyp). KEIN Eigen-Decoder — etablierte Bibliotheken hinter `pip install ".[surface]"`:
+`stim` (Sampling/Schaltkreis) + `pymatching` 2 (Minimum-Weight-Perfect-Matching). NICHT als
+Kern-Dependency; ohne das Extra SKIPPEN die Tests (verifiziert: dev-only-venv 3 passed/30 skipped/exit 0).
+
+**Decoder/Methoden-Referenzen (als optionale Dependency genutzt):**
+- O. Higgott, C. Gidney, *Sparse Blossom: correcting a million errors per core second with
+  minimum-weight matching* (PyMatching 2), arXiv:2303.15933 — verwendeter MWPM-Decoder.
+- C. Gidney, *Stim: a fast stabilizer circuit simulator*, Quantum 5, 497 (2021) — Sampling.
+
+**Publizierte Threshold-Orakel (web-recherchiert dieser Lauf, mehrere Quellen):**
+- **MWPM-Threshold ≈ 0.103** (code-capacity, independent X/Z, = Nulltemperatur-Uebergang des
+  2D-Random-Bond-Ising-Modells): E. Dennis, A. Kitaev, A. Landahl, J. Preskill, *Topological
+  quantum memory*, J. Math. Phys. 43, 4452 (2002). [errorcorrectionzoo.org/c/toric]
+- **Optimaler/ML-Threshold ≈ 0.1094** (Nishimori-Punkt des 2D-RBIM, finite-T) — zur Einordnung,
+  NICHT als Orakel; MWPM ist near-optimal aber sub-optimal (10.31% MWPM vs 10.94% ML).
+- Phenomenological-noise MWPM-Threshold ≈ 2.9%: Wang, Harrington & Preskill, Ann. Phys. 303,
+  31 (2003) — fuer den noch offenen naechsten Schritt notiert.
+
+**Validierungs-Orakel (unabhaengig, real ausgefuehrt, seed=11):**
+- **Orakel A** — Repetition-Code MWPM (PyMatching aus Paritaets-Pruefmatrix) vs exaktes
+  Binomial-Orakel (Inkr.1). Auf 1D-Matching IST MWPM ML-optimal → muss treffen. `d∈{3,5,7}`
+  @ p=0.10, 200 000 shots → worst `n_sigma = 1.55` (rein statistisch).
+- **Orakel B** — Rotated-Surface-Code, code-capacity pure-X-flip (X_ERROR(p) nur auf Daten-
+  Qubits, perfekte Messung), MWPM via Stim-DEM. Threshold via Distanz-Kurven-Kreuzung,
+  60 000 shots/Zelle: (7,9)→0.0952, (9,11)→0.1015, (7,11)→0.0978. **best pair (9,11):
+  `p_th = 0.1015` vs publiziert 0.103 → `abs_err = 0.0015`.**
+
+**EHRLICHE KORREKTHEITS-GRENZE (kein Overclaim, Lehre aus Inkr.2-Fabrikation):** validiert
+gegen 0.103 (MWPM), NICHT gegen 0.1094 (optimal/ML) — ein Schaetzer, der 0.109 „erreicht",
+waere verdaechtig. Endliche Distanzen → KEINE L→∞-FSS; der Kreuzungs-Schaetzer driftet von
+unten zum Threshold (sichtbar: (7,9)<(9,11)). Phenomenological noise (~2.9%) und
+depolarisierendes Rauschen sind NICHT implementiert. Jede genannte Zahl ist aus
+`python -m adaptiverg_qec.surface_decoder` → `results/qec-surface-mwpm.json` regenerierbar
+(stim 1.16.0, pymatching 2.4.0).
+
+**Code-Provenienz:** `src/adaptiverg_qec/surface_decoder.py` + `tests/test_surface_decoder.py`
+neu erstellt 2026-06-19; `pyproject.toml` `[surface]`-Extra ergaenzt; README + QEC-Roadmap
+aktualisiert. Kein importierter Fremdcode (stim/pymatching nur als optionale Runtime-Deps).
+
+*Codie | 2026-06-19 | Inkr.3-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*

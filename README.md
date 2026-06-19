@@ -119,7 +119,7 @@ Cluster-Algorithmus (Wolff/Swendsen-Wang) + mehrere RG-Iterationen wären für P
 **Phase-4**. Validiert wird die **MATRIX-MASCHINERIE** (≥2 Operatoren, `A·B⁻¹`, Eigenwert-Exponenten) gegen
 das exakte Orakel, nicht ein Hochpräzisions-Wert. `y_h = 15/8` (ungerader Sektor) ist nicht implementiert.
 
-## QEC-Diagnostik-Harness (Inkrement 1 + 2)
+## QEC-Diagnostik-Harness (Inkrement 1 + 2 + 3)
 
 Additiver, eigenständiger Strang (`qec_diagnostics.py`, `qec_fit_diagnostics.py`): die
 **eigentliche Fehlerkorrektur-Diagnostik**, die dem MCRG-Teil fehlte — logische Fehlerrate
@@ -143,11 +143,26 @@ ML-Brute-Force-Decoder ist für Inkr.3 (PyMatching) vorgesehen; der eigene Proto
 verworfen (verließ für `d=5` den Codespace) — daher wird hier **keine** Brute-Force-
 Vergleichszahl behauptet.
 
-> **Ehrliche Abgrenzung:** Surface-Code, MWPM und phenomenological-noise-Spacetime-Decoder
-> sind bewusst NICHT hier. Sie erfordern eine etablierte Matching-Bibliothek (PyMatching)
-> hinter optional-dependency-Gate — das ist **Inkrement 3** der Roadmap. Ein hand-gerollter
-> Spacetime-Matcher wurde im Prototyp gebaut und verworfen (verließ für `d=5` den Codespace
-> in ~2–6 % der Fälle = Decoder-Bug), genau weil etablierte Tools existieren.
+- **Inkr. 3** (`surface_decoder.py`): **ECHTES MWPM-Decoding** via **Stim** (Sampling) +
+  **PyMatching 2** (Minimum-Weight-Perfect-Matching) — kein Eigen-Decoder, hinter dem
+  optional-dependency-Gate `pip install ".[surface]"`. Ohne das Extra SKIPPEN die Tests
+  (sie failen nicht hart). Zwei unabhängige Orakel:
+
+| Orakel | Modell | Vergleich | Real gemessen (regenerierbar) |
+|---|---|---|---|
+| A | Repetition-Code, code-capacity bit-flip, MWPM (= ML auf 1D-Matching-Graph) | exaktes Binomial-Orakel (Inkr.1) | `d∈{3,5,7}` @ p=0.1, 200k shots → worst `n_sigma = 1.55` |
+| B | Rotated-Surface-Code, code-capacity pure-X-flip, MWPM-Threshold (Distanz-Kurven-Kreuzung) | publizierter MWPM-Threshold **0.103** (Dennis et al. 2002) | best pair (9,11) → `p_th = 0.1015`, **`abs_err = 0.0015`** |
+
+Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`).
+
+> **Ehrliche Korrektheits-Grenze (kein Overclaim):** Validiert wird gegen den MWPM-Wert
+> 0.103 (Nulltemperatur-RBIM), **NICHT** gegen den optimalen ML/Tensor-Network-Threshold
+> 0.1094 (Nishimori-Punkt) — MWPM ist near-optimal, aber sub-optimal; ein Schätzer, der
+> 0.109 „erreicht", wäre verdächtig. Endliche Distanzen liefern **keine** `L→∞`-FSS; der
+> Kreuzungs-Schätzer driftet mit wachsender Distanz von unten zum Threshold (gemessen:
+> (7,9)→0.0952, (9,11)→0.1015). Phenomenological-noise (Mess-Fehler, mehrere Runden;
+> publizierter MWPM-Threshold ~2.9%) ist noch nicht implementiert (nächster Schritt).
+> Der in Inkr.2 verworfene hand-gerollte Spacetime-Matcher ist hiermit durch PyMatching ersetzt.
 
 ## Schnellstart
 
@@ -158,6 +173,8 @@ adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
 python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code.json (Inkr.1)
 python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)
+pip install ".[surface]"                       # optionales MWPM-Extra (stim + pymatching)
+python -m adaptiverg_qec.surface_decoder      # results/qec-surface-mwpm.json (Inkr.3, braucht [surface])
 python -m adaptiverg_qec.mcrg_matrix    # schreibt results/phase3b-swendsen-matrix.json
 python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.json (Wolff+Multi-RG+y_h)
 ```
