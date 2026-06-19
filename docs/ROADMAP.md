@@ -87,8 +87,9 @@ gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über
   bei p=0 unsichtbar war); (d) Stationaritäts-Energiehistogramm == exakte Boltzmann-Gewichte (max diff 0.011).
 - **Gemessen — regenerierbares Artefakt `results/inkr4-rbim-nishimori.json` (L=8, 24 Realisierungen,
   `python -m adaptiverg_qec.rbim_nishimori`):** `[<|m|>]` fällt monoton `0.98 → 0.36` über `p=0.04 → 0.20`;
-  **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung L=12 (30
-  Realisierungen, separat):** `[<|m|>] 0.99 → 0.22`, `p* ≈ 0.12` (|err| ≈ 0.01) — erwarteter
+  **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — Artefakt
+  `results/inkr4-rbim-nishimori-L12.json` (L=12, 30 Realisierungen, via `--L 12 --n-disorder 30`):**
+  `[<|m|>] 0.99 → 0.22`, `p* = 0.120` (|err| = 0.011) — erwarteter
   Finite-Size-Shift zu kleinerem `p*` mit wachsendem L; beide konsistent mit `p_c ≈ 0.109`.
   Gates: `tests/test_rbim_nishimori.py` (10/10).
 - **Ehrliche Scope-Grenze:** kleines L + endliches Disorder-Sampling → **grobe Lokalisierung auf
