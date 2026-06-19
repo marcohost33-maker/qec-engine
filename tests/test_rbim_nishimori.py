@@ -168,8 +168,10 @@ def test_transition_consistent_with_pc_0109() -> None:
     # Monotoner Trend: tiefer p (FM) -> hoehere |m| als hoher p (PM).
     assert res[0].abs_m > res[-1].abs_m, "no FM->PM ordering"
     pstar = locate_transition(res)
-    # weites Fenster (grobe Aufloesung, KEIN Frontier-Wert): p_c=0.109 +/- 0.07.
-    assert 0.04 <= pstar <= 0.18, f"transition {pstar} outside plausible window"
+    # NICHT-vakuoses Band um p_c=0.109: Grid-Mittelpunkte sind {0.065, 0.11, 0.155};
+    # nur der korrekte (0.11) besteht -> ein falsch lokalisierter Uebergang FAILT
+    # (vorher 0.04..0.18 = alle drei bestanden = vakuoser Gate, Codex-P2).
+    assert 0.085 <= pstar <= 0.135, f"transition {pstar} not consistent with p_c~0.109"
 
 
 # --------------------------------------------------------------------------- G-N7
@@ -195,6 +197,8 @@ def test_invalid_inputs_raise() -> None:
         rbim_wolff_sample(b, 0.5, n_records=0, burn_in=0, seed=0)  # n_records<1
     with pytest.raises(ValueError):
         locate_transition([])  # too few points
+    with pytest.raises(ValueError):  # Codex-P2: empty disorder scan must fail, not nan
+        nishimori_scan(0.1, 4, n_disorder=0, n_records=10, burn_in=10, base_seed=0)
 
 
 # --------------------------------------------------------------------------- G-N8

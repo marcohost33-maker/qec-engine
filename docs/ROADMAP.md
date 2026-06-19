@@ -84,7 +84,8 @@ gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über
   `energy_per_spin` (byte-genau); (b) **Gauge-Invarianz** `s_i→τ_i s_i, J_ij→τ_iτ_j J_ij` lässt E exakt
   invariant (diff < 1e-12); (c) **exakte L=4-Boltzmann-Enumeration** (2^16 Zustände, voll) trifft E/N und
   ⟨|m|⟩ auch im FRUSTRIERTEN Fall (p>0; dieser Test fing einen Bond-Richtungs-Bug in der Cluster-BFS, der
-  bei p=0 unsichtbar war); (d) Stationaritäts-Energiehistogramm == exakte Boltzmann-Gewichte (max diff 0.011).
+  bei p=0 unsichtbar war); (d) Stationaritäts-Sektor (G-N5): aligned-Start landet im korrekten FM-Sektor
+  (p<p_c, hohes ⟨|m|⟩) bzw. PM-Sektor (p>p_c, relaxiert) — kein Bias.
 - **Gemessen — regenerierbares Artefakt `results/inkr4-rbim-nishimori.json` (L=8, 24 Realisierungen,
   `python -m adaptiverg_qec.rbim_nishimori`):** `[<|m|>]` fällt monoton `0.98 → 0.36` über `p=0.04 → 0.20`;
   **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — Artefakt

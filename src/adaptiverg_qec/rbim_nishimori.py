@@ -461,6 +461,8 @@ def nishimori_scan(
     Returns:
         DisorderResult.
     """
+    if n_disorder < 1:
+        raise ValueError(f"n_disorder must be >= 1, got {n_disorder}")
     beta = nishimori_beta(p)
     per_real_absm: list[float] = []
     per_real_m2: list[float] = []
