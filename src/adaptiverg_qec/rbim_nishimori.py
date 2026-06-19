@@ -648,6 +648,28 @@ def _write_validation_report(
 
 
 if __name__ == "__main__":
+    import argparse
     import sys
 
-    sys.exit(_write_validation_report())
+    ap = argparse.ArgumentParser(
+        description="Inkr.4 RBIM-Nishimori-Validierungs-Report (regenerierbar)."
+    )
+    ap.add_argument("--L", type=int, default=8, help="Gittergroesse (default 8)")
+    ap.add_argument(
+        "--n-disorder", type=int, default=24, help="Disorder-Realisierungen (default 24)"
+    )
+    ap.add_argument(
+        "--out",
+        default="results/inkr4-rbim-nishimori.json",
+        help="Output-JSON-Pfad",
+    )
+    ap.add_argument("--base-seed", type=int, default=2026)
+    args = ap.parse_args()
+    sys.exit(
+        _write_validation_report(
+            args.out,
+            L=args.L,
+            n_disorder=args.n_disorder,
+            base_seed=args.base_seed,
+        )
+    )
