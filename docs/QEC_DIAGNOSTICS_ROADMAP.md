@@ -68,19 +68,39 @@ Luecke, additiv und ohne Bestehendes anzufassen.
   Silent-Failure-Gate: gerade/negative/nicht-int `d`, p_probe nicht aufsteigend/
   nicht-sub-threshold, Bisektions-Klammer ohne 0.5, Lambda-p ausserhalb (0,0.5), NaN).
 
-## Inkrement 3 — MWPM via PyMatching (Surface-Code + phenomenological noise)
+## Inkrement 3 (DIESE PR) — ECHTES MWPM via Stim + PyMatching  [DONE]
 
-- **Absorbiert den aus Inkr.2 ausgelagerten MWPM-Spacetime-Decoder:** der hand-
-  gerollte Prototyp (Decoder-Bug, s.o.) wird durch **PyMatching 2** ersetzt — das
-  ist der etablierte, korrekte MWPM-Decoder. Erst damit ist der Vergleich
-  Majority-Vote/ML vs. MWPM unter phenomenological noise (Mess-Fehler, mehrere
-  Runden) belastbar.
-- Optionaler Adapter auf etablierte Bibliotheken (Stim fuer Sampling, PyMatching 2
-  fuer MWPM) HINTER einem optional-dependency-Gate (`adaptiverg-qec[surface]`),
-  NICHT als Kern-Dependency. Wir bauen KEINEN eigenen Surface-Decoder.
-- Diagnostik-Schicht: `p_L` vs `p` Threshold-Sweep + Finite-Size-Crossing fuer den
-  Toric/Surface-Code mit MWPM-Baseline, gegen Literatur-Threshold (~10.3% bit-flip,
-  Dennis et al. 2002) als externes Orakel.
+- Modul `src/adaptiverg_qec/surface_decoder.py`. Decoder = **PyMatching 2** (MWPM),
+  Sampling/Schaltkreis = **Stim** — KEIN Eigen-Decoder. HINTER optional-dependency-Gate
+  `pip install ".[surface]"` (NICHT Kern-Dependency). Ohne das Extra importiert das Modul
+  nicht und seine Tests SKIPPEN (`pytest.mark.skipif`), sie failen NICHT hart — lokal in
+  einem dev-only-venv verifiziert (3 passed, 30 skipped, exit 0).
+- **Absorbiert den aus Inkr.2 ausgelagerten Decoder:** der hand-gerollte Prototyp
+  (Decoder-Bug, verließ den Codespace) ist durch PyMatching 2 ersetzt.
+- **Orakel A (real ausgefuehrt):** Repetition-Code, code-capacity bit-flip, MWPM aus der
+  Paritaets-Pruefmatrix. Auf dem 1D-Matching-Graphen IST MWPM ML-optimal -> MWPM-Monte-Carlo
+  MUSS das exakte Binomial-Orakel (Inkr.1) treffen. `d∈{3,5,7}` @ p=0.10, 200 000 shots,
+  seed=11 -> worst `n_sigma = 1.55` (rein statistische Uebereinstimmung). Das ist der von
+  Inkr.2 zurueckgestellte unabhaengige Cross-Anchor-Decoder.
+- **Orakel B (real ausgefuehrt):** Rotated-Surface-Code, code-capacity pure-X-flip
+  (X_ERROR(p) nur auf Daten-Qubits, perfekte Messung, 1 Runde), MWPM via Stim-DEM +
+  PyMatching. Threshold-Schaetzer = Distanz-Kurven-Kreuzung. 60 000 shots/Zelle, seed=11:
+  `(7,9)->0.0952`, `(9,11)->0.1015`, `(7,11)->0.0978`; **best pair (9,11): `p_th = 0.1015`
+  vs publiziert 0.103 -> `abs_err = 0.0015`**.
+- **Korrektheits-Disziplin (ehrlich, kein Overclaim):** validiert gegen den MWPM-Wert
+  **0.103** (Dennis, Kitaev, Landahl & Preskill, J. Math. Phys. 43, 4452 (2002) =
+  Nulltemperatur-RBIM), BEWUSST NICHT gegen den optimalen ML/Tensor-Network-Threshold
+  **0.1094** (Nishimori-Punkt 2D-RBIM). MWPM ist near-optimal aber sub-optimal; ein
+  Schaetzer, der 0.109 „erreicht", waere verdaechtig. Endliche Distanzen -> keine L->oo-FSS;
+  der Kreuzungs-Schaetzer driftet von unten zum Threshold (sichtbar: (7,9)<(9,11)).
+- `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`). Tests
+  `tests/test_surface_decoder.py` (Orakel A/B + Threshold-Verhalten + Silent-Failure-Gate
+  + optional-dep-Gate-Verhalten).
+- **Offen (naechster Schritt):** phenomenological noise (Mess-Fehler, mehrere Runden;
+  publizierter MWPM-Threshold ~2.9%, Wang, Harrington & Preskill 2003) ist NICHT
+  implementiert. Depolarisierendes Rauschen (statt pure-X) waere ein weiterer Schritt
+  (anderer Threshold). CI laeuft weiterhin nur mit `[dev]` -> Surface-Tests skippen dort;
+  ein separater optionaler CI-Job mit `[surface]` ist vorbereitet (s. PR).
 
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 
