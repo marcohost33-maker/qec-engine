@@ -1,0 +1,22 @@
+{
+  "L": 16,
+  "adapt_T0": 100.0,
+  "adapt_c": 0.5,
+  "base_seed": 20260619,
+  "beta_max": 2.0,
+  "beta_min": 0.1,
+  "beta_start": 0.2,
+  "beta_target": 1.0,
+  "burn_in": 500,
+  "environment": {
+    "git_sha": "c94efae",
+    "numpy": "2.4.6",
+    "package_version": "0.1.0.dev2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.4",
+    "scipy": "1.17.1"
+  },
+  "n_chains": 4,
+  "n_steps": 3000,
+  "schema": "adaptiverg_qec.phase5.run_manifest/v1"
+}

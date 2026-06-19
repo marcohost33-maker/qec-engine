@@ -57,11 +57,36 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
   - Gates G24–G29, `results/phase4-wolff-multirg.json`. **Ehrliche Scope-Grenze:** Rest-finite-Size-Systematik
     bleibt; **keine** volle `L→∞`-FSS-Extrapolation, **kein** Frontier-Hochpräzisionswert. Keine neuen Deps.
 
-## Phase 5 — Konvergenzdiagnostik + Reproducibility + CLT
+## Phase 5 — Konvergenzdiagnostik + Reproducibility + CLT  [TEIL-DONE 2026-06-19, Branch `claude/qec-phase5-clt-rhat-manifest`]
 - Integrierte Autokorrelationszeit τ_int, CLT-Varianz σ²_g; vollständige Reproduzierbarkeit (Seeds/Manifest).
 - **Akzeptanz:** CLT empirisch bestätigt; Run reproduzierbar aus Manifest.
 - **Teil-vorgezogen (Phase-3a):** τ_int (Wolff Γ-Methode + g-Windowing) + autokorr-Fehler bereits real in
-  `autocorr.py` (validiert gegen AR(1)-Orakel). Offen für Phase-5: CLT-Varianz σ²_g, Run-Manifest.
+  `autocorr.py` (validiert gegen AR(1)-Orakel).
+- **NEU (additiv, keine neuen Deps — nur numpy/scipy):**
+  1. **CLT-Varianz σ²_g** (`clt.py`): MCMC-CLT `√N(ḡ_N−E[g]) → N(0, σ²_g)` mit `σ²_g = 2·τ_int·Var(g)`
+     (Γ-Methode via `autocorr.py`) UND einem **methodisch unabhängigen zweiten Schätzer** (Overlapping
+     Batch Means, Flegal-Jones 2010). **Orakel:** geschlossene AR(1)-Form `σ²_g = σ²_ε/(1−φ)² =
+     Var·(1+φ)/(1−φ)` (web-verifiziert, s. SOURCES.md). **Gemessen (`results/phase5-clt-rhat-manifest.json`,
+     `ar1_oracle_validation`, φ=0.8, Orakel σ²_g=25.0):** Γ-Schätzer 25.26 (rel.Fehler 0.010), OBM 24.49
+     (0.020). **Non-vakuös beidseitig (Gate G34):** korrektes σ²_g deckt das 95%-CI mit Rate 0.937 (~0.95);
+     die ABSICHTLICH falsche iid-Annahme (`Var` statt `2τ_int·Var`) UNTERdeckt mit 0.490 (verfehlt 0.95).
+  2. **R̂-Multichain** (`rhat.py`): rank-normalized split-R̂ + folded-R̂ + bulk/tail-ESS nach **Vehtari,
+     Gelman, Simpson, Carpenter, Bürkner (2021), Bayesian Analysis 16(2), doi:10.1214/20-BA1221**
+     (Blom-Rang-Transform → split-chains → between/within → folded um Median; Schwellwert R̂<1.01).
+     Auf den A-Kernel-Multichain (M=4) angewandt: **R̂=1.0003, converged, ESS_bulk≈5149**
+     (`results/...json`, `multichain_rhat`). **Non-vakuös beidseitig (Gates G35/G36):** gut gemischte
+     unabhängige Ketten R̂<1.01; Mittel-Drift → R̂=1.62 (bulk fängt); Skalen-Drift → R̂=1.27
+     (folded=1.27>bulk=1.00 — genau der Vehtari-Punkt).
+  3. **Run-Manifest** (`manifest.py` + CLI `phase5 --manifest-out/--from-manifest`): JSON mit allen Seeds,
+     Parametern (L, n_steps, n_chains, β…), Paket-Versionen (numpy/scipy/python), git-SHA, Plattform.
+     **Determinismus-Vertrag:** `--from-manifest` reproduziert den Lauf **byte-identisch** (SHA-256-
+     `result_hash`). **Non-vakuös (Gates G37/G38, SLSA-Custody-Lehre):** Round-trip ergibt identischen
+     Hash; ein veränderter Seed/n_steps ERGIBT einen anderen Hash (beweist, dass das Manifest den Lauf
+     wirklich treibt — kein toter Record).
+  - Gates G33–G38 (38/38 [PASS]); Tests `tests/test_clt.py` + `tests/test_rhat.py` + `tests/test_manifest.py`.
+  - **Regen:** `python -m adaptiverg_qec.cli phase5 --json results/phase5-clt-rhat-manifest.json --manifest-out results/phase5-manifest.json`.
+- **WEITERHIN OFFEN (NICHT erledigt):** SNIS (Self-Normalized Importance Sampling, χ²-Varianz-Bound) +
+  Surrogate-Beschleunigung aus Phase-4 bleiben offen; Checkpoint/Restart-Lockfile bleibt offen.
 
 ## ROADMAP-Inkr.4 — RBIM-Nishimori ↔ MCRG/QEC-Brücke  [DONE 2026-06-19, Branch `claude/qec-inkr4`]
 

@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
   "version": "0.1.0.dev2",
-  "n_pass": 29,
-  "n_total": 29,
+  "n_pass": 38,
+  "n_total": 38,
   "all_pass": true,
-  "elapsed_s": 192.329,
+  "elapsed_s": 228.91,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -44,7 +44,7 @@
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "58 edge checks; all invalid inputs rejected"
+      "detail": "61 edge checks; all invalid inputs rejected"
     },
     {
       "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
@@ -142,14 +142,59 @@
       "detail": "y_t per iter=[0.9300 0.9957 1.0220] oracle=1.0 |err|=[0.0700 0.0043 0.0220] best|err|=0.0043(<0.035 Phase-3b) improved-vs-iter1=True L=32"
     },
     {
-      "gate": "G28 y_h matrix vs Onsager 15/8 (deep RG)",
+      "gate": "G28 y_h matrix vs Onsager 15/8 (best iter)",
       "pass": true,
-      "detail": "y_h per iter=[1.8810 1.8728 1.8710] oracle=15/8=1.8750 |err|=[0.0060 0.0022 0.0040] best|err|=0.0022(<0.05) sigma_jk~0.0008 L=32 (deep RG iter -> Onsager fixed point)"
+      "detail": "y_h per iter=[1.8810 1.8728 1.8710] oracle=15/8=1.8750 |err|=[0.0060 0.0022 0.0040] best|err|=0.0022(<0.05) sigma_jk~0.0008 L=32 (best=min over iters, NOT deepest; deepest|err|=0.0040)"
     },
     {
       "gate": "G29 Phase-4 reproducibility (seed)",
       "pass": true,
       "detail": "seed-eq identical=True diff-seed differs=True"
+    },
+    {
+      "gate": "G30 Wolff low-T scan K=19 (Fix1 p_add->1.0)",
+      "pass": true,
+      "detail": "p_add(19)=1.0 (==1.0 valid); K-scan fracs=[0.94 0.94 0.94 0.94] (>0.5); prob-1 cluster=64/64"
+    },
+    {
+      "gate": "G31 n_op>basis fail-closed (Fix2 no truncation)",
+      "pass": true,
+      "detail": "all 3 overflow cases rejected; valid n_op (even=3,odd=2) run=True"
+    },
+    {
+      "gate": "G32 Jackknife block-size per-iter (Fix3)",
+      "pass": true,
+      "detail": "y_t/y_h central UNCHANGED (yt=True,yh=True); block/iter y_t=[np.int64(8), np.int64(7), np.int64(6)] y_h=[np.int64(1), np.int64(1), np.int64(1)]; err finite=True"
+    },
+    {
+      "gate": "G33 CLT sigma2_g (Gamma+OBM) vs AR(1) oracle",
+      "pass": true,
+      "detail": "AR(1) phi=0.8: oracle sigma2_g=25.000; Gamma=25.261 (rel 0.010), OBM=24.492 (rel 0.020)"
+    },
+    {
+      "gate": "G34 CLT CI coverage both ways (95% vs iid-miss)",
+      "pass": true,
+      "detail": "correct sigma2_g coverage=0.937 (~0.95 OK); WRONG iid coverage=0.490 (must undercover <0.75)"
+    },
+    {
+      "gate": "G35 rank-norm split-R-hat converges (synth+A-Kernel)",
+      "pass": true,
+      "detail": "iid R-hat=1.0002 (<1.01), ESS_bulk=23432; A-Kernel M=4 R-hat=1.0009 (<1.05), ESS_bulk=4883"
+    },
+    {
+      "gate": "G36 R-hat flags non-converged (mean+scale drift)",
+      "pass": true,
+      "detail": "mean-drift R-hat=1.620 (>1.1, bulk=1.620); scale-drift R-hat=1.272 (folded=1.272>bulk=1.000)"
+    },
+    {
+      "gate": "G37 manifest round-trip byte-identical hash",
+      "pass": true,
+      "detail": "round-trip hash match=True; hash=e9992e573ac14ab6...; R-hat=1.0007, converged=True"
+    },
+    {
+      "gate": "G38 manifest seed drives run (changed->diff hash)",
+      "pass": true,
+      "detail": "seed100=46b9c161f977 != seed101=63ab025d1939 (True); n_steps changes hash (True)"
     }
   ]
 }

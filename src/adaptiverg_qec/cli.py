@@ -31,6 +31,7 @@ import numpy as np
 from . import (
     a_kernel,
     autocorr,
+    clt,
     drift,
     ising1d,
     ising2d,
@@ -40,6 +41,8 @@ from . import (
     rg_map,
     wolff2d,
 )
+from . import manifest as manifest_mod
+from . import rhat as rhat_mod
 from .mvp_instance import MVPConfig
 
 _CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
@@ -920,6 +923,127 @@ def _g32_jackknife_block_per_iter() -> tuple[bool, str]:
     )
 
 
+def _g33_clt_variance_vs_ar1_oracle() -> tuple[bool, str]:
+    """Phase-5: CLT-Varianz sigma^2_g (Gamma+OBM) vs geschlossene AR(1)-Form.
+
+    AR(1)-Orakel: sigma^2_g = sigma_eps^2/(1-phi)^2 = Var*(1+phi)/(1-phi).
+    Beide unabhaengigen Schaetzer (Gamma, OBM) muessen es im Mittel treffen.
+    """
+    phi = 0.8
+    oracle = clt.ar1_clt_variance(phi)["sigma2_g"]
+    gam, obm = [], []
+    for sd in range(20):
+        x = _ar1(40000, phi, sd)
+        r = clt.clt_variance(x)
+        gam.append(r.sigma2_g_gamma)
+        obm.append(r.sigma2_g_obm)
+    rel_g = abs(float(np.mean(gam)) - oracle) / oracle
+    rel_o = abs(float(np.mean(obm)) - oracle) / oracle
+    ok = bool(rel_g < 0.06 and rel_o < 0.08)
+    return ok, (
+        f"AR(1) phi={phi}: oracle sigma2_g={oracle:.3f}; "
+        f"Gamma={np.mean(gam):.3f} (rel {rel_g:.3f}), OBM={np.mean(obm):.3f} (rel {rel_o:.3f})"
+    )
+
+
+def _g34_clt_coverage_both_directions() -> tuple[bool, str]:
+    """Phase-5: CLT-CI-Coverage BEIDSEITIG (non-vakuoes).
+
+    (a) korrektes sigma^2_g deckt ~95%; (b) iid-Annahme (Var statt 2 tau Var)
+    UNTERdeckt deutlich. Beide Richtungen muessen erfuellt sein.
+    """
+    phi, n, reps = 0.8, 4000, 300
+    cov_ok = cov_iid = 0
+    for sd in range(reps):
+        r = clt.clt_variance(_ar1(n, phi, sd))
+        lo, hi = clt.confidence_interval(r.mean, r.sigma2_g_gamma, n)
+        cov_ok += int(lo <= 0.0 <= hi)
+        lo2, hi2 = clt.confidence_interval(r.mean, r.var_marginal, n)
+        cov_iid += int(lo2 <= 0.0 <= hi2)
+    rate_ok = cov_ok / reps
+    rate_iid = cov_iid / reps
+    ok = bool(0.90 <= rate_ok <= 0.985 and rate_iid < 0.75)
+    return ok, (
+        f"correct sigma2_g coverage={rate_ok:.3f} (~0.95 OK); "
+        f"WRONG iid coverage={rate_iid:.3f} (must undercover <0.75)"
+    )
+
+
+def _g35_rhat_well_mixed_converges() -> tuple[bool, str]:
+    """Phase-5: rank-normalized split-R-hat < 1.01 fuer gut gemischte Ketten + real A-Kernel."""
+    # (i) Synthetisch iid: gut gemischt.
+    chains = np.vstack([np.random.default_rng(s).standard_normal(3000) for s in range(8)])
+    ri = rhat_mod.split_rhat(chains)
+    # (ii) Realer A-Kernel-Multichain (M=4).
+    rows = []
+    for c in range(4):
+        res = a_kernel.run_adaptive_mcmc(
+            _CFG, beta_target=1.0, n_steps=2500, burn_in=500, seed=2000 + c, beta_start=0.2
+        )
+        rows.append(res.H_traj[500:])
+    rk = rhat_mod.split_rhat(np.vstack(rows))
+    ok = bool(ri.rhat < 1.01 and rk.rhat < 1.05 and ri.converged)
+    return ok, (
+        f"iid R-hat={ri.rhat:.4f} (<1.01), ESS_bulk={ri.ess_bulk:.0f}; "
+        f"A-Kernel M=4 R-hat={rk.rhat:.4f} (<1.05), ESS_bulk={rk.ess_bulk:.0f}"
+    )
+
+
+def _g36_rhat_nonconverged_flagged() -> tuple[bool, str]:
+    """Phase-5: nicht-konvergierte Ketten -> R-hat >> 1.01 (BEIDSEITIG zu G35).
+
+    Mittel-Drift faengt bulk-R-hat; Skalen-Drift faengt folded-R-hat (Vehtari-Punkt).
+    """
+    off = [0, 0, 0, 0, 3, 3, 3, 3]
+    mean_drift = np.vstack(
+        [np.random.default_rng(s).standard_normal(3000) + o for s, o in enumerate(off)]
+    )
+    rm = rhat_mod.split_rhat(mean_drift)
+    sc = [1, 1, 1, 1, 5, 5, 5, 5]
+    scale_drift = np.vstack(
+        [np.random.default_rng(s).standard_normal(3000) * v for s, v in enumerate(sc)]
+    )
+    rs = rhat_mod.split_rhat(scale_drift)
+    ok = bool(
+        rm.rhat > 1.1 and not rm.converged and rs.rhat > 1.05 and rs.folded_rhat > rs.bulk_rhat
+    )
+    return ok, (
+        f"mean-drift R-hat={rm.rhat:.3f} (>1.1, bulk={rm.bulk_rhat:.3f}); "
+        f"scale-drift R-hat={rs.rhat:.3f} (folded={rs.folded_rhat:.3f}>bulk={rs.bulk_rhat:.3f})"
+    )
+
+
+def _g37_manifest_roundtrip_reproducible() -> tuple[bool, str]:
+    """Phase-5: run -> Manifest -> run_from_manifest == byte-identischer result_hash."""
+    import tempfile
+
+    mf = manifest_mod.RunManifest(base_seed=20260619, n_chains=4, n_steps=1500, burn_in=300, L=16)
+    r_direct = manifest_mod.run(mf)
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "manifest.json"
+        manifest_mod.write_manifest(mf, p)
+        r_loaded = manifest_mod.run_from_manifest(p)
+    ok = bool(r_direct.result_hash == r_loaded.result_hash)
+    return ok, (
+        f"round-trip hash match={ok}; hash={r_direct.result_hash[:16]}...; "
+        f"R-hat={r_direct.rhat:.4f}, converged={r_direct.rhat_converged}"
+    )
+
+
+def _g38_manifest_seed_drives_run() -> tuple[bool, str]:
+    """Phase-5: geaenderter Seed im Manifest -> ANDERER Hash (kein toter Record, SLSA-Custody)."""
+    base = dict(n_chains=4, n_steps=1500, burn_in=300, L=16)
+    h1 = manifest_mod.run(manifest_mod.RunManifest(base_seed=100, **base)).result_hash
+    h2 = manifest_mod.run(manifest_mod.RunManifest(base_seed=101, **base)).result_hash
+    h3 = manifest_mod.run(
+        manifest_mod.RunManifest(base_seed=100, n_chains=4, n_steps=1800, burn_in=300, L=16)
+    ).result_hash
+    ok = bool(h1 != h2 and h1 != h3)
+    return ok, (
+        f"seed100={h1[:12]} != seed101={h2[:12]} ({h1 != h2}); n_steps changes hash ({h1 != h3})"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -956,6 +1080,12 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G30 Wolff low-T scan K=19 (Fix1 p_add->1.0)", _g30_wolff_low_temperature_scan),
     ("G31 n_op>basis fail-closed (Fix2 no truncation)", _g31_n_op_overflow_fail_closed),
     ("G32 Jackknife block-size per-iter (Fix3)", _g32_jackknife_block_per_iter),
+    ("G33 CLT sigma2_g (Gamma+OBM) vs AR(1) oracle", _g33_clt_variance_vs_ar1_oracle),
+    ("G34 CLT CI coverage both ways (95% vs iid-miss)", _g34_clt_coverage_both_directions),
+    ("G35 rank-norm split-R-hat converges (synth+A-Kernel)", _g35_rhat_well_mixed_converges),
+    ("G36 R-hat flags non-converged (mean+scale drift)", _g36_rhat_nonconverged_flagged),
+    ("G37 manifest round-trip byte-identical hash", _g37_manifest_roundtrip_reproducible),
+    ("G38 manifest seed drives run (changed->diff hash)", _g38_manifest_seed_drives_run),
 ]
 
 
@@ -1053,6 +1183,111 @@ def run_demo() -> int:
     return 0
 
 
+def run_phase5(
+    *,
+    n_chains: int = 4,
+    L: int = 16,
+    n_steps: int = 3000,
+    burn_in: int = 500,
+    seed: int = 20260619,
+    manifest_path: str | None = None,
+    from_manifest: str | None = None,
+    json_path: str | None = None,
+) -> int:
+    """Phase-5-Lauf: Multichain-A-Kernel -> R-hat + CLT-Varianz + AR(1)-Orakel.
+
+    Erzeugt das regenerierbare Artefakt results/phase5-clt-rhat-manifest.json und
+    (optional) ein Run-Manifest. `--from-manifest` reproduziert einen Lauf
+    byte-identisch (Determinismus-Vertrag).
+    """
+    if from_manifest:
+        mf = manifest_mod.load_manifest(from_manifest)
+        result = manifest_mod.run(mf)
+        print(f"Reproduced from manifest {from_manifest}")
+    else:
+        mf = manifest_mod.RunManifest(
+            base_seed=seed, n_chains=n_chains, L=L, n_steps=n_steps, burn_in=burn_in
+        )
+        result = manifest_mod.run(mf)
+
+    # AR(1)-Orakel-Validierung der CLT-Varianz (unabhaengiges Orakel, dokumentiert).
+    phi = 0.8
+    oracle = clt.ar1_clt_variance(phi)
+    gam = [clt.clt_variance(_ar1(40000, phi, sd)).sigma2_g_gamma for sd in range(20)]
+    obm = [clt.clt_variance(_ar1(40000, phi, sd)).sigma2_g_obm for sd in range(20)]
+    ar1_block = {
+        "phi": phi,
+        "oracle_sigma2_g": oracle["sigma2_g"],
+        "oracle_var_marginal": oracle["var_marginal"],
+        "oracle_tau_int": oracle["tau_int"],
+        "estimate_gamma_mean": float(np.mean(gam)),
+        "estimate_obm_mean": float(np.mean(obm)),
+        "rel_err_gamma": abs(float(np.mean(gam)) - oracle["sigma2_g"]) / oracle["sigma2_g"],
+        "rel_err_obm": abs(float(np.mean(obm)) - oracle["sigma2_g"]) / oracle["sigma2_g"],
+    }
+
+    print("Phase-5: Multichain A-Kernel -> R-hat + CLT-Varianz")
+    print(
+        f"  manifest: base_seed={mf.base_seed} M={mf.n_chains} L={mf.L} "
+        f"n_steps={mf.n_steps} burn_in={mf.burn_in}"
+    )
+    print(
+        f"  R-hat={result.rhat:.4f} (bulk={result.bulk_rhat:.4f}, "
+        f"folded={result.folded_rhat:.4f}) converged={result.rhat_converged}"
+    )
+    print(f"  ESS bulk={result.ess_bulk:.0f} tail={result.ess_tail:.0f}")
+    print(f"  sigma2_g(H): Gamma={result.sigma2_g_gamma:.3f} OBM={result.sigma2_g_obm:.3f}")
+    print(
+        f"  AR(1) oracle sigma2_g={oracle['sigma2_g']:.3f}: "
+        f"Gamma rel_err={ar1_block['rel_err_gamma']:.3f}, "
+        f"OBM rel_err={ar1_block['rel_err_obm']:.3f}"
+    )
+    print(f"  result_hash={result.result_hash}")
+
+    if manifest_path:
+        p = manifest_mod.write_manifest(mf, manifest_path)
+        print(f"  manifest -> {p}")
+
+    if json_path:
+        payload = {
+            "tool": "adaptiverg_qec.phase5 (CLT + R-hat + Manifest)",
+            "method": (
+                "Multichain A-Kernel MCMC -> rank-normalized split-R-hat (Vehtari 2021) "
+                "+ CLT variance sigma^2_g (Gamma-method + OBM) + reproducible run-manifest"
+            ),
+            "oracle_rhat": "Vehtari et al. 2021 threshold R-hat<1.01",
+            "oracle_clt": (
+                "AR(1) closed-form sigma^2_g = sigma_eps^2/(1-phi)^2 = Var*(1+phi)/(1-phi)"
+            ),
+            "manifest": mf.with_environment().to_dict(),
+            "multichain_rhat": {
+                "observable": "H (domain-wall count)",
+                "rhat": result.rhat,
+                "bulk_rhat": result.bulk_rhat,
+                "folded_rhat": result.folded_rhat,
+                "ess_bulk": result.ess_bulk,
+                "ess_tail": result.ess_tail,
+                "converged": result.rhat_converged,
+                "chain_mean_H": result.chain_mean_H,
+            },
+            "clt_variance": {
+                "sigma2_g_gamma": result.sigma2_g_gamma,
+                "sigma2_g_obm": result.sigma2_g_obm,
+            },
+            "ar1_oracle_validation": ar1_block,
+            "result_hash": result.result_hash,
+            "determinism_contract": (
+                "re-run with --from-manifest reproduces result_hash byte-identically"
+            ),
+        }
+        out_path = _resolve_json_path(json_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"  artifact -> {out_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
@@ -1062,17 +1297,43 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         nargs="?",
         default="demo",
-        choices=["demo", "selftest"],
-        help="demo (default) or selftest",
+        choices=["demo", "selftest", "phase5"],
+        help="demo (default), selftest, or phase5 (CLT + R-hat + manifest)",
     )
     parser.add_argument(
         "--selftest", action="store_true", help="run selftest gates (alias for 'selftest' command)"
     )
     parser.add_argument("--json", metavar="PATH", default=None, help="write gate-log JSON to PATH")
+    # phase5 knobs (heavy-run parametrized; small-L default for RAM-limited PCs).
+    parser.add_argument("--n-chains", type=int, default=4, help="phase5: number of MCMC chains M")
+    parser.add_argument("--L", type=int, default=16, help="phase5: ring length L")
+    parser.add_argument("--n-steps", type=int, default=3000, help="phase5: sweeps per chain")
+    parser.add_argument("--burn-in", type=int, default=500, help="phase5: burn-in sweeps")
+    parser.add_argument("--seed", type=int, default=20260619, help="phase5: base seed")
+    parser.add_argument(
+        "--manifest-out", metavar="PATH", default=None, help="phase5: write run-manifest JSON"
+    )
+    parser.add_argument(
+        "--from-manifest",
+        metavar="PATH",
+        default=None,
+        help="phase5: reproduce a run byte-identically from a manifest",
+    )
     args = parser.parse_args(argv)
 
     if args.selftest or args.command == "selftest":
         return run_selftest(args.json)
+    if args.command == "phase5":
+        return run_phase5(
+            n_chains=args.n_chains,
+            L=args.L,
+            n_steps=args.n_steps,
+            burn_in=args.burn_in,
+            seed=args.seed,
+            manifest_path=args.manifest_out,
+            from_manifest=args.from_manifest,
+            json_path=args.json,
+        )
     return run_demo()
 
 
