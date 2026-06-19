@@ -32,8 +32,11 @@ Die zwei Hälften des Repos — (A) die **MCRG-Maschinerie für kritische Expone
 Lambda) — sind **kein thematischer Bruch**, sondern ein kohärentes Programm: der
 **QEC-Threshold ist über das RBIM-Nishimori-Mapping** (Dennis, Kitaev, Landahl, Preskill,
 *J. Math. Phys.* **43**, 4452, 2002) ein **Phasenübergang im random-bond Ising-Modell** —
-genau das Objekt, das die MCRG/kritische-Exponenten-Maschinerie misst. Roadmap-Inkr.4
-(RBIM-Nishimori ↔ MCRG-Brücke) ist die bindende Deliverable, die beide Hälften verschweisst.
+genau die Art Phasenübergang, die die MCRG/kritische-Exponenten-Maschinerie misst. **Wichtig
+(Status):** die bestehende `mcrg_*`-Maschinerie misst bislang das *uniforme* 2D-Ising
+(`ising2d.py`); die RBIM-Nishimori-Brücke wird durch **Inkr.4 (`rbim_nishimori.py`)** konkret
+realisiert — sie lokalisiert den Übergang bei `p*≈0,12` (L=12) vs publiziertem `p_c≈0,1094`
+und verschweisst damit beide Hälften empirisch.
 
 **Entscheid (Kohärenz/Korrektheit + Effizienz/Produktivität): NICHT splitten.** Ein Split
 würde die physikalische Brücke zerschneiden und CI/Spec/Provenienz unnötig duplizieren;
