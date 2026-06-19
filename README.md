@@ -137,9 +137,11 @@ keine neuen Dependencies.** Positionierung + Roadmap: `docs/QEC_DIAGNOSTICS_ROAD
 | Pseudo-Threshold | Kurven-Kreuzungs-Bisektion | analytisch `p* = 1/2` (Symmetrie `p_L(d,½)=½`) | worst `abs_err = 2.2e-16` |
 | Lambda-Suppression `p_L(d)/p_L(d+2)` | Distanz-Sprung `d→d+2` @ p=0.1 | small-p `~(A_d/A_{d+2})/p` | `Λ ≈ 3.27 / 3.14 / 3.06` (alle > 1) |
 
-Evidenz: `results/qec-fit-diagnostics-rep-code.json`. **Cross-Anchor:** das ML-Brute-Force-
-Decoding stimmt im perfekt-Messung-Limit maschinengenau mit dem Inkr.1-Binomial-Orakel
-überein (Diff < 3e-17 über `d∈{3,5,7}`) — die beiden Orakel stützen sich gegenseitig.
+Evidenz: `results/qec-fit-diagnostics-rep-code.json`. Jede Kennzahl ist gegen ihr
+geschlossenes Orakel geprüft (s. Tabelle). Ein zusätzlicher Cross-Anchor gegen einen
+ML-Brute-Force-Decoder ist für Inkr.3 (PyMatching) vorgesehen; der eigene Prototyp wurde
+verworfen (verließ für `d=5` den Codespace) — daher wird hier **keine** Brute-Force-
+Vergleichszahl behauptet.
 
 > **Ehrliche Abgrenzung:** Surface-Code, MWPM und phenomenological-noise-Spacetime-Decoder
 > sind bewusst NICHT hier. Sie erfordern eine etablierte Matching-Bibliothek (PyMatching)

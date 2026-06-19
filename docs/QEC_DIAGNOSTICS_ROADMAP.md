@@ -60,9 +60,10 @@ Luecke, additiv und ohne Bestehendes anzufassen.
     `results/qec-fit-diagnostics-rep-code.json`.
 - **Metrik (real ausgefuehrt):** Exponent `d∈{3,5,7,9}` worst `abs_err=7.2e-4`;
   Pseudo-Threshold worst `abs_err=2.2e-16`; Lambda `≈3.27/3.14/3.06` (alle >1).
-- **Cross-Anchor-Orakel:** ML-Brute-Force-Decoding (exhaustive Enumeration) stimmt im
-  perfekt-Messung-Limit maschinengenau mit dem Inkr.1-Binomial-Orakel ueberein
-  (Diff `<3e-17`, `d∈{3,5,7}`) — die zwei Orakel stuetzen sich gegenseitig.
+- **Cross-Anchor-Orakel (fuer Inkr.3 vorgesehen):** ein ML-Brute-Force-Decoder als
+  unabhaengiger Gegen-Check zum Binomial-Orakel. Der eigene Prototyp wurde verworfen
+  (verliess fuer `d=5` den Codespace) und kommt mit PyMatching in Inkr.3 zurueck —
+  bis dahin wird **keine** Brute-Force-Vergleichszahl behauptet.
 - Tests `tests/test_qec_fit_diagnostics.py` (Orakel-Vergleiche je Kennzahl +
   Silent-Failure-Gate: gerade/negative/nicht-int `d`, p_probe nicht aufsteigend/
   nicht-sub-threshold, Bisektions-Klammer ohne 0.5, Lambda-p ausserhalb (0,0.5), NaN).
