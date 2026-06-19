@@ -119,6 +119,34 @@ Cluster-Algorithmus (Wolff/Swendsen-Wang) + mehrere RG-Iterationen wären für P
 **Phase-4**. Validiert wird die **MATRIX-MASCHINERIE** (≥2 Operatoren, `A·B⁻¹`, Eigenwert-Exponenten) gegen
 das exakte Orakel, nicht ein Hochpräzisions-Wert. `y_h = 15/8` (ungerader Sektor) ist nicht implementiert.
 
+## QEC-Diagnostik-Harness (Inkrement 1 + 2)
+
+Additiver, eigenständiger Strang (`qec_diagnostics.py`, `qec_fit_diagnostics.py`): die
+**eigentliche Fehlerkorrektur-Diagnostik**, die dem MCRG-Teil fehlte — logische Fehlerrate
+`p_L` vs. physikalische `p` am exakt orakelbaren Repetition-Code. **Kein Decoder erfunden,
+keine neuen Dependencies.** Positionierung + Roadmap: `docs/QEC_DIAGNOSTICS_ROADMAP.md`.
+
+- **Inkr. 1** (`qec_diagnostics.py`): exaktes Binomial-Orakel `p_L(n,p)` + vektorisierte
+  Monte-Carlo (Majority-Vote) mit `n_sigma`-Beleg gegen das Orakel; Pseudo-Threshold `p*=1/2`.
+- **Inkr. 2** (`qec_fit_diagnostics.py`): die drei Standard-Vergleichskennzahlen der QEC-
+  Literatur, jede gegen ein **geschlossenes** Orakel (kein Monte-Carlo, kein Decoder):
+
+| Kennzahl | Methode | Orakel | Real gemessen |
+|---|---|---|---|
+| Code-Distanz-Exponent | sub-threshold log-log-Steigung `p_L`-vs-`p` | `(d+1)/2` (= `C(d,(d+1)/2)`-Leitterm) | `d∈{3,5,7,9}` → worst `abs_err = 7.2e-4` |
+| Pseudo-Threshold | Kurven-Kreuzungs-Bisektion | analytisch `p* = 1/2` (Symmetrie `p_L(d,½)=½`) | worst `abs_err = 2.2e-16` |
+| Lambda-Suppression `p_L(d)/p_L(d+2)` | Distanz-Sprung `d→d+2` @ p=0.1 | small-p `~(A_d/A_{d+2})/p` | `Λ ≈ 3.27 / 3.14 / 3.06` (alle > 1) |
+
+Evidenz: `results/qec-fit-diagnostics-rep-code.json`. **Cross-Anchor:** das ML-Brute-Force-
+Decoding stimmt im perfekt-Messung-Limit maschinengenau mit dem Inkr.1-Binomial-Orakel
+überein (Diff < 3e-17 über `d∈{3,5,7}`) — die beiden Orakel stützen sich gegenseitig.
+
+> **Ehrliche Abgrenzung:** Surface-Code, MWPM und phenomenological-noise-Spacetime-Decoder
+> sind bewusst NICHT hier. Sie erfordern eine etablierte Matching-Bibliothek (PyMatching)
+> hinter optional-dependency-Gate — das ist **Inkrement 3** der Roadmap. Ein hand-gerollter
+> Spacetime-Matcher wurde im Prototyp gebaut und verworfen (verließ für `d=5` den Codespace
+> in ~2–6 % der Fälle = Decoder-Bug), genau weil etablierte Tools existieren.
+
 ## Schnellstart
 
 ```bash
@@ -126,6 +154,8 @@ pip install -e ".[dev]"
 adaptiverg-qec selftest          # 29 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 pytest                           # Test-Suite
+python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code.json (Inkr.1)
+python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)
 python -m adaptiverg_qec.mcrg_matrix    # schreibt results/phase3b-swendsen-matrix.json
 python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.json (Wolff+Multi-RG+y_h)
 ```
