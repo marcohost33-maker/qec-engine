@@ -1,0 +1,88 @@
+{
+  "tool": "adaptiverg_qec.rbim_nishimori",
+  "method": "ROADMAP-Inkr.4: +/-J RBIM on the Nishimori line p=1/(1+exp(2*beta)); RBIM-generalized Wolff single-cluster (P_add=1-exp(-2*beta*J_ij*s_i*s_j) on satisfied bonds) hybridized with weighted checkerboard Metropolis sweeps; aligned-start FM order-parameter protocol; disorder-averaged [<|m|>] and Binder cumulant; transition located at steepest |m| drop.",
+  "oracle_p_c": 0.1094,
+  "oracle_source": "2D +/-J RBIM Nishimori multicritical point == code-capacity toric/surface threshold p_c~0.1094: Dennis,Kitaev,Landahl,Preskill J.Math.Phys.43 (2002) arXiv:quant-ph/0110143; Honecker,Picco,Pujol PRL87 (2001) 047201 0.1094(2); Merz,Chalker PRB65 (2002) 054425 0.1093(2); TN-MC arXiv:2409.06538 (2024) 0.10919 (web-verified this run).",
+  "bridge_claim": "If RBIM tooling (built from the SAME ising2d/wolff2d/MCRG machinery) locates p* ~ p_c, then the MCRG critical-exponent machinery measures the SAME object as the QEC code-capacity threshold -> empirical support for the single-repo (no-split) architecture decision.",
+  "L": 8,
+  "n_disorder": 24,
+  "n_records": 120,
+  "burn_in": 150,
+  "sweeps_per_step": 3,
+  "base_seed": 2026,
+  "rows": [
+    {
+      "p": 0.04,
+      "beta": 1.5890269151739729,
+      "abs_m": 0.9827473958333334,
+      "abs_m_err": 0.0042815867795452,
+      "m2": 0.9665432400173612,
+      "m4": 0.9369761970308091,
+      "binder": 0.6656781756566974,
+      "mean_cluster_frac": 0.9999324845679013
+    },
+    {
+      "p": 0.07,
+      "beta": 1.2933446720489712,
+      "abs_m": 0.9356119791666666,
+      "abs_m_err": 0.014649913539428922,
+      "m2": 0.8816724989149306,
+      "m4": 0.7957136624389225,
+      "binder": 0.6587906124365048,
+      "mean_cluster_frac": 0.9993465470679013
+    },
+    {
+      "p": 0.09,
+      "beta": 1.1568174645903153,
+      "abs_m": 0.89609375,
+      "abs_m_err": 0.01649921720175483,
+      "m2": 0.81304931640625,
+      "m4": 0.6868402361869812,
+      "binder": 0.6536615602222386,
+      "mean_cluster_frac": 0.9975549768518518
+    },
+    {
+      "p": 0.11,
+      "beta": 1.0453705484668847,
+      "abs_m": 0.79736328125,
+      "abs_m_err": 0.03199377155541484,
+      "m2": 0.6718312581380208,
+      "m4": 0.5174652387698492,
+      "binder": 0.6178450285892133,
+      "mean_cluster_frac": 0.9945867091049383
+    },
+    {
+      "p": 0.13,
+      "beta": 0.9504793805965235,
+      "abs_m": 0.7001844618055556,
+      "abs_m_err": 0.04016776979637973,
+      "m2": 0.546067640516493,
+      "m4": 0.38082599474324114,
+      "binder": 0.5742913765280844,
+      "mean_cluster_frac": 0.9874517746913579
+    },
+    {
+      "p": 0.16,
+      "beta": 0.8291140383017662,
+      "abs_m": 0.5104926215277777,
+      "abs_m_err": 0.045326906952450514,
+      "m2": 0.3411048041449653,
+      "m4": 0.2009998834795422,
+      "binder": 0.4241639121705386,
+      "mean_cluster_frac": 0.9721137152777778
+    },
+    {
+      "p": 0.2,
+      "beta": 0.6931471805599453,
+      "abs_m": 0.35545789930555555,
+      "abs_m_err": 0.034400721387612625,
+      "m2": 0.1852630615234375,
+      "m4": 0.07580388089021046,
+      "binder": 0.26380559488591737,
+      "mean_cluster_frac": 0.9154103973765432
+    }
+  ],
+  "p_star_located": 0.14500000000000002,
+  "p_star_abs_err_vs_oracle": 0.03560000000000002,
+  "scope_note": "HONEST PLAUSIBILITY LEVEL. Small L + finite disorder sampling -> COARSE localization. NO L->inf finite-size-scaling, NO frontier value. The claim is CONSISTENCY of p* with p_c~0.109 within a systematics-justified band, not high-precision reproduction. Consistent with the repo's honest diagnostic-harness positioning (AGENTS.md Sec.1)."
+}

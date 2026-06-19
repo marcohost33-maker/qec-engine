@@ -63,5 +63,41 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 - **Teil-vorgezogen (Phase-3a):** τ_int (Wolff Γ-Methode + g-Windowing) + autokorr-Fehler bereits real in
   `autocorr.py` (validiert gegen AR(1)-Orakel). Offen für Phase-5: CLT-Varianz σ²_g, Run-Manifest.
 
+## ROADMAP-Inkr.4 — RBIM-Nishimori ↔ MCRG/QEC-Brücke  [DONE 2026-06-19, Branch `claude/qec-inkr4`]
+
+**Der wissenschaftliche Schlussstein, der die Repo-Architektur validiert.** Behauptung des Repos: die
+MCRG-Maschinerie (kritische Exponenten, RG-Fixpunkt) misst DASSELBE Objekt wie der QEC-Threshold — also
+gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über ein **exaktes Mapping**
+(Dennis, Kitaev, Landahl, Preskill, *J. Math. Phys.* 43, 4452 (2002), arXiv:quant-ph/0110143):
+
+> Code-Capacity-Threshold des Toric-/Surface-Codes unter unabhängigem Bit-/Phase-Flip-Rauschen `p`
+> == Ordnungs-/Unordnungs-Übergang (Nishimori-Multikritischer-Punkt) des 2D ±J RBIM auf der Nishimori-Linie.
+> Publizierter Wert: **`p_c ≈ 0.1094` (10.94 ± 0.02 %)**.
+
+- **Implementiert (`rbim_nishimori.py`, additiv, keine neuen Deps):** ±J-RBIM mit quenched Disorder
+  (`J=-1` mit Wkt `p`); Nishimori-Bedingung `p = 1/(1+e^{2β})`; **RBIM-generalisierter Wolff-Single-Cluster**
+  (`P_add = 1−e^{−2β·J_ij·s_i·s_j}` auf befriedigten Bonds, web-verifiziert) **hybridisiert mit gewichteten
+  Checkerboard-Metropolis-Sweeps** (Wolff allein saturiert tief in der FM-Phase: `cf→1`, friert
+  Domänenwände ein → Metropolis annealt die Domänenstruktur); **aligned-Start-Ordnungsparameter-Protokoll**.
+  Observablen: disorder-gemittelte `[<|m|>]` + Binder-Kumulante; Übergang = steilster `|m|`-Abfall.
+- **Korrektheit gegen unabhängige Orakel (KEIN Self-Check):** (a) p=0 RBIM-Energie == homogene
+  `energy_per_spin` (byte-genau); (b) **Gauge-Invarianz** `s_i→τ_i s_i, J_ij→τ_iτ_j J_ij` lässt E exakt
+  invariant (diff < 1e-12); (c) **exakte L=4-Boltzmann-Enumeration** (2^16 Zustände, voll) trifft E/N und
+  ⟨|m|⟩ auch im FRUSTRIERTEN Fall (p>0; dieser Test fing einen Bond-Richtungs-Bug in der Cluster-BFS, der
+  bei p=0 unsichtbar war); (d) Stationaritäts-Sektor (G-N5): aligned-Start landet im korrekten FM-Sektor
+  (p<p_c, hohes ⟨|m|⟩) bzw. PM-Sektor (p>p_c, relaxiert) — kein Bias.
+- **Gemessen — regenerierbares Artefakt `results/inkr4-rbim-nishimori.json` (L=8, 24 Realisierungen,
+  `python -m adaptiverg_qec.rbim_nishimori`):** `[<|m|>]` fällt monoton `0.98 → 0.36` über `p=0.04 → 0.20`;
+  **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — Artefakt
+  `results/inkr4-rbim-nishimori-L12.json` (L=12, 30 Realisierungen, via `--L 12 --n-disorder 30`):**
+  `[<|m|>] 0.99 → 0.22`, `p* = 0.120` (|err| = 0.011) — erwarteter
+  Finite-Size-Shift zu kleinerem `p*` mit wachsendem L; beide konsistent mit `p_c ≈ 0.109`.
+  Gates: `tests/test_rbim_nishimori.py` (10/10).
+- **Ehrliche Scope-Grenze:** kleines L + endliches Disorder-Sampling → **grobe Lokalisierung auf
+  Plausibilitäts-Niveau**, KEINE `L→∞`-FSS, KEIN Frontier-Wert. Konsistent mit der Repo-Positionierung.
+- **Brücken-Ergebnis:** das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG-Maschinerie) lokalisiert
+  `p* ≈ p_c` → die MCRG-Exponenten-Maschinerie misst (im Rahmen der Auflösung) **dasselbe Objekt** wie der
+  QEC-Threshold → der **„nicht-splitten"-Architektur-Entscheid ist empirisch gestützt**.
+
 ---
-*Coworker Research | aus AdaptiveRG-QEC Spec v1.0 hardened | alle Phasen offen 2026-06-02*
+*Coworker Research | aus AdaptiveRG-QEC Spec v1.0 hardened | Inkr.4 (Brücke) DONE 2026-06-19*
