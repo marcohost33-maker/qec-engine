@@ -24,6 +24,22 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
   Laufzeit-Guard, Complex-Step-Jacobian gegen analytische Orakel, bit-exakte Reproduzierbarkeit,
   Negativ-/Edge-Input-Gates. Jede Zahl wird gegen ein **unabhängiges** Orakel geprüft, nicht gegen sich selbst.
 
+### Architektur-Entscheid: MCRG + QEC-Diagnostik bleiben EIN Repo (2026-06-19)
+
+Die zwei Hälften des Repos — (A) die **MCRG-Maschinerie für kritische Exponenten**
+(Ising/Onsager, Wolff/Swendsen, `mcrg_*`) und (B) die **QEC-Code-Diagnostik**
+(`qec_diagnostics` / `qec_fit_diagnostics`: p_L-vs-p, Distanz-Exponent, Pseudo-Threshold,
+Lambda) — sind **kein thematischer Bruch**, sondern ein kohärentes Programm: der
+**QEC-Threshold ist über das RBIM-Nishimori-Mapping** (Dennis, Kitaev, Landahl, Preskill,
+*J. Math. Phys.* **43**, 4452, 2002) ein **Phasenübergang im random-bond Ising-Modell** —
+genau das Objekt, das die MCRG/kritische-Exponenten-Maschinerie misst. Roadmap-Inkr.4
+(RBIM-Nishimori ↔ MCRG-Brücke) ist die bindende Deliverable, die beide Hälften verschweisst.
+
+**Entscheid (Kohärenz/Korrektheit + Effizienz/Produktivität): NICHT splitten.** Ein Split
+würde die physikalische Brücke zerschneiden und CI/Spec/Provenienz unnötig duplizieren;
+die gemeinsame `spec/`-Schicht ist die Wurzel beider Hälften. Sollte Inkr.4 wider Erwarten
+zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem dokumentiert).
+
 ### Gültigkeitsgrenzen
 
 - Die Phase-1-**MVP-Instanz** ist der **1D-Repetition-Code-Ring** (= 1D-Ising). Der hat `T_c = 0`, also
