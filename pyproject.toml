@@ -25,6 +25,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.5"]
+# Inkrement-3: ECHTES MWPM-Decoding hinter optional-dependency-Gate.
+# Ohne dieses Extra importiert surface_decoder.py nicht und seine Tests SKIPPEN
+# (sie failen NICHT hart). Kein Eigen-Decoder: Stim (Sampling) + PyMatching 2 (MWPM).
+surface = ["stim>=1.13", "pymatching>=2.1"]
 
 [project.scripts]
 adaptiverg-qec = "adaptiverg_qec.cli:main"
