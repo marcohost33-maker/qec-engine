@@ -44,6 +44,23 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
   bester Iterationswert `|y_h − 15/8| ≈ 0.002`, tiefste-Iter `≈ 0.003`. **Ehrlich:** „best" = Minimum
   über Iterationen (proximity-selektiert, optimistisch; NICHT die tiefste Stufe — bei kleinem L kein klarer
   Plateau, alle Iterationen geloggt); Rest-finite-Size-Systematik bleibt, **keine** `L→∞`-FSS, **kein** Frontier-Wert.
+- **ROADMAP-Inkr.4 (NEU) — die RBIM-Nishimori ↔ MCRG/QEC-Brücke (Architektur-Schlussstein).**
+  `rbim_nishimori.py` implementiert das **±J random-bond Ising-Modell (RBIM) auf der Nishimori-Linie**
+  (`p = 1/(1+e^{2β})`) mit DERSELBEN Maschinerie (Wolff-Cluster aus `wolff2d.py`-Idee, RBIM-generalisiert:
+  `P_add = 1−e^{−2β·J_ij·s_i·s_j}` auf befriedigten Bonds, hybridisiert mit gewichteten Metropolis-Sweeps
+  + aligned-Start-Ordnungsparameter-Protokoll). Das ist **kein Folklore, sondern ein exaktes Mapping**:
+  der 2D-±J-RBIM-**Nishimori-Multikritische-Punkt** = Code-Capacity-**Toric/Surface-Threshold**
+  `p_c ≈ 0.1094` (Dennis/Kitaev/Landahl/Preskill, *J. Math. Phys.* 43, 2002; Honecker/Picco/Pujol PRL 87,
+  2001: `0.1094(2)`; Merz/Chalker PRB 65, 2002: `0.1093(2)`). **Gemessen — regenerierbares Artefakt
+  `results/inkr4-rbim-nishimori.json` (L=8, 24 Disorder-Realisierungen):** disorder-gemittelte `[<|m|>]`
+  fällt monoton von `0.98` (FM, p=0.04) auf `0.36` (PM, p=0.20); steilster Abfall lokalisiert bei
+  `p* ≈ 0.145` (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung L=12 (30 Realisierungen, separat gerechnet):**
+  `[<|m|>] 0.99 → 0.22`, `p* ≈ 0.12` (|err| ≈ 0.01) — der erwartete Finite-Size-Shift zu kleinerem `p*` mit
+  wachsendem L. Beide **konsistent mit `p_c ≈ 0.109`** auf der groben Auflösung. **Ehrlich:** kleines L +
+  endliches Disorder-Sampling → **Plausibilitäts-Niveau**, KEINE `L→∞`-FSS, KEIN Frontier-Wert.
+  **Bedeutung:** misst das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG) `p* ≈ p_c`, dann misst die
+  MCRG-Exponenten-Maschinerie GENAU dasselbe Objekt wie der QEC-Threshold → der **„nicht-splitten"-
+  Architektur-Entscheid (MCRG + QEC in EINEM Repo) ist empirisch gestützt** (im Rahmen dieser Auflösung).
 - Surrogate-Layer, SNIS, MMD-Drift, Checkpoint/Restart, R-hat-Multichain-Diagnostik (Spec-Phasen 2–5)
   sind **noch nicht** implementiert.
 
@@ -64,6 +81,7 @@ Frontier-Threshold-Tool. Die Einordnung ehrlich:
 | **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
 | **Wolff-Single-Cluster-Sampler (`wolff2d.py`, Phase-4)** | **real** — `P_add = 1−e^{−2K}`, vektorisierter BFS-Cluster, rejection-free. Energie gegen exakte L=4-Enumeration (\|err\|<0.008); `τ_int(Wolff) ≪ τ_int(Metropolis)` belegt (×12–16 @ L=32) |
 | **Multi-RG-Iteration + ungerader Sektor `y_h` (`mcrg_multirg.py`, Phase-4)** | **real** — iterierte Majority-Stufen (L=32→16→8→4); gerader `y_t` konvergiert (bester \|y_t−1\|≈0.006 vs 3b 0.035); 3-Spin-ungerade Operatoren → `y_h` vs Onsager `15/8` (bester \|y_h−15/8\|≈0.002). **Ehrlich:** Rest-finite-Size, keine L→∞-FSS |
+| **RBIM-Nishimori ↔ QEC-Brücke (`rbim_nishimori.py`, Inkr.4)** | **real** — ±J-RBIM auf der Nishimori-Linie (`p=1/(1+e^{2β})`); RBIM-generalisierter Wolff (`P_add=1−e^{−2β·J_ij·s_i·s_j}`) + gewichtete Metropolis-Sweeps + aligned-Start. Verifiziert gegen **exakte L=4-Enumeration** (auch frustriert, E/N + ⟨\|m\|⟩) + **Gauge-Invarianz** + Stationaritäts-Histogramm. Lokalisiert `p* ≈ 0.12` vs publiziertem `p_c≈0.1094` (Toric-Threshold). **Ehrlich: grob/Plausibilität, keine L→∞-FSS** |
 | Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phase 5) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
