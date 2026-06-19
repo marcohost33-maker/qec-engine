@@ -20,6 +20,17 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   python -m adaptiverg_qec.mcrg_matrix   # schreibt results/phase3b-swendsen-matrix.json
   ```
 
+- `qec-diagnostics-rep-code.json` — **QEC-Diagnostik (Inkrement 1):** logische Fehlerrate
+  `p_L` vs. physikalische Fehlerrate `p` fuer den n-Bit-Repetition-Code (unabhaengiger
+  Bit-Flip-Kanal, Majority-Vote-Decoder). Monte-Carlo (200 000 shots/Zelle, seed=2026)
+  gegen das exakte Binomial-Orakel `p_L(n,p) = Σ_{k>n/2} C(n,k) p^k (1-p)^{n-k}`; jede
+  Zelle traegt `p_L_mc`, `std_err`, `p_L_exact`, `n_sigma`. Pseudo-Threshold `p*=1/2`.
+  Reproduzierbar via:
+
+  ```bash
+  python -m adaptiverg_qec.qec_diagnostics   # schreibt results/qec-diagnostics-rep-code.json
+  ```
+
 - `phase2-swendsen.json` — Phase-2-Validierungstabelle: Swendsen-MCRG-Schätzer
   T̂(K) vs. analytisches Orakel tanh(2K) über 4 K-Werte, 8 Seeds, mit
   Multi-Seed-Fehlerbalken (std/SEM) und n_sigma. Reproduzierbar via:
