@@ -36,22 +36,47 @@ Luecke, additiv und ohne Bestehendes anzufassen.
   `3 p^2 - 2 p^3 = 0.028`. Genau deshalb wird gegen das unabhaengig hergeleitete
   Orakel geprueft, nicht gegen eine Literatur-Formel. Test `test_n3_specific_value_p_0_1`.
 
-## Inkrement 2 — Baseline-Decoder-Vergleich + Fit-Diagnostik
+## Inkrement 2 (DIESE PR) — Fit-Diagnostik gegen geschlossene Orakel  [DONE]
 
-- **Zweiter Code/Kanal:** klassischer Repetition-Code unter dem **bit-flip + Mess-
-  Fehler**-Modell (Phenomenological noise, 1D), damit ein nicht-trivialer Decoder
-  noetig wird (Syndrom ueber mehrere Runden).
-- **Baseline-Decoder als Referenz:** Minimum-Weight-Perfect-Matching auf dem 1D-
-  Syndromgraphen (analytisch/kombinatorisch loesbar als Referenz-Implementierung).
-  Vergleich Majority-Vote vs. MWPM: identische `p_L` im memoryless-Limit (Orakel),
-  Divergenz mit Mess-Fehlern.
-- **Fit-Harness:** log-`p_L`-vs-`p`-Steigung als empirischer Code-Distanz-Exponent;
-  Kreuzungspunkt-Bisektion als empirischer Pseudo-Threshold vs. analytisches `p*`.
+> **Scope-Schaerfung gegenueber der urspruenglichen Skizze (ehrlich, mit Grund).**
+> Die Skizze plante zusaetzlich einen **hand-gerollten MWPM-Spacetime-Decoder** fuer
+> phenomenological noise. Ein Prototyp davon wurde gebaut (scipy `linear_sum_assignment`
+> als exaktes Matching) und **verworfen**: er verliess fuer `d=5` in ~2–6 % der Shots den
+> Codespace (Residuum mit nicht-trivialem Syndrom) = Decoder-Bug in der Matching->
+> Korrektur-Rekonstruktion. Das Codie-Verbot „KEIN Eigen-Decoder neu erfinden, wo
+> etablierte Tools existieren" greift genau hier: ein korrekter Spacetime-Decoder ist
+> Aufgabe von **PyMatching** (Inkr. 3, optional-Gate). Inkr. 2 liefert daher den
+> vollstaendig **orakelbaren** Teil — die Fit-Diagnostik — ohne Decoder-Erfindung.
 
-## Inkrement 3 — Surface-Code-Schnittstelle (ehrliches Tooling, kein Eigen-Decoder)
+- Modul `src/adaptiverg_qec/qec_fit_diagnostics.py` (baut auf Inkr.1-Orakel auf):
+  - `fit_distance_exponent(d)` — sub-threshold log-log-Steigung `p_L`-vs-`p` →
+    empirischer Code-Distanz-Exponent, Orakel `(d+1)/2`.
+  - `pseudo_threshold_bisection(d1,d2)` — Kurven-Kreuzungs-Bisektion → empirischer
+    Pseudo-Threshold, Orakel analytisch `p* = 1/2` (Symmetrie `p_L(d,1/2)=1/2`).
+  - `lambda_suppression(d,p)` — Fehler-Unterdrueckungs-Faktor `p_L(d)/p_L(d+2)`
+    (Google-„below threshold"-Kennzahl), small-p-Orakel `(A_d/A_{d+2})/p`,
+    `A_k = C(k,(k+1)/2)`.
+  - `run_fit_diagnostics()` + `python -m adaptiverg_qec.qec_fit_diagnostics` →
+    `results/qec-fit-diagnostics-rep-code.json`.
+- **Metrik (real ausgefuehrt):** Exponent `d∈{3,5,7,9}` worst `abs_err=7.2e-4`;
+  Pseudo-Threshold worst `abs_err=2.2e-16`; Lambda `≈3.27/3.14/3.06` (alle >1).
+- **Cross-Anchor-Orakel (fuer Inkr.3 vorgesehen):** ein ML-Brute-Force-Decoder als
+  unabhaengiger Gegen-Check zum Binomial-Orakel. Der eigene Prototyp wurde verworfen
+  (verliess fuer `d=5` den Codespace) und kommt mit PyMatching in Inkr.3 zurueck —
+  bis dahin wird **keine** Brute-Force-Vergleichszahl behauptet.
+- Tests `tests/test_qec_fit_diagnostics.py` (Orakel-Vergleiche je Kennzahl +
+  Silent-Failure-Gate: gerade/negative/nicht-int `d`, p_probe nicht aufsteigend/
+  nicht-sub-threshold, Bisektions-Klammer ohne 0.5, Lambda-p ausserhalb (0,0.5), NaN).
 
+## Inkrement 3 — MWPM via PyMatching (Surface-Code + phenomenological noise)
+
+- **Absorbiert den aus Inkr.2 ausgelagerten MWPM-Spacetime-Decoder:** der hand-
+  gerollte Prototyp (Decoder-Bug, s.o.) wird durch **PyMatching 2** ersetzt — das
+  ist der etablierte, korrekte MWPM-Decoder. Erst damit ist der Vergleich
+  Majority-Vote/ML vs. MWPM unter phenomenological noise (Mess-Fehler, mehrere
+  Runden) belastbar.
 - Optionaler Adapter auf etablierte Bibliotheken (Stim fuer Sampling, PyMatching 2
-  fuer MWPM) HINTER einem optional-dependency-Gate (`qec_diagnostics[surface]`),
+  fuer MWPM) HINTER einem optional-dependency-Gate (`adaptiverg-qec[surface]`),
   NICHT als Kern-Dependency. Wir bauen KEINEN eigenen Surface-Decoder.
 - Diagnostik-Schicht: `p_L` vs `p` Threshold-Sweep + Finite-Size-Crossing fuer den
   Toric/Surface-Code mit MWPM-Baseline, gegen Literatur-Threshold (~10.3% bit-flip,
@@ -74,4 +99,4 @@ Luecke, additiv und ohne Bestehendes anzufassen.
 - Equalita verifiziert; Marco entscheidet Promotion. Kein Self-Cert.
 
 ---
-*Coworker Research | QEC-Diagnostik-Harness | Inkrement 1 von N | 2026-06-19*
+*Coworker Research | QEC-Diagnostik-Harness | Inkrement 1+2 von N | 2026-06-19*
