@@ -1,0 +1,59 @@
+{
+  "tool": "adaptiverg_qec.phase5 (CLT + R-hat + Manifest)",
+  "method": "Multichain A-Kernel MCMC -> rank-normalized split-R-hat (Vehtari 2021) + CLT variance sigma^2_g (Gamma-method + OBM) + reproducible run-manifest",
+  "oracle_rhat": "Vehtari et al. 2021 threshold R-hat<1.01",
+  "oracle_clt": "AR(1) closed-form sigma^2_g = sigma_eps^2/(1-phi)^2 = Var*(1+phi)/(1-phi)",
+  "manifest": {
+    "schema": "adaptiverg_qec.phase5.run_manifest/v1",
+    "base_seed": 20260619,
+    "n_chains": 4,
+    "L": 16,
+    "beta_min": 0.1,
+    "beta_max": 2.0,
+    "beta_target": 1.0,
+    "beta_start": 0.2,
+    "n_steps": 3000,
+    "burn_in": 500,
+    "adapt_c": 0.5,
+    "adapt_T0": 100.0,
+    "environment": {
+      "python": "3.14.4",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "package_version": "0.1.0.dev2",
+      "git_sha": "c94efae",
+      "platform": "Windows-11-10.0.26200-SP0"
+    }
+  },
+  "multichain_rhat": {
+    "observable": "H (domain-wall count)",
+    "rhat": 1.000303421745329,
+    "bulk_rhat": 1.000303421745329,
+    "folded_rhat": 1.0000384464878516,
+    "ess_bulk": 5148.764318378989,
+    "ess_tail": 5668.8578078947985,
+    "converged": true,
+    "chain_mean_H": [
+      4.3016,
+      4.3432,
+      4.2824,
+      4.3184
+    ]
+  },
+  "clt_variance": {
+    "sigma2_g_gamma": 6.099637740415999,
+    "sigma2_g_obm": 6.2321502527081805
+  },
+  "ar1_oracle_validation": {
+    "phi": 0.8,
+    "oracle_sigma2_g": 25.000000000000014,
+    "oracle_var_marginal": 2.7777777777777786,
+    "oracle_tau_int": 4.500000000000001,
+    "estimate_gamma_mean": 25.260705494597875,
+    "estimate_obm_mean": 24.492295095079683,
+    "rel_err_gamma": 0.010428219783914438,
+    "rel_err_obm": 0.02030819619681323
+  },
+  "result_hash": "4f058f80f51cfb0bc06462ebd085fa2cd9982db8369db855eb321e5c21a43cc3",
+  "determinism_contract": "re-run with --from-manifest reproduces result_hash byte-identically"
+}

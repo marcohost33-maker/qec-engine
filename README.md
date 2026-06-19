@@ -93,15 +93,18 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 29 Gates, JSON-Log) | **real** (29/29 [PASS], exit 0) |
-| SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4) |
+| Selftest-Gates (`cli.py --selftest`, 38 Gates, JSON-Log) | **real** (38/38 [PASS], exit 0) |
+| SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4/5) |
 | Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
 | **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
 | **Wolff-Single-Cluster-Sampler (`wolff2d.py`, Phase-4)** | **real** — `P_add = 1−e^{−2K}`, vektorisierter BFS-Cluster, rejection-free. Energie gegen exakte L=4-Enumeration (\|err\|<0.008); `τ_int(Wolff) ≪ τ_int(Metropolis)` belegt (×12–16 @ L=32) |
 | **Multi-RG-Iteration + ungerader Sektor `y_h` (`mcrg_multirg.py`, Phase-4)** | **real** — iterierte Majority-Stufen (L=32→16→8→4); gerader `y_t` konvergiert (bester \|y_t−1\|≈0.006 vs 3b 0.035); 3-Spin-ungerade Operatoren → `y_h` vs Onsager `15/8` (bester \|y_h−15/8\|≈0.002). **Ehrlich:** Rest-finite-Size, keine L→∞-FSS |
 | **RBIM-Nishimori ↔ QEC-Brücke (`rbim_nishimori.py`, Inkr.4)** | **real** — ±J-RBIM auf der Nishimori-Linie (`p=1/(1+e^{2β})`); RBIM-generalisierter Wolff (`P_add=1−e^{−2β·J_ij·s_i·s_j}`) + gewichtete Metropolis-Sweeps + aligned-Start. Verifiziert gegen **exakte L=4-Enumeration** (auch frustriert, E/N + ⟨\|m\|⟩) + **Gauge-Invarianz** + Stationaritäts-Sektor (aligned-Start → korrekter FM/PM-Sektor, G-N5). Lokalisiert `p* = 0.145` (L=8) bzw. `0.120` (L=12, |err|=0.011) vs publiziertem `p_c≈0.1094` (Toric-Threshold) — beide Werte committet/regenerierbar. **Ehrlich: grob/Plausibilität, keine L→∞-FSS** |
-| Surrogate + MMD-Drift + Checkpoint/Restart + R-hat-Multichain (Spec §8/§10) | **offen** (Phase 5) |
+| **CLT-Varianz σ²_g (`clt.py`, Phase-5)** | **real** — MCMC-CLT `σ²_g = 2·τ_int·Var(g)` (Γ-Methode) + **unabhängiger OBM-Schätzer** (Flegal-Jones 2010). Gegen geschlossene AR(1)-Form `σ²_g=σ²_ε/(1−φ)²` (φ=0.8, Orakel 25.0 → Γ 25.26 rel.0.010, OBM 24.49 rel.0.020). **Coverage beidseitig:** korrektes σ²_g deckt 95%-CI mit 0.937; iid-Annahme UNTERdeckt mit 0.490 |
+| **R̂-Multichain (`rhat.py`, Phase-5)** | **real** — rank-normalized split-R̂ + folded-R̂ + bulk/tail-ESS (Vehtari et al. 2021, R̂<1.01). A-Kernel M=4 → R̂=1.0003 (converged, ESS_bulk≈5149). **Beidseitig:** Mittel-Drift → R̂=1.62 (bulk); Skalen-Drift → R̂=1.27 (folded>bulk) |
+| **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
+| Surrogate + MMD-Drift + Checkpoint/Restart + SNIS (Spec §8/§5) | **offen** (Phase 5/4 — NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
 
@@ -205,8 +208,10 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 29 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 38 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
+adaptiverg-qec phase5 --json results/phase5-clt-rhat-manifest.json --manifest-out results/phase5-manifest.json
+adaptiverg-qec phase5 --from-manifest results/phase5-manifest.json   # byte-identische Reproduktion (CLT+R-hat, Phase-5)
 pytest                           # Test-Suite
 python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code.json (Inkr.1)
 python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)

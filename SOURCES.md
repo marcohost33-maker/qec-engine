@@ -234,3 +234,46 @@ neu erstellt 2026-06-19; `pyproject.toml` `[surface]`-Extra ergaenzt; README + Q
 aktualisiert. Kein importierter Fremdcode (stim/pymatching nur als optionale Runtime-Deps).
 
 *Codie | 2026-06-19 | Inkr.3-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 ausstehend, nicht selbst-zertifiziert*
+
+## Lineage-Append (append-only) — 2026-06-19 — Phase-5 (CLT + R-hat + Manifest)
+
+### Phase-5: CLT-Varianz sigma^2_g + rank-normalized split-R-hat + Run-Manifest
+
+**Branch:** `claude/qec-phase5-clt-rhat-manifest` (Agent: Claude/Codie). Additiv, KEINE neuen
+Runtime-Deps (nur numpy/scipy). Code: `src/adaptiverg_qec/clt.py`, `rhat.py`, `manifest.py` +
+`tests/test_clt.py`, `test_rhat.py`, `test_manifest.py`; CLI-Subcommand `phase5`; Gates G33-G38.
+
+**Methoden-Quellen (verbindlich, NICHT als Dependency importiert):**
+- **CLT-Varianz / long-run variance:** MCMC-CLT `sqrt(N)(g_bar-E[g]) -> N(0, sigma^2_g)`,
+  `sigma^2_g = Var(g)(1 + 2 sum_t rho_t) = 2 tau_int Var(g)`.
+  C. J. Geyer, "Practical Markov Chain Monte Carlo", Statist. Sci. 7 (1992) 473.
+- **Overlapping Batch Means (unabhaengiger zweiter Schaetzer):** J. M. Flegal & G. L. Jones,
+  "Batch means and spectral variance estimators in MCMC", Ann. Statist. 38 (2010) 1034.
+- **AR(1)-Orakel (geschlossene Form):** `sigma^2_g = sigma_eps^2/(1-phi)^2 = Var(x)(1+phi)/(1-phi)`,
+  `Var(x)=sigma_eps^2/(1-phi^2)`, `tau_int=(1+phi)/(2(1-phi))`. Standard-long-run-Varianz-Identitaet
+  fuer AR(1) (inefficiency factor `(1+phi)/(1-phi)`); web-verifiziert.
+- **Rank-normalized split-R-hat + bulk/tail-ESS:** A. Vehtari, A. Gelman, D. Simpson, B. Carpenter,
+  P.-C. Buerkner, "Rank-normalization, folding, and localization: An improved R-hat for assessing
+  convergence of MCMC", Bayesian Analysis 16(2) (2021) 667-718, doi:10.1214/20-BA1221.
+  Blom-Transform `z_i = Phi^-1((r_i-3/8)/(S+1/4))`; `R-hat = sqrt(((N-1)/N) W + B/N) / sqrt(W)`;
+  folded-R-hat um Median; Schwellwert R-hat<1.01. ESS via Multichain-Variogramm (BDA3 11.7) +
+  Geyer initial-monotone-sequence. Online-Appendix: avehtari.github.io/rhat_ess/rhat_ess.html.
+
+**Validierungs-Orakel (unabhaengig, real ausgefuehrt, regenerierbar):**
+- **CLT vs AR(1) (Gate G33):** phi=0.8, Orakel sigma^2_g=25.0 -> Gamma-Schaetzer 25.26 (rel.Fehler
+  0.010), OBM 24.49 (0.020). Beide Methoden treffen dasselbe Orakel.
+- **Coverage beidseitig (Gate G34):** korrektes sigma^2_g -> 95%-CI-Coverage 0.937 (~0.95);
+  ABSICHTLICH falsche iid-Annahme -> 0.490 (UNTERdeckt, verfehlt 0.95). Beide Richtungen Pflicht.
+- **R-hat beidseitig (Gates G35/G36):** gut gemischte iid-Ketten R-hat=1.0002; A-Kernel M=4
+  R-hat=1.0009 (converged); Mittel-Drift R-hat=1.62 (bulk faengt); Skalen-Drift R-hat=1.27
+  (folded=1.27>bulk=1.00 -- Vehtari-Punkt). ESS_bulk(A-Kernel)~5149 (>100/Kette).
+- **Manifest beidseitig (Gates G37/G38, SLSA-Custody):** run -> Manifest -> from-manifest ergibt
+  byte-identischen result_hash; geaenderter Seed/n_steps -> ANDERER Hash (Manifest treibt den Lauf).
+
+**EHRLICHE GRENZE (kein Overclaim):** Phase-5-real = CLT-sigma^2_g + R-hat-Multichain + Manifest.
+**WEITERHIN OFFEN:** SNIS (chi^2-Varianz-Bound) + Surrogate-Beschleunigung (Phase-4) + Checkpoint/
+Lockfile bleiben offen -- NICHT als erledigt deklariert. Jede genannte Zahl ist aus
+`python -m adaptiverg_qec.cli phase5 --json results/phase5-clt-rhat-manifest.json` regenerierbar
+(numpy 2.4.6, scipy 1.17.1, python 3.14.4) bzw. ein publiziertes Literatur-Orakel mit Quelle oben.
+
+*Codie | 2026-06-19 | Phase-5-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 + CI ausstehend, nicht selbst-zertifiziert*
