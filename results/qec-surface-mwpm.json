@@ -1,0 +1,81 @@
+{
+  "tool": "adaptiverg_qec.surface_decoder",
+  "decoder": "PyMatching 2 (MWPM); Stim sampling",
+  "stim_version": "1.16.0",
+  "pymatching_version": "2.4.0",
+  "oracle_A": {
+    "model": "repetition code, code-capacity bit-flip, MWPM == ML on 1D matching graph",
+    "oracle": "exact binomial p_L(d,p) (Inkrement 1)",
+    "p": 0.1,
+    "shots": 200000,
+    "rows": [
+      {
+        "d": 3,
+        "p": 0.1,
+        "p_L_mwpm": 0.027435,
+        "std_err": 0.00036525553229896466,
+        "p_L_exact": 0.028000000000000008,
+        "n_sigma": 1.546862265011634
+      },
+      {
+        "d": 5,
+        "p": 0.1,
+        "p_L_mwpm": 0.008435,
+        "std_err": 0.00020449756447204942,
+        "p_L_exact": 0.008560000000000002,
+        "n_sigma": 0.6112542236026813
+      },
+      {
+        "d": 7,
+        "p": 0.1,
+        "p_L_mwpm": 0.002825,
+        "std_err": 0.00011868065080290047,
+        "p_L_exact": 0.002728000000000001,
+        "n_sigma": 0.8173194142749711
+      }
+    ],
+    "worst_n_sigma": 1.546862265011634
+  },
+  "oracle_B": {
+    "model": "rotated surface code, code-capacity pure-X-flip, MWPM threshold",
+    "literature_mwpm_threshold": 0.103,
+    "literature_ml_threshold_for_context": 0.1094,
+    "literature_source": "Dennis, Kitaev, Landahl & Preskill, J. Math. Phys. 43, 4452 (2002)",
+    "shots_per_cell": 60000,
+    "ps": [
+      0.095,
+      0.1,
+      0.105,
+      0.11
+    ],
+    "rows": [
+      {
+        "d_small": 7,
+        "d_large": 9,
+        "p_threshold": 0.09524038461538462,
+        "p_literature": 0.103,
+        "abs_error": 0.007759615384615379
+      },
+      {
+        "d_small": 9,
+        "d_large": 11,
+        "p_threshold": 0.10151234567901235,
+        "p_literature": 0.103,
+        "abs_error": 0.0014876543209876442
+      },
+      {
+        "d_small": 7,
+        "d_large": 11,
+        "p_threshold": 0.09776946107784432,
+        "p_literature": 0.103,
+        "abs_error": 0.005230538922155678
+      }
+    ],
+    "best_pair": [
+      9,
+      11
+    ],
+    "best_abs_error": 0.0014876543209876442
+  },
+  "seed": 11
+}
