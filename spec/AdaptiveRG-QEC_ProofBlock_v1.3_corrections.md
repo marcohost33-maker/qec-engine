@@ -114,18 +114,25 @@ die lose „Bauer–Fike"-Zuschreibung ist entsprechend präzisiert. `sep` kommt
 vor (für normale Matrizen ist κ = 1 → Weyl: |λ̂−λ| ≤ ‖E‖). Da DR(g*) i.A. nicht-normal ist,
 kann `sep⁻¹` die tatsächliche Eigenwert-Empfindlichkeit **beliebig unterschätzen**.
 
-**Beleg (unabhängiges numerisches Orakel):** A = [[1, t], [0, 2]] hat konstante
+**Beleg (unabhängiges numerisches Orakel — lauffähiger Reproducer + `results/`-Gate-Log,
+Herkunft: eigener-lauf, `seed=2026`):** A = [[1, t], [0, 2]] hat konstante
 Eigenwert-Separation sep ≡ 1, aber mit t wachsend zunehmend parallele Eigenvektoren.
-Gemessenes |δλ|/‖E‖ (Mittel über 400 Zufalls-E, ‖E‖=1e−6):
+Gemessenes |δλ|/‖E‖₂ (Mittel über beide Eigenwerte und 400 Zufalls-E mit Spektralnorm
+‖E‖₂ = 1e−6), reproduziert von
+[`spec/reproducers/proofblock_v13_oracles.py`](reproducers/proofblock_v13_oracles.py),
+Gate-Log [`results/proofblock-v13-oracles.json`](../results/proofblock-v13-oracles.json):
 
-| t | sep⁻¹ (docx-Bound-Faktor) | κ(λ) (korrekt) | gemessen |δλ|/‖E‖ |
-|---|---|---|---|
-| 0  | 1.0 | 1.0  | 0.79 |
-| 5  | 1.0 | 5.10 | 3.95 |
-| 50 | 1.0 | 50.0 | 39.0 |
+| t | sep⁻¹ (docx-Bound-Faktor) | κ(λ) (korrekt) | gemessen |δλ|/‖E‖₂ | gemessen/κ |
+|---|---|---|---|---|
+| 0  | 1.0 | 1.00  | 0.47  | 0.47 |
+| 5  | 1.0 | 5.10  | 2.37  | 0.47 |
+| 50 | 1.0 | 50.01 | 21.02 | 0.42 |
 
-Die reale Perturbation skaliert mit **κ(λ)**, nicht mit sep⁻¹; der docx-Bound wird bei t=50
-um ~40× verletzt.
+Die reale Perturbation skaliert **linear mit κ(λ)** (nahezu konstantes Verhältnis
+gemessen/κ ≈ 0.42–0.47, der Zufalls-Projektions-Faktor E|uᴴÊv|), **nicht mit sep⁻¹ ≡ 1**;
+der docx-`sep⁻¹`-Bound wird bei t=50 um **~21×** verletzt (gemessen 21.02 > sep⁻¹ = 1). Die
+Reproduzierbarkeit ist deterministisch (fixer Seed, keine neuen Deps); das Gate `gate_pass`
+prüft `gemessen ≤ κ·(1+tol)` **und** `gemessen > sep⁻¹` für t>0.
 
 **[KORREKTUR] Korrekte Fassung:**
 
@@ -165,12 +172,30 @@ die relevanten Kopplungen müssen auf die **kritische Fläche** (stabile Mannigf
 W^s(g*)) getunt werden; die Exponenten y_i liest man dann am **linearisierten** Jacobian
 DR(g*) am getunten Punkt ab — ohne globale Konvergenz von ĝ_k vorauszusetzen.
 
-**Beleg (unabhängiges numerisches Orakel):** DR = diag(0.5, 1.5), σ = 1e−3, Start bei Abstand
-1.4e−4 ⟪ r_lin = 1e−2, 60 Iterationen, Mittel über 200 Läufe:
-- **Nur Kugel-Bedingung (untuned):** mittleres End-‖ĝ−g*‖ = **2.45e+07** (Blow-up entlang λ_u).
-- **Getunt auf W^s (u_u-Feld = 0):** mittleres End-‖ĝ−g*‖ = **9.18e−4 ≈ O(σ)**.
-Start *innerhalb* der Kugel ⇒ trotzdem Divergenz. Die Theorem-Aussage
-„B(g*, r_lin) ⇒ Konvergenz" ist damit widerlegt.
+**Beleg (unabhängiges numerisches Orakel — lauffähiger Reproducer + `results/`-Gate-Log,
+Herkunft: eigener-lauf, `seed=2026`):** DR = diag(0.5, 1.5), σ = 1e−3, Start bei Abstand
+1.4e−4 ⟪ r_lin = 1e−2, 60 Iterationen, Mittel über 200 Läufe, reproduziert von
+[`spec/reproducers/proofblock_v13_oracles.py`](reproducers/proofblock_v13_oracles.py),
+Gate-Log [`results/proofblock-v13-oracles.json`](../results/proofblock-v13-oracles.json):
+- **Nur Kugel-Bedingung (untuned):** mittleres End-‖ĝ−g*‖ = **2.82e+07** (Blow-up entlang λ_u);
+  das Iterat **verlässt die Kugel** B(g*, r_lin) im Mittel bereits nach **~8 Schritten**
+  (deterministischer Austritt ≈ 11, da 1.5^k · x_u(0) = r_lin bei k ≈ 11).
+- **Getunt auf W^s (u_u-Feld = 0):** mittleres End-‖ĝ−g*‖ = **9.55e−4 ≈ O(σ)**
+  (Referenz σ·√(2/π)/√(1−0.5²) ≈ 9.2e−4).
+
+**[KORREKTUR] Präzisierung des Scopes (Reaktion auf Cross-Family-Review):**
+Das Orakel widerlegt **direkt** die **P2.2-Beschränktheits-Behauptung** („ĝ_k bleibt in einer
+O(n^{−1/2})-Umgebung"): der untuned Lauf verlässt die O(σ)-Umgebung *und* die Kugel und
+divergiert. Es widerlegt **nicht** die **P2.1-Konditionale wörtlich** — deren Hypothese
+„*sofern* die Iteration in B(g*, r_lin) *verbleibt*" ist beim untuned Lauf gar nicht erfüllt
+(er verlässt B nach ~8 Schritten). Der eigentliche Defekt von P2.1 ist daher ein anderer und
+wird hier präzise benannt: Für einen **hyperbolischen** Fixpunkt ist die maximale in
+B(g*, r_lin) **invariante** Menge genau **W^s(g*) ∩ B(g*, r_lin)**; abseits von W^s verlässt das
+Iterat B **beweisbar** (Projektion auf u_u wächst geometrisch — das Orakel zeigt den Austritt).
+Die Guard-Bedingung „‖ĝ_k − g*‖ < r_lin" ist somit **keine a-priori sicherstellbare
+Hinreichung** für Konvergenz (sie lässt sich nur *nachträglich* prüfen und ist off-W^s
+generisch verletzt). Die **operative** Bedingung ist das **Tuning auf W^s(g*)** (instabile
+Skalenfelder = 0), was der getunte Lauf (End-‖·‖ ≈ 9.5e−4 ≈ O(σ)) belegt.
 
 **[KORREKTUR] Korrekte Fassung (Bedingung):**
 Ersetze die Guard-/Konvergenz-Bedingung durch:
@@ -209,8 +234,19 @@ for i, p in enumerate(paras, 1):
 ## Belege / Orakel (Herkunft: eigener-lauf, 2026-07-02)
 - Defekt 1: eigene validierte Repo-Definition `src/adaptiverg_qec/autocorr.py:173`.
 - Defekt 2: analytische ε_opt-Herleitung; Konsistenz mit P3.2 (Absatz 92).
-- Defekt 3: numerisches Orakel A=[[1,t],[0,2]], 400 Zufalls-E je t; κ vs sep vs Messung.
-- Defekt 4: numerisches Orakel DR=diag(0.5,1.5), σ=1e−3, 200 Läufe; untuned 2.45e7 vs getunt 9.2e−4.
+- Defekt 3 **(lauffähiger Reproducer + Gate-Log)**: numerisches Orakel A=[[1,t],[0,2]], 400 Zufalls-E
+  (‖E‖₂=1e−6) je t; gemessen 0.47 / 2.37 / 21.02 skaliert mit κ (nicht sep⁻¹). Erzeugt von
+  `spec/reproducers/proofblock_v13_oracles.py` → `results/proofblock-v13-oracles.json` (`defect3.gate_pass`).
+- Defekt 4 **(lauffähiger Reproducer + Gate-Log)**: numerisches Orakel DR=diag(0.5,1.5), σ=1e−3, 200 Läufe;
+  untuned End-‖·‖ = 2.82e7 (Austritt aus B nach ~8 Schritten) vs. getunt 9.55e−4 ≈ O(σ). Erzeugt von
+  `spec/reproducers/proofblock_v13_oracles.py` → `results/proofblock-v13-oracles.json` (`defect4.gate_pass`).
+
+### Reproduktion (deterministisch, keine neuen Deps)
+```bash
+python spec/reproducers/proofblock_v13_oracles.py   # schreibt results/proofblock-v13-oracles.json, exit 0 gdw beide Gates PASS
+```
+Der Reproducer verankert `seed=2026`; jede Tabellen-Zahl oben stammt aus genau diesem Lauf
+(numpy-Version + Plattform im Gate-Log protokolliert).
 
 ## Referenzen
 - Bauer, F.L. & Fike, C.T. (1960). Norms and exclusion theorems. *Numer. Math.* 2:137–141.

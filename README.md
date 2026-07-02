@@ -230,6 +230,10 @@ python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.
   (Roberts & Rosenthal 2007), SNIS-Sampling-Bounds, *Unified Stability–RG Convergence Theorem*.
 - `spec/AdaptiveRG-QEC_ProofBlock_v1.1_KernelSpec_v1.2.docx` — Beweis-Block: P1 (Ergodizität A-Kern),
   P2 (RG-Fixpunkt-Konsistenz), CLT (Andrieu & Moulines).
+- `spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md` — **Errata-Companion v1.3** zum obigen ProofBlock:
+  korrigiert 4 mathematisch defekte Knoten (P4.1 `n_eff`-Doppel-Deflation, P3.1 Jacobian-Rate, P3.3
+  Eigenwert-Bound `sep⁻¹`→κ(λ), P2.1/P2.2 Kugel-Bedingung→W^s∩B). Numerische Orakel (Defekt 3 & 4) als
+  lauffähiger Reproducer `spec/reproducers/proofblock_v13_oracles.py` → `results/proofblock-v13-oracles.json`.
 - `docs/ROADMAP.md` — die 5-Phasen-Implementierungs-Roadmap (Phase 1 angefangen, 2–5 offen).
 
 ## Provenance

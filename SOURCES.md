@@ -16,6 +16,7 @@ Simulation Engine. Coworker-Research Säule 3 (Physik/Methodik).
   Unified Stability–RG Convergence Theorem. Korrekturen inline `[KORREKTUR]/[LÜCKE]/[OK]`.
 - **ProofBlock v1.1 + KernelSpec v1.2:** Beweisskizzen P1 (Ergodizität A-Kern), P2 (RG-Fixpunkt-Konsistenz),
   CLT unter Andrieu&Moulines. Lit.: Roberts&Rosenthal, Fort/Moulines/Priouret, Vehtari, Dennis/Kitaev/Landahl/Preskill.
+  → **Korrekturen:** `spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md` (Errata-Companion, s. Lineage-Append unten).
 
 ## Ehrliche Einordnung (Eval-Strategie §3 Status-Sättigung)
 **Substanzielle, gehärtete Theorie — aber Implementierung fehlt.** Ein Repo ist nur als **Spec-/Theorie-Repo**
@@ -277,3 +278,26 @@ Lockfile bleiben offen -- NICHT als erledigt deklariert. Jede genannte Zahl ist 
 (numpy 2.4.6, scipy 1.17.1, python 3.14.4) bzw. ein publiziertes Literatur-Orakel mit Quelle oben.
 
 *Codie | 2026-06-19 | Phase-5-Append | Reality-Anchor: dev/Prototyp, Equalita-L1 + CI ausstehend, nicht selbst-zertifiziert*
+
+---
+
+## Lineage-Append (append-only) — 2026-07-02: ProofBlock-Errata-Companion v1.3
+
+**Artefakt (repo-authored, KEIN Drive-SoT):** `spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md`.
+Errata-/Korrektur-Companion zum binären SoT `spec/AdaptiveRG-QEC_ProofBlock_v1.1_KernelSpec_v1.2.docx`
+(unverändert). Korrigiert **4 mathematisch defekte Knoten** des ProofBlock v1.1:
+
+| # | Knoten | Defekt | Korrektur |
+|---|--------|--------|-----------|
+| 1 | P4.1 | `n_eff = ESS/(2τ_int)` (doppelte Deflation) | `n_eff = ESS = N/(2τ_int)` |
+| 2 | P3.1 | Rate `O_P(1/√N_rep)` ohne 1/ε_diff, 1/√n | `O_P(1/(ε_diff·√(n·N_rep))) + O(ε_diff²) + O(n^{−β}/ε_diff)` |
+| 3 | P3.3 | Eigenwert-Bound mit `sep⁻¹` | `κ(λ_i)·‖E‖₂` (Kato/GVL §7.2; Bauer–Fike = globale Schranke) |
+| 4 | P2.1/P2.2 | Kugel-Bedingung ⇒ Konvergenz (ignoriert W^u) | Guard = W^s(g*) ∩ B(g*, r_lin) |
+
+**Numerische Orakel (Defekt 3 & 4) — lauffähiger Reproducer + Gate-Log (AGENTS.md WA1):**
+- `spec/reproducers/proofblock_v13_oracles.py` (deterministisch, `seed=2026`, keine neuen Deps).
+- `results/proofblock-v13-oracles.json` (Gate-Log; `gate_pass` prüft κ-Skalierung + sep⁻¹-Verletzung
+  bzw. untuned-Blow-up vs. getunt-O(σ)). Regenerierbar via `python spec/reproducers/proofblock_v13_oracles.py`.
+- Reifegrad: Spec-Korrektur, L0-Selbst-Precheck; Equalita-Ratifikation offen — nicht selbst-zertifiziert.
+
+*Codie | 2026-07-02 | ProofBlock-v1.3-Errata-Append*

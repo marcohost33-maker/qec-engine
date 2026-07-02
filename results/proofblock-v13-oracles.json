@@ -1,0 +1,73 @@
+{
+  "tool": "spec.reproducers.proofblock_v13_oracles",
+  "purpose": "Numerische Orakel des Errata-Companion ProofBlock v1.3 (Defekt 3 & 4)",
+  "spec_doc": "spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md",
+  "seed": 2026,
+  "numpy_version": "2.4.6",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "gate_pass": true,
+  "defect3": {
+    "defect": 3,
+    "node": "P3.3 (Exponenten-Konvergenz)",
+    "claim": "Eigenwert-Empfindlichkeit skaliert mit kappa(lambda), nicht sep^-1",
+    "matrix": "A = [[1, t], [0, 2]]",
+    "eps_spectral_norm_E": 1e-06,
+    "n_trials": 400,
+    "oracle_kappa": "kappa(lambda_i) = sqrt(1+t^2) (analytisch, Kato 1995 / GVL Sec. 7.2)",
+    "gate_pass": true,
+    "rows": [
+      {
+        "t": 0.0,
+        "sep_inv_docx_bound": 1.0,
+        "kappa_lambda_analytic": 1.0,
+        "kappa_sqrt_1_plus_t2": 1.0,
+        "measured_dlambda_over_E": 0.46894211797335306,
+        "measured_over_kappa": 0.46894211797335306,
+        "bound_kappa_holds": true,
+        "bound_sep_inv_violated": false
+      },
+      {
+        "t": 5.0,
+        "sep_inv_docx_bound": 1.0,
+        "kappa_lambda_analytic": 5.099019513592784,
+        "kappa_sqrt_1_plus_t2": 5.0990195135927845,
+        "measured_dlambda_over_E": 2.3737399897275075,
+        "measured_over_kappa": 0.4655287126083116,
+        "bound_kappa_holds": true,
+        "bound_sep_inv_violated": true
+      },
+      {
+        "t": 50.0,
+        "sep_inv_docx_bound": 1.0,
+        "kappa_lambda_analytic": 50.00999900019995,
+        "kappa_sqrt_1_plus_t2": 50.00999900019995,
+        "measured_dlambda_over_E": 21.02291988199223,
+        "measured_over_kappa": 0.4203743311794143,
+        "bound_kappa_holds": true,
+        "bound_sep_inv_violated": true
+      }
+    ]
+  },
+  "defect4": {
+    "defect": 4,
+    "node": "P2.1/P2.2 (Fixpunkt-Konsistenz)",
+    "claim": "Kugel-Bedingung B(g*,r_lin) ist als Konvergenz-Hinreichung unzureichend; untuned Iterate verlassen die Kugel (Blow-up entlang lambda_u); nur auf W^s(g*) getunt bleibt es O(sigma).",
+    "DR_diag": [
+      0.5,
+      1.5
+    ],
+    "sigma": 0.001,
+    "r_lin": 0.01,
+    "start_dist": 0.00014,
+    "n_iters": 60,
+    "n_runs": 200,
+    "mean_end_norm_untuned": 28221545.94685663,
+    "mean_end_norm_tuned": 0.0009548282934738007,
+    "mean_exit_step_untuned": 8.01,
+    "o_sigma_reference": 0.0009213177319235614,
+    "gate_untuned_blowup": true,
+    "gate_tuned_bounded_O_sigma": true,
+    "gate_untuned_leaves_ball": true,
+    "gate_pass": true
+  }
+}
