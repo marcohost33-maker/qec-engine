@@ -122,7 +122,7 @@ Gemessenes |δλ|/‖E‖₂ (Mittel über beide Eigenwerte und 400 Zufalls-E mi
 [`spec/reproducers/proofblock_v13_oracles.py`](reproducers/proofblock_v13_oracles.py),
 Gate-Log [`results/proofblock-v13-oracles.json`](../results/proofblock-v13-oracles.json):
 
-| t | sep⁻¹ (docx-Bound-Faktor) | κ(λ) (korrekt) | gemessen |δλ|/‖E‖₂ | gemessen/κ |
+| t | sep⁻¹ (docx-Bound-Faktor) | κ(λ) (korrekt) | gemessen \|δλ\|/‖E‖₂ | gemessen/κ |
 |---|---|---|---|---|
 | 0  | 1.0 | 1.00  | 0.47  | 0.47 |
 | 5  | 1.0 | 5.10  | 2.37  | 0.47 |
