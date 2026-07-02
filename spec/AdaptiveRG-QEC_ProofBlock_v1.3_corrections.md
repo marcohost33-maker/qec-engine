@@ -106,8 +106,11 @@ Eigenwert einer (generisch nicht-normalen) Matrix DR(g*) lautet die Erste-Ordnun
 
     δλ_i = (u_iᴴ E v_i) / (u_iᴴ v_i)   ⇒   |λ̂_i − λ_i| ≤ κ(λ_i) · ‖E‖₂ + O(‖E‖²),
 
-mit der **Eigenwert-Konditionszahl** κ(λ_i) = ‖u_i‖‖v_i‖ / |u_iᴴ v_i| = 1/|cos∠(u_i, v_i)|
-(Bauer–Fike; Kato 1995; Golub–Van Loan §7.2). `sep` kommt in der Eigenwert-Schranke **nicht**
+mit der **Eigenwert-Konditionszahl** κ(λ_i) = ‖u_i‖‖v_i‖ / |u_iᴴ v_i| = 1/|cos∠(u_i, v_i)|.
+Diese per-Eigenwert-Schranke gilt für einen **einfachen** Eigenwert (Kato 1995; Golub–Van Loan
+§7.2). *Bauer–Fike* liefert demgegenüber die **globale** Schranke min_i|λ̂−λ_i| ≤ κ(V)·‖E‖ über
+die Konditionszahl κ(V) der Eigenvektor-Matrix — nicht die hier verwendete per-Eigenwert-κ(λ_i);
+die lose „Bauer–Fike"-Zuschreibung ist entsprechend präzisiert. `sep` kommt in der Eigenwert-Schranke **nicht**
 vor (für normale Matrizen ist κ = 1 → Weyl: |λ̂−λ| ≤ ‖E‖). Da DR(g*) i.A. nicht-normal ist,
 kann `sep⁻¹` die tatsächliche Eigenwert-Empfindlichkeit **beliebig unterschätzen**.
 
@@ -189,7 +192,7 @@ Die zulässige Guard-Menge ist **W^s(g*) ∩ B(g*, r_lin)**, nicht B(g*, r_lin) 
 |---|--------|--------|-----------|
 | 1 | P4.1 | `n_eff = ESS/(2τ_int)` (doppelte Deflation) | `n_eff = ESS = N/(2τ_int)` |
 | 2 | P3.1 | Rate `O_P(1/√N_rep)` ohne 1/ε_diff, 1/√n | `O_P(1/(ε_diff·√(n·N_rep))) + O(ε_diff²) + O(n^{−β}/ε_diff)` |
-| 3 | P3.3 | Eigenwert-Bound mit `sep⁻¹` | `κ(λ_i)·‖E‖₂`, κ = 1/|cos∠(u_i,v_i)| |
+| 3 | P3.3 | Eigenwert-Bound mit `sep⁻¹` | `κ(λ_i)·‖E‖₂` (einfacher EW; Kato/GVL §7.2 — Bauer–Fike = globale Schranke), κ = 1/|cos∠(u_i,v_i)| |
 | 4 | P2.1/P2.2 | Kugel-Bedingung ⇒ Konvergenz (ignoriert W^u) | Guard = W^s(g*) ∩ B(g*, r_lin) |
 
 ## Reproduktion der Klartext-Extraktion (Absatz-Nummern)
