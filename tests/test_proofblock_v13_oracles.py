@@ -14,9 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_REPRO = (
-    Path(__file__).resolve().parents[1] / "spec" / "reproducers" / "proofblock_v13_oracles.py"
-)
+_REPRO = Path(__file__).resolve().parents[1] / "spec" / "reproducers" / "proofblock_v13_oracles.py"
 
 
 def _load():

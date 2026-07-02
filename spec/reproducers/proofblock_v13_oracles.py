@@ -243,10 +243,14 @@ def _main() -> int:
     d3, d4 = payload["defect3"], payload["defect4"]
     print(f"ProofBlock v1.3 Orakel-Reproducer  seed={payload['seed']}  numpy={np.__version__}")
     print("=" * 78)
-    print("Defekt 3 (P3.3): Eigenwert-Empfindlichkeit  A=[[1,t],[0,2]]  "
-          f"||E||_2={d3['eps_spectral_norm_E']:.0e}")
-    header = (f"{'t':>5} {'sep^-1':>8} {'kappa(l)':>10} {'gemessen':>10} "
-              f"{'meas/kappa':>11} {'sep-verletzt':>13}")
+    print(
+        "Defekt 3 (P3.3): Eigenwert-Empfindlichkeit  A=[[1,t],[0,2]]  "
+        f"||E||_2={d3['eps_spectral_norm_E']:.0e}"
+    )
+    header = (
+        f"{'t':>5} {'sep^-1':>8} {'kappa(l)':>10} {'gemessen':>10} "
+        f"{'meas/kappa':>11} {'sep-verletzt':>13}"
+    )
     print(header)
     for r in d3["rows"]:
         print(
@@ -257,13 +261,19 @@ def _main() -> int:
     print(f"  gate_pass = {d3['gate_pass']}")
     print("-" * 78)
     print("Defekt 4 (P2.1/P2.2): Kugel-Bedingung ignoriert instabile Mannigfaltigkeit")
-    print(f"  DR=diag{tuple(d4['DR_diag'])}  sigma={d4['sigma']:.0e}  r_lin={d4['r_lin']:.0e}  "
-          f"start={d4['start_dist']:.1e}  iters={d4['n_iters']}  runs={d4['n_runs']}")
-    print(f"  mean end-norm UNTUNED (nur Kugel) = {d4['mean_end_norm_untuned']:.3e}  "
-          "(Blow-up entlang lambda_u)")
+    print(
+        f"  DR=diag{tuple(d4['DR_diag'])}  sigma={d4['sigma']:.0e}  r_lin={d4['r_lin']:.0e}  "
+        f"start={d4['start_dist']:.1e}  iters={d4['n_iters']}  runs={d4['n_runs']}"
+    )
+    print(
+        f"  mean end-norm UNTUNED (nur Kugel) = {d4['mean_end_norm_untuned']:.3e}  "
+        "(Blow-up entlang lambda_u)"
+    )
     print(f"  mean end-norm TUNED   (auf W^s)   = {d4['mean_end_norm_tuned']:.3e}  ~ O(sigma)")
-    print(f"  mean exit-step untuned (verlaesst Kugel) = "
-          f"{d4['mean_exit_step_untuned']:.1f} / {d4['n_iters']}")
+    print(
+        f"  mean exit-step untuned (verlaesst Kugel) = "
+        f"{d4['mean_exit_step_untuned']:.1f} / {d4['n_iters']}"
+    )
     print(f"  gate_pass = {d4['gate_pass']}")
     print("=" * 78)
     print(f"GESAMT gate_pass = {payload['gate_pass']}")
