@@ -7,7 +7,7 @@ name = "adaptiverg-qec"
 version = "0.1.0.dev0"
 description = "AdaptiveRG-QEC Phase-1 MVP: Diagnostik-/Verifikations-Harness mit Konvergenz-Guards (MCMC + minimaler MCRG)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Coworker Research" }]
 keywords = ["qec", "mcmc", "renormalization-group", "foster-lyapunov", "diagnostics"]
@@ -43,7 +43,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
