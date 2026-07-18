@@ -83,6 +83,67 @@ def test_run_gate_pass_and_serializable():
     json.dumps(payload)  # muss serialisierbar sein (results/-Gate-Log)
 
 
+def _measured_worst_case_sensitivity(A: np.ndarray, eps: float) -> tuple[np.ndarray, np.ndarray]:
+    """Numerisch gemessene WORST-CASE-Eigenwert-Sensitivität |δλ|/‖E‖ pro Eigenwert.
+
+    Unabhängiges Orakel (löst das GESTÖRTE Eigenproblem numerisch, nicht die
+    Störungsformel): Für Eigenwert λᵢ mit linkem/rechtem EV uᵢ,vᵢ maximiert die
+    rangeins-Störung  E = ε·uᵢvᵢᴴ/(‖uᵢ‖‖vᵢ‖)  (Spektralnorm ‖E‖₂=ε) die
+    Eigenwert-Verschiebung. Der erreichte Wert |δλ|/ε → κ(λ)=1/|uᴴv| (Bauer-Fike).
+    """
+    lam_r, V = np.linalg.eig(A)
+    lam_l, U = np.linalg.eig(A.conj().T)  # Aᴴ u = conj(λ) u  → linke Eigenvektoren
+    order_r, order_l = np.argsort(lam_r.real), np.argsort(lam_l.real)
+    lam_r, V, U = lam_r[order_r], V[:, order_r], U[:, order_l]
+    out = np.empty(len(lam_r))
+    for i in range(len(lam_r)):
+        u, v = U[:, i], V[:, i]
+        E = eps * np.outer(u, v.conj()) / (np.linalg.norm(u) * np.linalg.norm(v))
+        lam_p = np.linalg.eig(A + E)[0]
+        j = int(np.argmin(np.abs(lam_p - lam_r[i])))  # gestörten EW dem Original zuordnen
+        out[i] = abs(lam_p[j] - lam_r[i]) / eps
+    return lam_r.real, out
+
+
+@pytest.mark.parametrize("t", [1.0, 10.0, 50.0, 200.0])
+def test_kappa_matches_measured_worst_case_sensitivity(t):
+    """REGRESSIONSGATE der validierten D3-Korrektur (Wilkinson/Bauer-Fike):
+    κ(λ)=√(1+t²) muss die NUMERISCH gemessene worst-case |δλ|/‖E‖ treffen —
+    NICHT sep⁻¹≡1. Sichert dauerhaft, dass die Eigenwert-Sensitivität von der
+    Kondition κ(λ)=1/|uᴴv| (nicht-orthogonale links/rechts-EV) regiert wird.
+    """
+    A = np.array([[1.0, t], [0.0, 2.0]])
+    eps = 1e-8  # klein genug, dass Terme 2. Ordnung (~κ·ε) << 1. Ordnung bleiben
+    _lam, measured = _measured_worst_case_sensitivity(A, eps)
+    kappa = np.sqrt(1.0 + t * t)
+    # (a) gemessene worst-case == κ(λ) (validierte Korrektur)
+    assert np.allclose(measured, kappa, rtol=1e-4), (t, measured, kappa)
+    # (b) sep⁻¹≡1 (docx-Bound) wird für t>0 klar überschritten → falscher Bound
+    sep_inv = 1.0
+    assert measured.min() > sep_inv, (t, measured.min(), sep_inv)
+    # (c) Cross-Check gegen Modul-κ-Helfer (dieselbe Größe, andere Herleitung)
+    _lam2, kappas_mod = mod.eigenvalue_condition_numbers(A)
+    assert np.allclose(kappas_mod, kappa, rtol=1e-9)
+
+
+def test_random_perturbation_never_exceeds_kappa_ceiling():
+    """κ(λ) ist die OBERE Schranke: zufällige ‖E‖₂=ε-Störungen bleiben ≤ κ·(1+tol).
+    Belegt worst-case-Charakter — kein Zufalls-E schlägt die optimal ausgerichtete.
+    """
+    rng = np.random.default_rng(2026)
+    for t in (10.0, 200.0):
+        A = np.array([[1.0, t], [0.0, 2.0]])
+        eps = 1e-8
+        kappa = np.sqrt(1.0 + t * t)
+        lam0 = np.sort(np.linalg.eig(A)[0].real)
+        worst = 0.0
+        for _ in range(50):
+            E = mod._random_perturbation(rng, 2, eps)
+            lam_p = np.sort(np.linalg.eig(A + E)[0].real)
+            worst = max(worst, float(np.max(np.abs(lam_p - lam0)) / eps))
+        assert worst <= kappa * (1.0 + 1e-3), (t, worst, kappa)
+
+
 @pytest.mark.parametrize("bad_dim", [1, 3])
 def test_condition_numbers_shape(bad_dim):
     """Konditionszahl-Helper generisch über Dimension (kein 2x2-Hardcode)."""

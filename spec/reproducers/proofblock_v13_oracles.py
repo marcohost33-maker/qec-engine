@@ -24,6 +24,33 @@ Analytische kappa-Herleitung (unabhaengiges Orakel, nicht aus dem Messcode):
   Eigenwert 1: rechter EV v=[1,0], linker EV u ~ [1,-t]  -> kappa = sqrt(1+t^2).
   Eigenwert 2: rechter EV v ~ [t,1], linker EV u=[0,1]   -> kappa = sqrt(1+t^2).
 
+--- PRAEZISIERUNG: DREI VERSCHIEDENE Sensitivitaeten (haeufig verwechselt) ---
+Defekt 3 betraf genau EINE dieser drei; der docx nutzte faelschlich (b). Trennung:
+
+  (a) EIGENWERT-Sensitivitaet (relevant hier, P3.3):
+      Bauer-Fike / Wilkinson-Konditionszahl  kappa(lambda) = 1 / |u^H v|
+      mit auf Einheitslaenge normierten linkem/rechtem Eigenvektor u,v
+      (aequivalent: ||u|| ||v|| / |u^H v|, wie im Code fuer beliebige Skalierung).
+      Klein, wenn u,v (fast) orthogonal -> nicht-normale Matrix -> kappa >> 1.
+      Regiert |delta lambda| ~< kappa(lambda) * ||E||. NICHT sep, NICHT gap.
+      Ref: Bauer & Fike 1960; Wilkinson, Algebraic Eigenvalue Problem.
+
+  (b) INVARIANTER-UNTERRAUM-Sensitivitaet (Stewart, allgemein/nicht-normal):
+      geregelt von sep^-1 mit  sep(A11,A22) = min_{||X||=1} ||A11 X - X A22||.
+      Fuer 1x1-Bloecke degeneriert sep zwar zum Eigenwert-Abstand min|li-lj|,
+      aber sep MISST die Unterraum-Drehung, NICHT die Eigenwert-Verschiebung
+      -> Anwendung auf einzelne Eigenwerte (wie im docx) ist der Kategorienfehler.
+      Ref: Stewart & Sun, Matrix Perturbation Theory, Kap. V.
+
+  (c) HERMITESCHER-EIGENRAUM-Sensitivitaet (Davis-Kahan sin(Theta)):
+      NUR fuer hermitesche/normale A: Unterraum-Drehung ~< ||E|| / gap,
+      gap = spektraler Abstand des Ziel-Clusters zum Rest.
+      Hier NICHT anwendbar (A ist nicht hermitesch/normal).
+      Ref: Davis & Kahan 1970; moderne Fassung arXiv:2203.00068 (Xia/Yu, sin-Theta).
+
+Merksatz: Eigenwert -> kappa(lambda)=1/|u^H v| (a);  Unterraum(allg.) -> sep^-1 (b);
+          Unterraum(hermitesch) -> gap^-1 (c).  Der docx-Bound war (b) auf ein (a)-Problem.
+
 --- Defekt 4 (Knoten P2.1/P2.2): Kugel-Bedingung ignoriert instabile Mannigfaltigkeit ---
 Lineare stochastische Rekursion  x_{k+1} = DR x_k + eta_k,  DR = diag(0.5, 1.5),
 eta_k ~ N(0, sigma^2 I). Start bei Abstand start_dist << r_lin.
