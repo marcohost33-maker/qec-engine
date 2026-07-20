@@ -1,4 +1,4 @@
-"""Deterministischer Reproducer der numerischen ProofBlock-v1.3-Orakel (Defekt 3 & 4).
+"""Deterministischer Reproducer der numerischen ProofBlock-v1.3-Orakel (Defekt 2, 3 & 4).
 
 ZWECK / POSITIONIERUNG (AGENTS.md Working-Agreement 1):
 Der Errata-Companion `spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md` belegt zwei
@@ -10,6 +10,32 @@ deterministisch (fixer Seed) und schreibt sie als Gate-Log nach
 diesem Lauf (Seed unten verankert); der Doc-Text verlinkt dieses Artefakt.
 
 Keine neuen Dependencies (nur numpy, bereits Repo-Dependency).
+
+--- Defekt 2 (Knoten P3.1): Jacobian-Konvergenzrate hat 1/eps_diff-Verstaerkung + 1/sqrt(n) ---
+Der docx behauptet  ||M_hat - DR(g*)||_F = O_P(1/sqrt(N_rep)) + O(eps^2) + O(n^-beta), also OHNE
+1/eps_diff und OHNE 1/sqrt(n). Korrekt (SoT v1.3 Z.87):
+  ||M_hat - DR(g*)||_F = O_P( 1/(eps_diff*sqrt(n*N_rep)) ) + O(eps_diff^2) + O(n^-beta/eps_diff).
+Zentraler pruefbarer Anker (SoT Z.81-83):  MSE(eps) ~ eps^4 + c/(n*N_rep*eps^2)
+  => d/deps = 0 => eps_opt ~ (n*N_rep)^(-1/6). Der endliche Kompromiss existiert NUR, weil der
+  Varianzterm proportional 1/eps^2 ist (die 1/eps_diff-Verstaerkung, die der docx fallen liess).
+
+TEST-MAP (glatt, analytisch bekannter Jacobian als Ground-Truth):
+  R_i(g) = sum_j A0_ij * sin(g_j)   =>   DR(g*)_ij = A0_ij * cos(g*_j)   (EXAKT, analytisch).
+  Gewaehlt, weil sin nicht-triviale 3. Ableitung hat (sin''' = -cos != 0), sodass die zentrale
+  Differenz einen echten O(eps^2)-Trunkierungsbias traegt (bei rein linearer Map waere er 0):
+    [R(g*+eps e_j) - R(g*-eps e_j)]/(2 eps) = DR_ij * (1 - eps^2/6) + O(eps^4) + Rausch/(2 eps).
+  A0 (dim=3), g* fix aus Seed. Verrauschte Samples: additives Gauss mit Var = c0/(n*N_rep) je
+  Funktionsauswertung -> im zentralen Quotienten Var(stoch) = Var/(2 eps^2) -> std proportional
+  1/(eps*sqrt(n*N_rep)) (exakt der SoT-Term).
+
+  Gate A (VARIANZ-VERSTAERKUNG): log-log-Fit des reinen Stochastik-Terms von ||M_hat - DR||_F
+    ueber eps_diff (mittel-subtrahiert, isoliert die Rausch-Komponente) -> Steigung soll ~ -1
+    sein (docx behauptete implizit 0). Zusatz-Beleg: rauschfreie Trunkierung -> Steigung ~ +2.
+  Gate B (eps_opt-SKALIERUNG): pro n*N_rep wird MSE(eps) = mean ||M_hat - DR||_F^2 gemessen und
+    an das Modell  a*eps^4 + b*eps^-2  gefittet -> eps_opt = (b/(2a))^(1/6); der log-log-Exponent
+    von eps_opt ueber n*N_rep soll ~ -1/6 (-0.1667) sein.
+  ORAKEL-GATE (PROPOSED, Equalita-Kalibrierung ausstehend): slope_A in [-1.15,-0.85],
+    exp_B in [-0.20,-0.13].
 
 --- Defekt 3 (Knoten P3.3): Eigenwert-Empfindlichkeit skaliert mit kappa(lambda), NICHT sep^-1 ---
 Matrix A = [[1, t], [0, 2]]: Eigenwerte {1, 2}, konstante Separation sep == 1 fuer alle t,
@@ -82,6 +108,22 @@ DEFECT4_R_LIN = 1e-2
 DEFECT4_START_DIST = 1.4e-4  # << r_lin
 DEFECT4_N_ITERS = 60
 DEFECT4_N_RUNS = 200
+# --- Defekt 2 (Jacobian-Konvergenzrate) ---
+DEFECT2_DIM = 3
+DEFECT2_C0 = 1.0  # Rausch-Varianz je Funktionsauswertung = c0 / (n*N_rep)
+DEFECT2_GATE_A_NN = 1e6  # fixes n*N_rep fuer die Varianz-Amplifikations-Kurve (Gate A)
+DEFECT2_GATE_A_EPS = (1e-3, 1e-1, 8)  # (lo, hi, npts) log-Gitter eps_diff
+DEFECT2_GATE_A_K = 500  # Realisierungen je eps (Stochastik-Term)
+DEFECT2_GATE_B_NN = (3e4, 1e5, 3e5, 1e6, 3e6, 1e7)  # n*N_rep-Gitter fuer eps_opt-Skalierung
+DEFECT2_GATE_B_EPS = (1e-2, 1.0, 12)  # eps_diff-Gitter je n*N_rep (MSE-Kurve)
+DEFECT2_GATE_B_K = 300  # Realisierungen je (n*N_rep, eps)
+DEFECT2_BIAS_EPS = (1e-2, 3e-1, 8)  # eps-Gitter fuer rauschfreien Trunkierungsbias (Zusatz-Beleg)
+# Gate-Toleranzen: PROPOSED (Equalita-Kalibrierung ausstehend, aus SoT-Theorie nicht literal belegt)
+DEFECT2_SLOPE_A_RANGE = (-1.15, -0.85)  # PROPOSED: Varianz-Term std ~ eps^-1
+DEFECT2_EXP_B_RANGE = (-0.20, -0.13)  # PROPOSED: eps_opt ~ (n*N_rep)^(-1/6) = -0.1667
+DEFECT2_BIAS_SLOPE_RANGE = (1.8, 2.2)  # PROPOSED: rauschfreier Bias ~ eps^2
+DEFECT2_R2_A_MIN = 0.99  # PROPOSED: Guete des Varianz-Log-log-Fits
+DEFECT2_R2_B_MIN = 0.95  # PROPOSED: Guete des eps_opt-Log-log-Fits
 
 
 def eigenvalue_condition_numbers(A: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -113,6 +155,186 @@ def _random_perturbation(rng: np.random.Generator, dim: int, eps: float) -> np.n
     G = rng.standard_normal((dim, dim))
     s = np.linalg.norm(G, ord=2)
     return eps * G / s
+
+
+def _loglog_fit(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Steigung + R^2 einer log-log-Regression log(y) = slope*log(x) + b."""
+    lx, ly = np.log(np.asarray(x, float)), np.log(np.asarray(y, float))
+    slope, intercept = np.polyfit(lx, ly, 1)
+    pred = slope * lx + intercept
+    ss_res = float(np.sum((ly - pred) ** 2))
+    ss_tot = float(np.sum((ly - ly.mean()) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+    return float(slope), float(r2)
+
+
+def _d2_A0(dim: int = DEFECT2_DIM, seed: int = SEED) -> np.ndarray:
+    """Feste Koeffizientenmatrix A0 der Test-Map R_i(g)=sum_j A0_ij sin(g_j) (deterministisch)."""
+    return np.random.default_rng(seed + 3).standard_normal((dim, dim))
+
+
+def _d2_gstar(dim: int = DEFECT2_DIM, seed: int = SEED) -> np.ndarray:
+    """Fester Auswertepunkt g* (deterministisch); cos(g*_j) != 0 => DR nicht entartet."""
+    return np.random.default_rng(seed + 7).uniform(-1.0, 1.0, dim)
+
+
+def defect2_analytic_jacobian(g_star: np.ndarray, A0: np.ndarray) -> np.ndarray:
+    """ANALYTISCHER Ground-Truth-Jacobian der Test-Map.
+
+    R_i(g) = sum_j A0_ij sin(g_j)  =>  DR(g*)_ij = A0_ij cos(g*_j).
+    """
+    return A0 * np.cos(g_star)[None, :]
+
+
+def _d2_test_map(g: np.ndarray, A0: np.ndarray) -> np.ndarray:
+    """Glatte Test-Map R(g) = A0 @ sin(g) (nicht-lineare 3. Ableitung -> echter O(eps^2)-Bias)."""
+    return A0 @ np.sin(g)
+
+
+def _d2_estimate_jacobian(
+    A0: np.ndarray, g_star: np.ndarray, eps: float, noise_var: float, rng: np.random.Generator
+) -> np.ndarray:
+    """M_hat via spaltenweiser zentraler Differenz aus verrauschten Samples.
+
+    Jede Funktionsauswertung erhaelt additives Gauss mit Varianz noise_var (= c0/(n*N_rep)).
+    Spalte j: [R(g*+eps e_j) - R(g*-eps e_j)]/(2 eps).
+    """
+    dim = g_star.size
+    s = float(np.sqrt(noise_var))
+    M = np.empty((dim, dim))
+    for j in range(dim):
+        step = np.zeros(dim)
+        step[j] = eps
+        rp = _d2_test_map(g_star + step, A0) + rng.standard_normal(dim) * s
+        rm = _d2_test_map(g_star - step, A0) + rng.standard_normal(dim) * s
+        M[:, j] = (rp - rm) / (2.0 * eps)
+    return M
+
+
+def defect2_oracle(
+    dim: int = DEFECT2_DIM,
+    gate_a_nn: float = DEFECT2_GATE_A_NN,
+    gate_a_eps=DEFECT2_GATE_A_EPS,
+    gate_a_k: int = DEFECT2_GATE_A_K,
+    gate_b_nn=DEFECT2_GATE_B_NN,
+    gate_b_eps=DEFECT2_GATE_B_EPS,
+    gate_b_k: int = DEFECT2_GATE_B_K,
+    bias_eps=DEFECT2_BIAS_EPS,
+    seed: int = SEED,
+) -> dict:
+    """Defekt-2-Orakel: 1/eps_diff-Varianzverstaerkung (Gate A) + eps_opt~(n*N_rep)^-1/6 (Gate B).
+
+    Belegt die SoT-v1.3-Korrektur numerisch gegen einen analytisch bekannten Jacobian:
+    der Varianz-Term von ||M_hat-DR||_F skaliert ~ 1/eps_diff (docx liess das fallen), und der
+    daraus folgende Bias-Varianz-Kompromiss gibt eps_opt ~ (n*N_rep)^(-1/6).
+    """
+    A0 = _d2_A0(dim, seed)
+    g_star = _d2_gstar(dim, seed)
+    DR = defect2_analytic_jacobian(g_star, A0)
+
+    # --- Gate A: Varianz-Verstaerkung des Stochastik-Terms ueber eps_diff ---
+    rng_a = np.random.default_rng(seed + 11)
+    lo_a, hi_a, npts_a = gate_a_eps
+    eps_a = np.geomspace(lo_a, hi_a, npts_a)
+    v_a = DEFECT2_C0 / gate_a_nn
+    stoch = np.empty(len(eps_a))
+    for i, eps in enumerate(eps_a):
+        Ms = np.array([_d2_estimate_jacobian(A0, g_star, eps, v_a, rng_a) for _ in range(gate_a_k)])
+        resid = Ms - Ms.mean(axis=0)  # deterministischer Bias faellt raus -> reiner Stochastik-Term
+        stoch[i] = float(np.sqrt(np.mean(np.sum(resid**2, axis=(1, 2)))))
+    slope_a, r2_a = _loglog_fit(eps_a, stoch)
+
+    # --- Zusatz-Beleg: rauschfreier Trunkierungsbias ~ eps^2 ---
+    lo_b, hi_b, npts_b = bias_eps
+    eps_bias = np.geomspace(lo_b, hi_b, npts_b)
+    rng_nf = np.random.default_rng(0)  # noise_var=0 -> Stream unbenutzt, nur Signatur
+    bias_nf = np.array(
+        [
+            float(np.linalg.norm(_d2_estimate_jacobian(A0, g_star, e, 0.0, rng_nf) - DR))
+            for e in eps_bias
+        ]
+    )
+    bias_slope, bias_r2 = _loglog_fit(eps_bias, bias_nf)
+
+    # --- Gate B: eps_opt-Skalierung ueber n*N_rep ---
+    rng_b = np.random.default_rng(seed + 13)
+    lo_e, hi_e, npts_e = gate_b_eps
+    eps_e = np.geomspace(lo_e, hi_e, npts_e)
+    design = np.column_stack([eps_e**4, eps_e**-2])  # MSE-Modell a*eps^4 + b*eps^-2
+    nn_grid = np.asarray(gate_b_nn, float)
+    eps_opt = np.empty(len(nn_grid))
+    mse_rows = []
+    for i, nn in enumerate(nn_grid):
+        v = DEFECT2_C0 / nn
+        mse = np.empty(len(eps_e))
+        for jx, eps in enumerate(eps_e):
+            Ms = np.array(
+                [_d2_estimate_jacobian(A0, g_star, eps, v, rng_b) for _ in range(gate_b_k)]
+            )
+            mse[jx] = float(np.mean(np.sum((Ms - DR) ** 2, axis=(1, 2))))
+        (a_coef, b_coef), *_ = np.linalg.lstsq(design, mse, rcond=None)
+        eps_opt[i] = float((b_coef / (2.0 * a_coef)) ** (1.0 / 6.0))
+        mse_rows.append(
+            {
+                "n_times_Nrep": float(nn),
+                "a_eps4": float(a_coef),
+                "b_eps_m2": float(b_coef),
+                "eps_opt": eps_opt[i],
+            }
+        )
+    exp_b, r2_b = _loglog_fit(nn_grid, eps_opt)
+
+    # --- Gates (PROPOSED-Toleranzen) ---
+    gate_a_pass = (DEFECT2_SLOPE_A_RANGE[0] <= slope_a <= DEFECT2_SLOPE_A_RANGE[1]) and (
+        r2_a >= DEFECT2_R2_A_MIN
+    )
+    gate_bias_pass = DEFECT2_BIAS_SLOPE_RANGE[0] <= bias_slope <= DEFECT2_BIAS_SLOPE_RANGE[1]
+    gate_b_pass = (DEFECT2_EXP_B_RANGE[0] <= exp_b <= DEFECT2_EXP_B_RANGE[1]) and (
+        r2_b >= DEFECT2_R2_B_MIN
+    )
+    gate_pass = bool(gate_a_pass and gate_bias_pass and gate_b_pass)
+    return {
+        "defect": 2,
+        "node": "P3.1 (Jacobian-Konvergenz)",
+        "claim": (
+            "Rate O_P(1/(eps_diff*sqrt(n*N_rep))) + O(eps_diff^2) + O(n^-beta/eps_diff); "
+            "Varianz-Term ~ 1/eps_diff (docx liess 1/eps_diff und 1/sqrt(n) fallen), "
+            "=> eps_opt ~ (n*N_rep)^(-1/6)."
+        ),
+        "test_map": "R_i(g) = sum_j A0_ij sin(g_j); DR(g*)_ij = A0_ij cos(g*_j) (analytisch)",
+        "dim": dim,
+        "DR_frobenius_norm": float(np.linalg.norm(DR)),
+        "gate_a_variance_amplification": {
+            "n_times_Nrep_fixed": float(gate_a_nn),
+            "eps_grid": [float(e) for e in eps_a],
+            "stoch_std": [float(s) for s in stoch],
+            "measured_slope": slope_a,
+            "theory_slope": -1.0,
+            "r2": r2_a,
+            "tol_slope_PROPOSED": list(DEFECT2_SLOPE_A_RANGE),
+            "gate_pass": bool(gate_a_pass),
+        },
+        "truncation_bias_check": {
+            "eps_grid": [float(e) for e in eps_bias],
+            "bias_frobenius_noisefree": [float(b) for b in bias_nf],
+            "measured_slope": bias_slope,
+            "theory_slope": 2.0,
+            "r2": bias_r2,
+            "tol_slope_PROPOSED": list(DEFECT2_BIAS_SLOPE_RANGE),
+            "gate_pass": bool(gate_bias_pass),
+        },
+        "gate_b_eps_opt_scaling": {
+            "n_times_Nrep_grid": [float(n) for n in nn_grid],
+            "eps_opt_measured": [float(e) for e in eps_opt],
+            "measured_exponent": exp_b,
+            "theory_exponent": -1.0 / 6.0,
+            "r2": r2_b,
+            "tol_exp_PROPOSED": list(DEFECT2_EXP_B_RANGE),
+            "rows": mse_rows,
+            "gate_pass": bool(gate_b_pass),
+        },
+        "gate_pass": gate_pass,
+    }
 
 
 def defect3_oracle(
@@ -243,17 +465,19 @@ def defect4_oracle(
 
 
 def run() -> dict:
-    """Erzeuge beide Orakel + Gesamt-Gate-Log (JSON-serialisierbar)."""
+    """Erzeuge alle Orakel + Gesamt-Gate-Log (JSON-serialisierbar)."""
+    d2 = defect2_oracle()
     d3 = defect3_oracle()
     d4 = defect4_oracle()
     return {
         "tool": "spec.reproducers.proofblock_v13_oracles",
-        "purpose": "Numerische Orakel des Errata-Companion ProofBlock v1.3 (Defekt 3 & 4)",
+        "purpose": "Numerische Orakel des Errata-Companion ProofBlock v1.3 (Defekt 2, 3 & 4)",
         "spec_doc": "spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md",
         "seed": SEED,
         "numpy_version": np.__version__,
         "platform": platform.platform(),
-        "gate_pass": bool(d3["gate_pass"] and d4["gate_pass"]),
+        "gate_pass": bool(d2["gate_pass"] and d3["gate_pass"] and d4["gate_pass"]),
+        "defect2": d2,
         "defect3": d3,
         "defect4": d4,
     }
@@ -267,9 +491,27 @@ def _main() -> int:
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
 
-    d3, d4 = payload["defect3"], payload["defect4"]
+    d2, d3, d4 = payload["defect2"], payload["defect3"], payload["defect4"]
     print(f"ProofBlock v1.3 Orakel-Reproducer  seed={payload['seed']}  numpy={np.__version__}")
     print("=" * 78)
+    ga = d2["gate_a_variance_amplification"]
+    gb = d2["gate_b_eps_opt_scaling"]
+    tb = d2["truncation_bias_check"]
+    print(f"Defekt 2 (P3.1): Jacobian-Konvergenzrate  R_i(g)=sum_j A0_ij sin(g_j)  dim={d2['dim']}")
+    print(
+        f"  Gate A Varianz-Term std(eps) ueber eps_diff (n*N_rep={ga['n_times_Nrep_fixed']:.0e}): "
+        f"slope={ga['measured_slope']:+.4f} (Theorie {ga['theory_slope']:+.1f})  R2={ga['r2']:.5f}"
+    )
+    print(
+        f"  Trunkierungsbias (rauschfrei) ~ eps^2: slope={tb['measured_slope']:+.4f} "
+        f"(Theorie +2)  R2={tb['r2']:.5f}"
+    )
+    print(
+        f"  Gate B eps_opt ueber n*N_rep: exponent={gb['measured_exponent']:+.4f} "
+        f"(Theorie {gb['theory_exponent']:+.4f} = -1/6)  R2={gb['r2']:.5f}"
+    )
+    print(f"  gate_pass = {d2['gate_pass']}   [Toleranzen PROPOSED, Equalita-Kalibrierung offen]")
+    print("-" * 78)
     print(
         "Defekt 3 (P3.3): Eigenwert-Empfindlichkeit  A=[[1,t],[0,2]]  "
         f"||E||_2={d3['eps_spectral_norm_E']:.0e}"

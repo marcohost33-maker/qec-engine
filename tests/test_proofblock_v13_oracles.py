@@ -62,6 +62,63 @@ def test_defect3_perturbation_has_exact_spectral_norm():
     assert np.isclose(np.linalg.norm(E, ord=2), 1e-6, rtol=1e-12)
 
 
+def test_defect2_analytic_jacobian_matches_A0_cos_gstar():
+    """DR(g*)_ij = A0_ij·cos(g*_j) muss der analytische Ground-Truth der Test-Map sein."""
+    A0 = mod._d2_A0()
+    g_star = mod._d2_gstar()
+    DR = mod.defect2_analytic_jacobian(g_star, A0)
+    assert np.allclose(DR, A0 * np.cos(g_star)[None, :])
+    # Cross-Check: zentrale Differenz ohne Rauschen konvergiert bei kleinem eps gegen DR.
+    rng = np.random.default_rng(0)
+    M = mod._d2_estimate_jacobian(A0, g_star, 1e-4, 0.0, rng)
+    assert np.allclose(M, DR, atol=1e-7)
+
+
+def test_defect2_variance_slope_and_eps_opt_scaling():
+    """REGRESSIONSGATE der D2-Korrektur (SoT v1.3 Z.87/Z.81-83):
+    Gate A — Varianz-Term von ‖M̂−DR‖_F skaliert ~ 1/eps_diff (Steigung ≈ −1; docx liess
+    1/eps_diff fallen). Gate B — eps_opt ~ (n·N_rep)^(−1/6). Reduzierte K/Gitter für Tempo;
+    das voll verankerte Orakel (seed=2026) läuft via `python spec/reproducers/...`.
+    """
+    d2 = mod.defect2_oracle(
+        gate_a_k=120, gate_b_k=100, gate_b_nn=(3e4, 3e5, 3e6, 3e7), gate_b_eps=(1e-2, 1.0, 10)
+    )
+    assert d2["gate_pass"] is True
+    ga = d2["gate_a_variance_amplification"]
+    gb = d2["gate_b_eps_opt_scaling"]
+    tb = d2["truncation_bias_check"]
+    # Gate A: Varianz-Steigung ≈ −1 (PROPOSED [−1.15,−0.85]) + hoher R².
+    assert -1.15 <= ga["measured_slope"] <= -0.85, ga["measured_slope"]
+    assert ga["r2"] >= 0.99
+    # Trunkierungsbias (rauschfrei) ≈ +2 (belegt O(eps²)-Term).
+    assert 1.8 <= tb["measured_slope"] <= 2.2, tb["measured_slope"]
+    # Gate B: eps_opt-Exponent ≈ −1/6 (PROPOSED [−0.20,−0.13]) + hoher R².
+    assert -0.20 <= gb["measured_exponent"] <= -0.13, gb["measured_exponent"]
+    assert gb["r2"] >= 0.95
+    # eps_opt fällt monoton mit n·N_rep (mehr Samples -> kleinere optimale Schrittweite).
+    eo = gb["eps_opt_measured"]
+    assert all(eo[i] > eo[i + 1] for i in range(len(eo) - 1)), eo
+
+
+def test_defect2_noise_variance_scales_as_expected():
+    """Silent-Failure-Gate: der Stochastik-Term wächst bei kleinerem eps und größerem
+    Rauschen — kein stiller Kollaps auf 0 (Var(stoch) = noise_var/(2·eps²) pro Eintrag)."""
+    A0, g_star = mod._d2_A0(), mod._d2_gstar()
+
+    # halbes eps => ~doppelter Stochastik-RMS; 4x Rauschvarianz => ~2x RMS.
+    def stoch(eps, v, seed):
+        rng = np.random.default_rng(seed)
+        Ms = np.array([mod._d2_estimate_jacobian(A0, g_star, eps, v, rng) for _ in range(300)])
+        r = Ms - Ms.mean(axis=0)
+        return float(np.sqrt(np.mean(np.sum(r**2, axis=(1, 2)))))
+
+    base = stoch(0.05, 1e-6, 1)
+    half_eps = stoch(0.025, 1e-6, 1)
+    quad_var = stoch(0.05, 4e-6, 1)
+    assert 1.85 <= half_eps / base <= 2.15, (base, half_eps)
+    assert 1.85 <= quad_var / base <= 2.15, (base, quad_var)
+
+
 def test_defect4_untuned_blows_up_tuned_bounded():
     """Untuned verlässt B(g*,r_lin) und bläst auf; getunt auf W^s bleibt O(σ)."""
     d4 = mod.defect4_oracle(n_runs=40, seed=2026)

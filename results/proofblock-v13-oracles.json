@@ -1,11 +1,145 @@
 {
   "tool": "spec.reproducers.proofblock_v13_oracles",
-  "purpose": "Numerische Orakel des Errata-Companion ProofBlock v1.3 (Defekt 3 & 4)",
+  "purpose": "Numerische Orakel des Errata-Companion ProofBlock v1.3 (Defekt 2, 3 & 4)",
   "spec_doc": "spec/AdaptiveRG-QEC_ProofBlock_v1.3_corrections.md",
   "seed": 2026,
   "numpy_version": "2.4.6",
   "platform": "Windows-11-10.0.26200-SP0",
   "gate_pass": true,
+  "defect2": {
+    "defect": 2,
+    "node": "P3.1 (Jacobian-Konvergenz)",
+    "claim": "Rate O_P(1/(eps_diff*sqrt(n*N_rep))) + O(eps_diff^2) + O(n^-beta/eps_diff); Varianz-Term ~ 1/eps_diff (docx liess 1/eps_diff und 1/sqrt(n) fallen), => eps_opt ~ (n*N_rep)^(-1/6).",
+    "test_map": "R_i(g) = sum_j A0_ij sin(g_j); DR(g*)_ij = A0_ij cos(g*_j) (analytisch)",
+    "dim": 3,
+    "DR_frobenius_norm": 2.107236811347996,
+    "gate_a_variance_amplification": {
+      "n_times_Nrep_fixed": 1000000.0,
+      "eps_grid": [
+        0.001,
+        0.0019306977288832496,
+        0.003727593720314938,
+        0.0071968567300115215,
+        0.013894954943731374,
+        0.026826957952797246,
+        0.0517947467923121,
+        0.1
+      ],
+      "stoch_std": [
+        2.0829808121805264,
+        1.082412236048396,
+        0.5644344616177126,
+        0.29154247442034553,
+        0.1522209856739742,
+        0.07816097223452871,
+        0.04031574014908701,
+        0.02092080016848796
+      ],
+      "measured_slope": -0.9995598807622276,
+      "theory_slope": -1.0,
+      "r2": 0.9999912105378312,
+      "tol_slope_PROPOSED": [
+        -1.15,
+        -0.85
+      ],
+      "gate_pass": true
+    },
+    "truncation_bias_check": {
+      "eps_grid": [
+        0.01,
+        0.01625613593056498,
+        0.026426195539300583,
+        0.042958782681456024,
+        0.069834381068135,
+        0.11352371912704769,
+        0.1845457009472567,
+        0.3
+      ],
+      "bias_frobenius_noisefree": [
+        3.512043792791326e-05,
+        9.280919373294165e-05,
+        0.0002452540670674968,
+        0.0006480760213076934,
+        0.0017123588037593898,
+        0.004523300695442691,
+        0.011940716529676938,
+        0.03146661810152285
+      ],
+      "measured_slope": 1.9989734761759708,
+      "theory_slope": 2.0,
+      "r2": 0.9999998323248712,
+      "tol_slope_PROPOSED": [
+        1.8,
+        2.2
+      ],
+      "gate_pass": true
+    },
+    "gate_b_eps_opt_scaling": {
+      "n_times_Nrep_grid": [
+        30000.0,
+        100000.0,
+        300000.0,
+        1000000.0,
+        3000000.0,
+        10000000.0
+      ],
+      "eps_opt_measured": [
+        0.29554943503243863,
+        0.24192512361701113,
+        0.2012310846754219,
+        0.16445783949681667,
+        0.13728865066192028,
+        0.11215200228875606
+      ],
+      "measured_exponent": -0.1667706159487293,
+      "theory_exponent": -0.16666666666666666,
+      "r2": 0.9999938096889944,
+      "tol_exp_PROPOSED": [
+        -0.2,
+        -0.13
+      ],
+      "rows": [
+        {
+          "n_times_Nrep": 30000.0,
+          "a_eps4": 0.11179770421609303,
+          "b_eps_m2": 0.00014901969904301292,
+          "eps_opt": 0.29554943503243863
+        },
+        {
+          "n_times_Nrep": 100000.0,
+          "a_eps4": 0.11181741421728424,
+          "b_eps_m2": 4.4835835844381156e-05,
+          "eps_opt": 0.24192512361701113
+        },
+        {
+          "n_times_Nrep": 300000.0,
+          "a_eps4": 0.11180432579549798,
+          "b_eps_m2": 1.4847694104522614e-05,
+          "eps_opt": 0.2012310846754219
+        },
+        {
+          "n_times_Nrep": 1000000.0,
+          "a_eps4": 0.11182932071966362,
+          "b_eps_m2": 4.42499888938208e-06,
+          "eps_opt": 0.16445783949681667
+        },
+        {
+          "n_times_Nrep": 3000000.0,
+          "a_eps4": 0.11183483066694126,
+          "b_eps_m2": 1.4976657557171371e-06,
+          "eps_opt": 0.13728865066192028
+        },
+        {
+          "n_times_Nrep": 10000000.0,
+          "a_eps4": 0.11182561708746847,
+          "b_eps_m2": 4.4505479931389333e-07,
+          "eps_opt": 0.11215200228875606
+        }
+      ],
+      "gate_pass": true
+    },
+    "gate_pass": true
+  },
   "defect3": {
     "defect": 3,
     "node": "P3.3 (Exponenten-Konvergenz)",
