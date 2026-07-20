@@ -164,7 +164,10 @@ def _loglog_fit(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     pred = slope * lx + intercept
     ss_res = float(np.sum((ly - pred) ** 2))
     ss_tot = float(np.sum((ly - ly.mean()) ** 2))
-    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+    # ss_tot == 0 => konstante log(y)-Serie: R^2 undefiniert (0/0). NICHT still 1.0
+    # zurueckgeben (das liesse einen degenerierten Fit als perfekt gelten und ein
+    # r2>=threshold-Gate faelschlich bestehen). nan ist fail-closed: nan>=t == False.
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
     return float(slope), float(r2)
 
 
