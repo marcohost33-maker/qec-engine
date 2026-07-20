@@ -208,3 +208,22 @@ def test_condition_numbers_shape(bad_dim):
     _lam, kappas = mod.eigenvalue_condition_numbers(A)
     assert kappas.shape == (bad_dim,)
     assert np.allclose(kappas, 1.0)  # normale (hier identische) Matrix -> κ=1
+
+
+def test_loglog_fit_constant_series_is_not_perfect_fit():
+    """Silent-Pass-Gate (Equalita-Auflage zu 04d58eb): konstante y-Serie => ss_tot==0
+    (0/0-R²). _loglog_fit darf NICHT still r2=1.0 melden — sonst gälte ein degenerierter
+    Fit als perfekt und ein r2>=threshold-Gate würde fälschlich bestehen. Erwartet: nan,
+    das fail-closed wirkt (nan>=t == False)."""
+    x = np.array([1.0, 2.0, 4.0, 8.0])
+    y = np.full_like(x, 3.0)  # konstant => log(y) konstant => ss_tot == 0
+    slope, r2 = mod._loglog_fit(x, y)
+    assert np.isnan(r2), r2  # NICHT 1.0
+    assert r2 != 1.0
+    # Beleg fail-closed: r2 besteht KEIN r2>=threshold-Gate.
+    assert not (r2 >= 0.99)
+    assert not (r2 >= 0.95)
+    # Kontrolle: eine echt-lineare log-log-Serie liefert weiterhin r2≈1.0 (kein Regress).
+    y_lin = x ** (-1.0)
+    _s, r2_lin = mod._loglog_fit(x, y_lin)
+    assert np.isclose(r2_lin, 1.0, atol=1e-9), r2_lin
