@@ -82,9 +82,11 @@ class LogicalErrorEstimate:
         shots: Anzahl unabhaengiger Code-Block-Realisierungen.
         n_logical_errors: beobachtete logische Fehler.
         p_L_mc: MC-Schaetzer = n_logical_errors / shots.
-        std_err: Binomial-Standardfehler sqrt(p_L (1-p_L) / shots).
+        std_err: Jeffreys-regularisierter Binomial-Standardfehler
+            sqrt(p~ (1-p~) / shots) mit p~ = (k+1/2)/(shots+1) -- nie 0, damit
+            auch Null-Ereignis-Zellen falsifizierbar bleiben.
         p_L_exact: exaktes Binomial-Orakel logical_error_rate_exact(n, p).
-        n_sigma: |p_L_mc - p_L_exact| / std_err (0 wenn std_err==0).
+        n_sigma: |p_L_mc - p_L_exact| / std_err (immer wohldefiniert).
     """
 
     n: int
@@ -131,8 +133,13 @@ def simulate_logical_error_rate(n: int, p: float, shots: int, seed: int) -> Logi
     logical_errors = int(np.count_nonzero(flips_per_block > n / 2.0))
 
     p_L_mc = logical_errors / shots
-    std_err = math.sqrt(p_L_mc * (1.0 - p_L_mc) / shots) if shots > 0 else 0.0
-    n_sigma = abs(p_L_mc - p_L_exact) / std_err if std_err > 0.0 else 0.0
+    # Jeffreys-regularisierter Standardfehler: p~ = (k+1/2)/(shots+1) statt des
+    # Plug-in p_hat. Damit ist std_err NIE 0 -- auch Null-Ereignis-Zellen bleiben
+    # falsifizierbar (vorher: k=0 -> std_err=0 -> n_sigma=0 == "perfekter Treffer",
+    # ein unfalsifizierbares Gate genau im uninformativsten Regime).
+    p_tilde = (logical_errors + 0.5) / (shots + 1.0)
+    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / shots)
+    n_sigma = abs(p_L_mc - p_L_exact) / std_err
     return LogicalErrorEstimate(
         n=n,
         p=p,
@@ -173,6 +180,15 @@ def pseudo_threshold(n_small: int, n_large: int) -> float:
     return 0.5
 
 
+def cell_seed(base_seed: int, n: int, p: float) -> int:
+    """Deterministischer, zell-eigener Seed fuer eine (n, p)-Sweep-Zelle.
+
+    Injektiv genug fuer Sweep-Grids (p auf 1e-9 quantisiert); dekorreliert die
+    Zellen, bleibt aber vollstaendig durch base_seed reproduzierbar.
+    """
+    return (base_seed * 1_000_003 + int(n) * 7_919 + int(round(p * 1e9))) % (2**63 - 1)
+
+
 def run_diagnostic_sweep(
     distances: tuple[int, ...] = (1, 3, 5, 7),
     p_values: tuple[float, ...] = (0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
@@ -189,7 +205,12 @@ def run_diagnostic_sweep(
     worst_sigma = 0.0
     for n in distances:
         for p in p_values:
-            est = simulate_logical_error_rate(n, p, shots=shots, seed=seed)
+            # Ein EIGENER, deterministisch abgeleiteter Seed je Sweep-Zelle.
+            # Vorher: EIN Seed fuer alle Zellen -> fuer festes n wurde dieselbe
+            # (shots, n)-Uniform-Matrix fuer jedes p wiederverwendet, d.h. die
+            # p-Zeilen waren perfekt rangkorreliert (keine unabhaengige Evidenz,
+            # worst_n_sigma kein Max ueber unabhaengige Tests).
+            est = simulate_logical_error_rate(n, p, shots=shots, seed=cell_seed(seed, n, p))
             worst_sigma = max(worst_sigma, est.n_sigma)
             rows.append(
                 {
@@ -211,7 +232,11 @@ def run_diagnostic_sweep(
         "distances": list(distances),
         "p_values": list(p_values),
         "worst_n_sigma": worst_sigma,
-        "pseudo_threshold": pseudo_threshold(distances[1], distances[-1])
+        # len==2: distances[1] == distances[-1] wuerde pseudo_threshold zu Recht
+        # ablehnen -> erstes/letztes Paar nehmen (immer verschieden fuer len>=2).
+        "pseudo_threshold": pseudo_threshold(
+            distances[1] if len(distances) > 2 else distances[0], distances[-1]
+        )
         if len(distances) >= 2
         else None,
         "rows": rows,

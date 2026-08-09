@@ -38,7 +38,7 @@ ALGORITHMUS (exakt nach Paper + Online-Appendix)
        ESS = (M n) / (1 + 2 sum_{t>=1} rho_t),  rho_t = 1 - W_t/(2 var_plus),
    wobei W_t die ueber Ketten gemittelte Varianz der Differenzen bei Lag t ist
    (Multichain-Variogramm, BDA3 Gl. 11.7). Bulk-ESS nutzt z; tail-ESS nutzt das
-   Maximum der ESS der 5%- und 95%-Quantil-Indikatoren.
+   Minimum der ESS der 5%- und 95%-Quantil-Indikatoren (konservativ, Vehtari).
 
 NON-VAKUOESER, BEIDSEITIGER TEST
 --------------------------------
@@ -152,8 +152,10 @@ def _rhat_on(split_chains: np.ndarray) -> float:
     # Within-chain-Varianz W (ddof=1 pro Kette, dann gemittelt).
     w = float(np.mean(split_chains.var(axis=1, ddof=1)))
     if w <= 0.0:
-        # Alle Ketten konstant + identisch -> perfekt konvergiert.
-        return 1.0
+        # Konstante Ketten: NUR wenn auch B==0 (alle identisch) konvergiert;
+        # konstante Ketten mit VERSCHIEDENEN Mitteln sind maximal getrennt
+        # (vorher: return 1.0 unabhaengig von B -> falsches "converged").
+        return 1.0 if b <= 0.0 else float("inf")
     var_plus = (n - 1) / n * w + b / n
     return float(np.sqrt(var_plus / w))
 
@@ -172,7 +174,9 @@ def _ess_on(split_chains: np.ndarray) -> float:
     b = n / (two_m - 1) * float(np.sum((chain_means - grand_mean) ** 2))
     w = float(np.mean(split_chains.var(axis=1, ddof=1)))
     if w <= 0.0:
-        return float(two_m * n)
+        # Konstante Ketten: identisch -> volle Stichprobe; verschiedene Mittel ->
+        # keine effektive Stichprobe (0 statt vorher faelschlich 2M*N).
+        return float(two_m * n) if b <= 0.0 else 0.0
     var_plus = (n - 1) / n * w + b / n
 
     # Pro-Ketten-Autokovarianz via FFT, dann ueber Ketten mitteln (BDA3 11.7).

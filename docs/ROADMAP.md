@@ -85,8 +85,67 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
      wirklich treibt — kein toter Record).
   - Gates G33–G38 (38/38 [PASS]); Tests `tests/test_clt.py` + `tests/test_rhat.py` + `tests/test_manifest.py`.
   - **Regen:** `python -m adaptiverg_qec.cli phase5 --json results/phase5-clt-rhat-manifest.json --manifest-out results/phase5-manifest.json`.
-- **WEITERHIN OFFEN (NICHT erledigt):** SNIS (Self-Normalized Importance Sampling, χ²-Varianz-Bound) +
-  Surrogate-Beschleunigung aus Phase-4 bleiben offen; Checkpoint/Restart-Lockfile bleibt offen.
+- ~~**WEITERHIN OFFEN (NICHT erledigt):** SNIS (Self-Normalized Importance Sampling, χ²-Varianz-Bound) +
+  Surrogate-Beschleunigung aus Phase-4 bleiben offen; Checkpoint/Restart-Lockfile bleibt offen.~~
+  **→ Phase-6 [DONE 2026-08-09] schließt genau diese drei Lücken (s.u.).**
+
+## Phase 6 — SNIS + Surrogate-DA + Checkpoint/Restart-Lockfile  [DONE 2026-08-09, Branch `claude/qec-engine-analysis-improvement-bijszp`]
+
+Schließt die drei seit Phase-4/5 offen deklarierten Punkte in bounded, orakel-validierter Form
+(Gates G39–G45; Artefakt `results/phase6-snis-surrogate-checkpoint.json`, regenerierbar via
+`python -m adaptiverg_qec.cli phase6 --json results/phase6-snis-surrogate-checkpoint.json`):
+
+1. **SNIS mit χ²-Varianz-Bound (`snis.py`).** Setting bewusst: offene 1D-Ising-Kette, Reweighting
+   `K_p → K_t` — dort sind ALLE Größen geschlossen: `1+χ² = [cosh(2K_t−K_p)cosh(K_p)/cosh²(K_t)]^{L−1}`
+   (gegen 2⁸-Brute-Force-Enumeration getestet), `ESS/N → 1/(1+χ²)`, führender SNIS-Bias
+   `(1+χ²)(tanh K_t − tanh(2K_t−K_p))/N` (Delta-Methode), MSE-Bound `4(1+χ²)/N` für |g|≤1
+   (Agapiou/Papaspiliopoulos/Sanz-Alonso/Stuart 2017, Statist. Sci. 32(3), Thm 2.1).
+   **Gemessen:** ESS/N-Abweichung < 0.005; `bias·N/c_bias ≈ 0.97` (N=100, 6000 Replikate) bzw.
+   `0.65` (N=400, 12000 Replikate, Vorzeichen korrekt); MSE ≤ Bound; Delta-Methoden-Fehler
+   kalibriert (0.88–0.97 der empirischen MSE). ESS-Kollaps-Guard beidseitig (χ²≈7e5 → geflaggt).
+   **Akzeptanz „Bias O(1/N) belegt": erfüllt** (auf der 1D-Instanz; 2D/RBIM-Targets + Defensive
+   Mixture bleiben offen).
+2. **Surrogate-Beschleunigung als Delayed Acceptance (`surrogate.py`).** Christen & Fox 2005:
+   Stufe-1-Akzeptanz nur mit Surrogat `β̃=β(1+γ)`, Stufe-2-Korrektur exakt → detailed balance
+   gegen das exakte π für JEDES Surrogat. **Schärfster Anker:** γ=0 ist BIT-IDENTISCH zum
+   Metropolis-A-Kernel (gleicher Philox-Stream, gleiche Flip-Folge). Miskalibrierte Surrogate
+   (γ=−0.25/+0.30) treffen das Transfer-Matrix-Orakel (Exaktheit unabhängig von Surrogat-Güte);
+   34–42 % exakte Auswertungen gespart. **Surrogate-Drift-Guard** („Surrogate-Drift unter
+   Schwelle"): mittlere Log-Diskrepanz je Stufe-2-Eval; hält bei γ=0, feuert bei γ=0.4.
+   **Ehrlich:** 1D-Toy, Surrogat nicht real billiger — Korrektheits-Maschinerie, kein
+   Speedup-Claim; Kombination mit Diminishing Adaptation offen.
+3. **Checkpoint/Restart + Lockfile (`checkpoint.py`).** Philox-Bit-Generator-State JSON-verlustfrei
+   serialisiert; Sweep-Loop als EIN gemeinsamer Code-Pfad (`a_kernel.advance_chain`) und
+   Post-Processing als EIN Code-Pfad (`manifest.postprocess_multichain`) für direkten UND
+   resumierten Lauf. **Determinismus-Vertrag (Gate G44):** Interrupt mitten in einer Kette (auch
+   mehrfach) + Resume ⇒ `result_hash` byte-identisch zu `manifest.run()`. Fail-closed (G45):
+   O_EXCL-Lockfile (konkurrierende Writer/Resumer → `CheckpointLockedError`; verwaistes Lock wird
+   NICHT still übernommen), SHA-256-Integritäts-Hash (Tamper/Korruption → laut abgewiesen),
+   atomare Writes. **Scope:** Phase-5-Multichain-Lauf; 2D-Wolff/MCRG-Pipelines nicht gecheckpointet.
+
+**Im selben Inkrement (Audit-Härtung, Korrektheit):** zell-eigene Seeds in `qec_diagnostics`/
+`surface_decoder`-Sweeps (vorher teilten alle Zellen einer Kurve denselben RNG-Stream →
+rangkorrelierte „Evidenz"); Jeffreys-regularisierte `std_err` (k=0-Zellen waren mit
+`n_sigma=0` unfalsifizierbar); `mcrg.validate_swendsen.n_sigma` auf SEM statt Einzel-Seed-std
+(vorher √8 zu lax); `rhat`: konstante Ketten mit verschiedenen Mitteln → `R̂=inf`/ESS=0 statt
+„converged"; `RunManifest.__post_init__`-Validierung; `rg_map` float64-Erzwingung (Integer-Input
+truncated still); G3-Gate verlangt finites λ̂≥1 (nan-Pfad zählt nicht mehr als „gefeuert");
+`fit_distance_exponent`/`lambda_suppression` Underflow-Guards; `locate_transition`
+Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots/Zelle) +
+`crossing_found`-Flag statt stillem NaN.
+
+**Bekannte, BEWUSST nicht in diesem Inkrement gefixte Limitationen (dokumentiert, Follow-up):**
+- `ising2d.majority_block_b2`-Tie-Break ist deterministisch, aber nicht Z2-äquivariant
+  (Tie-Break flippt nicht unter s→−s); in-Repo-Aufrufer übergeben `config_index`, der Effekt
+  ist im Rahmen der ausgewiesenen Grobheit enthalten. Ein äquivarianter Fix ändert alle
+  committeten Phase-3b/4-Baselines (inkl. G32-Goldwerte) und gehört in ein eigenes Inkrement.
+- `rbim_nishimori`-Scan nutzt denselben `base_seed` über alle p (common random numbers über
+  die Kurve; Disorder-Realisierungen über p genestet) — die p*-Lokalisierung bleibt auf
+  Plausibilitäts-Niveau, wie ausgewiesen.
+- `autocorr.integrated_autocorr_time` klemmt τ_int ≥ 0.5 (für anti-korrelierte Reihen bewusst
+  konservativ; jetzt im Code dokumentiert).
+- G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht
+  arbeitsnormiert — der ×12–16-Claim ist als solcher zu lesen.
 
 ## ROADMAP-Inkr.4 — RBIM-Nishimori ↔ MCRG/QEC-Brücke  [DONE 2026-06-19, Branch `claude/qec-inkr4`]
 

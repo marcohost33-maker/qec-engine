@@ -80,8 +80,11 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
   **Bedeutung:** misst das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG) `p* ≈ p_c`, dann misst die
   MCRG-Exponenten-Maschinerie GENAU dasselbe Objekt wie der QEC-Threshold → der **„nicht-splitten"-
   Architektur-Entscheid (MCRG + QEC in EINEM Repo) ist empirisch gestützt** (im Rahmen dieser Auflösung).
-- Surrogate-Layer, SNIS, MMD-Drift, Checkpoint/Restart, R-hat-Multichain-Diagnostik (Spec-Phasen 2–5)
-  sind **noch nicht** implementiert.
+- **Phase-6 (NEU) schließt die drei dokumentierten Phase-4/5-Lücken:** SNIS mit geschlossenem
+  χ²-Orakel (`snis.py`), Surrogate-Beschleunigung als Delayed-Acceptance (`surrogate.py`,
+  Christen & Fox 2005) und Checkpoint/Restart mit Lockfile (`checkpoint.py`) — alle in **bounded,
+  orakel-validierter** Form (s. Abschnitt Phase-6). **Weiterhin offen:** Defensive Mixture,
+  SNIS auf 2D/RBIM-Targets, Kombination DA×Diminishing-Adaptation, MMD-Drift.
 
 ## Phase-1-MVP: real implementiert vs. offen
 
@@ -93,8 +96,8 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 38 Gates, JSON-Log) | **real** (38/38 [PASS], exit 0) |
-| SNIS / Defensive Mixture / ESS-per-Observable (Spec §5) | **offen** (Phase 4/5) |
+| Selftest-Gates (`cli.py --selftest`, 45 Gates, JSON-Log) | **real** (45/45 [PASS], exit 0) |
+| **SNIS mit χ²-Varianz-Bound (`snis.py`, Phase-6)** | **real** — offene 1D-Ising-Kette: χ² GESCHLOSSEN `[cosh(2K_t−K_p)cosh(K_p)/cosh²(K_t)]^{L−1}−1`; ESS/N trifft `1/(1+χ²)` (\|diff\|<0.005); gemessener Bias trifft den geschlossenen O(1/N)-Koeffizienten `(1+χ²)(tanh K_t−tanh(2K_t−K_p))` (bias·N/c ≈ 0.97 @ N=100); MSE ≤ `4(1+χ²)/N` (Agapiou et al. 2017); ESS-Kollaps-Guard beidseitig. **Offen:** Defensive Mixture, 2D/RBIM-Targets |
 | Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
 | **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
@@ -104,7 +107,9 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **CLT-Varianz σ²_g (`clt.py`, Phase-5)** | **real** — MCMC-CLT `σ²_g = 2·τ_int·Var(g)` (Γ-Methode) + **unabhängiger OBM-Schätzer** (Flegal-Jones 2010). Gegen geschlossene AR(1)-Form `σ²_g=σ²_ε/(1−φ)²` (φ=0.8, Orakel 25.0 → Γ 25.26 rel.0.010, OBM 24.49 rel.0.020). **Coverage beidseitig:** korrektes σ²_g deckt 95%-CI mit 0.937; iid-Annahme UNTERdeckt mit 0.490 |
 | **R̂-Multichain (`rhat.py`, Phase-5)** | **real** — rank-normalized split-R̂ + folded-R̂ + bulk/tail-ESS (Vehtari et al. 2021, R̂<1.01). A-Kernel M=4 → R̂=1.0003 (converged, ESS_bulk≈5149). **Beidseitig:** Mittel-Drift → R̂=1.62 (bulk); Skalen-Drift → R̂=1.27 (folded>bulk) |
 | **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
-| Surrogate + MMD-Drift + Checkpoint/Restart + SNIS (Spec §8/§5) | **offen** (Phase 5/4 — NICHT erledigt) |
+| **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % exakte Auswertungen gespart; Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
+| **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer; SHA-256-Integritäts-Hash weist manipulierte Checkpoints LAUT ab |
+| MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
 
@@ -190,8 +195,8 @@ Vergleichszahl behauptet.
 
 | Orakel | Modell | Vergleich | Real gemessen (regenerierbar) |
 |---|---|---|---|
-| A | Repetition-Code, code-capacity bit-flip, MWPM (= ML auf 1D-Matching-Graph) | exaktes Binomial-Orakel (Inkr.1) | `d∈{3,5,7}` @ p=0.1, 200k shots → worst `n_sigma = 1.55` |
-| B | Rotated-Surface-Code, code-capacity pure-X-flip, MWPM-Threshold (Distanz-Kurven-Kreuzung) | publizierter MWPM-Threshold **0.103** (Dennis et al. 2002) | best pair (9,11) → `p_th = 0.1015`, **`abs_err = 0.0015`** |
+| A | Repetition-Code, code-capacity bit-flip, MWPM (= ML auf 1D-Matching-Graph) | exaktes Binomial-Orakel (Inkr.1) | `d∈{3,5,7}` @ p=0.1, 200k shots → worst `n_sigma = 1.46` |
+| B | Rotated-Surface-Code, code-capacity pure-X-flip, MWPM-Threshold (Distanz-Kurven-Kreuzung) | publizierter MWPM-Threshold **0.103** (Dennis et al. 2002) | Paare (7,9)/(9,11)/(7,11) → `p_th ∈ [0.096, 0.098]`, best `abs_err = 0.0050` (80k shots/Zelle, zell-eigene Seeds) |
 
 Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`).
 
@@ -199,19 +204,58 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
 > 0.103 (Nulltemperatur-RBIM), **NICHT** gegen den optimalen ML/Tensor-Network-Threshold
 > 0.1094 (Nishimori-Punkt) — MWPM ist near-optimal, aber sub-optimal; ein Schätzer, der
 > 0.109 „erreicht", wäre verdächtig. Endliche Distanzen liefern **keine** `L→∞`-FSS; der
-> Kreuzungs-Schätzer driftet mit wachsender Distanz von unten zum Threshold (gemessen:
-> (7,9)→0.0952, (9,11)→0.1015). Phenomenological-noise (Mess-Fehler, mehrere Runden;
+> Kreuzungs-Schätzer liegt systematisch unterhalb (gemessen mit zell-eigenen Seeds:
+> (7,9)→0.0980, (9,11)→0.0962, (7,11)→0.0970 — der Distanz-Drift ist bei 80k Shots/Zelle
+> nicht aufgelöst; eine frühere Messung mit geteiltem Seed über alle Zellen war
+> rangkorreliert und wurde ersetzt). Phenomenological-noise (Mess-Fehler, mehrere Runden;
 > publizierter MWPM-Threshold ~2.9%) ist noch nicht implementiert (nächster Schritt).
 > Der in Inkr.2 verworfene hand-gerollte Spacetime-Matcher ist hiermit durch PyMatching ersetzt.
+
+## Phase-6: SNIS + Surrogate-DA + Checkpoint/Restart-Lockfile (NEU)
+
+Schließt die drei seit Phase-4/5 dokumentierten Lücken — jede Komponente gegen ein
+**unabhängiges, geschlossenes** Orakel (Evidenz: `results/phase6-snis-surrogate-checkpoint.json`,
+regenerierbar via `adaptiverg-qec phase6 --json ...`; Gates G39–G45):
+
+1. **SNIS (`snis.py`):** Reweighting `K_p → K_t` auf der offenen 1D-Ising-Kette. Dort ist die
+   χ²-Divergenz **exponential-family-exakt**: `1+χ² = [cosh(2K_t−K_p)cosh(K_p)/cosh²(K_t)]^{L−1}`.
+   Validiert: ESS/N trifft `1/(1+χ²)`; der gemessene Bias trifft den **geschlossenen führenden
+   Koeffizienten** `bias ≈ (1+χ²)(tanh K_t − tanh(2K_t−K_p))/N` (Delta-Methode; gemessen
+   `bias·N/c ≈ 0.97` bei N=100 über 6000 Replikate, korrektes Vorzeichen); die MSE respektiert
+   den Bound `4(1+χ²)/N` (Agapiou et al. 2017, Thm 2.1); Delta-Methoden-Fehler kalibriert
+   (Schätzung/empirische MSE ∈ [0.88, 0.97]). **ESS-Kollaps-Guard beidseitig:** extremes
+   Reweighting (χ²≈7·10⁵) wird geflaggt, gesundes nicht.
+2. **Surrogate via Delayed Acceptance (`surrogate.py`):** zweistufiger Metropolis (Christen &
+   Fox 2005) — Stufe 1 befragt nur das Surrogat `β̃=β(1+γ)`, Stufe 2 korrigiert exakt. Detailed
+   balance gegen das EXAKTE π für **jedes** Surrogat: γ=0 ist **bit-identisch** zum
+   Metropolis-A-Kernel (gleicher Philox-Stream), miskalibrierte Surrogate (γ=−0.25/+0.3)
+   treffen das Transfer-Matrix-Orakel trotzdem. 34–42 % der exakten Energie-Auswertungen werden
+   eingespart (Stufe-1-Rejects). **Surrogate-Drift-Guard** (Spec Phase-4) überwacht die
+   Log-Diskrepanz je Stufe-2-Auswertung: hält bei γ=0, feuert bei γ=0.4. **Ehrlich:** 1D-Toy —
+   demonstriert wird die Korrektheits-Maschinerie, kein Speedup-Claim; DA×Adaptation offen.
+3. **Checkpoint/Restart + Lockfile (`checkpoint.py`):** vollständige Philox-State-Serialisierung
+   (JSON, verlustfrei) + gemeinsamer `advance_chain`/`postprocess_multichain`-Code-Pfad mit
+   `manifest.run()`. **Determinismus-Vertrag:** Interrupt (auch mehrfach) + Resume ⇒
+   `result_hash` **byte-identisch** zum ununterbrochenen Lauf (Gate G44). Fail-closed:
+   O_EXCL-Lockfile gegen konkurrierende Writer/Resumer; SHA-256-Integritäts-Hash weist
+   manipulierte/korrupte Checkpoints laut ab (Gate G45); atomare Writes (`os.replace`).
+
+Zusätzlich wurden im selben Inkrement Audit-Befunde gefixt (Details im PR/Commit): zell-eigene
+Seeds in den QEC-Sweeps (vorher teilten alle Zellen einer Kurve denselben RNG-Stream),
+Jeffreys-regularisierte Standardfehler (Null-Ereignis-Zellen sind jetzt falsifizierbar),
+`n_sigma` der Multi-Seed-Validierung auf SEM statt Einzel-Seed-std (√8 strenger), R̂ erkennt
+konstante Ketten mit verschiedenen Mitteln als nicht-konvergiert, Manifest-Validierung an der
+Vertrauensgrenze, `rg_map`-dtype-Härtung.
 
 ## Schnellstart
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 38 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 45 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 adaptiverg-qec phase5 --json results/phase5-clt-rhat-manifest.json --manifest-out results/phase5-manifest.json
 adaptiverg-qec phase5 --from-manifest results/phase5-manifest.json   # byte-identische Reproduktion (CLT+R-hat, Phase-5)
+adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json  # SNIS+DA+Checkpoint (Phase-6)
 pytest                           # Test-Suite
 python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code.json (Inkr.1)
 python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)
@@ -234,7 +278,11 @@ python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.
   korrigiert 4 mathematisch defekte Knoten (P4.1 `n_eff`-Doppel-Deflation, P3.1 Jacobian-Rate, P3.3
   Eigenwert-Bound `sep⁻¹`→κ(λ), P2.1/P2.2 Kugel-Bedingung→W^s∩B). Numerische Orakel (Defekt 3 & 4) als
   lauffähiger Reproducer `spec/reproducers/proofblock_v13_oracles.py` → `results/proofblock-v13-oracles.json`.
-- `docs/ROADMAP.md` — die 5-Phasen-Implementierungs-Roadmap (Phase 1 angefangen, 2–5 offen).
+- `docs/ROADMAP.md` — die 5-Phasen-Implementierungs-Roadmap (Phasen 1–5 in bounded MVP-Form
+  abgearbeitet; Phase-6-Inkrement schließt die SNIS/Surrogate/Checkpoint-Restlücken; verbleibende
+  offene Punkte dort ehrlich gelistet).
+- `requirements-lock.txt` — eingefrorene Referenz-Umgebung (Reproduzierbarkeits-Hilfe; die
+  Bibliothek selbst pinnt NICHT, s. pyproject.toml).
 
 ## Provenance
 Quellen + Drive-IDs: siehe `SOURCES.md`. Code-frei verifiziert 2026-06-02 (G:-weit kein `.py` zu QEC/AdaptiveRG).

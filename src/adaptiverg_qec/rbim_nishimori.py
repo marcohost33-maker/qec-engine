@@ -317,7 +317,8 @@ def rbim_metropolis_sweep(
     Sektor. Wir MISCHEN beide (rbim_wolff_sample, sweep_per_record>0).
 
     Args:
-        s: (L,L) in {+1,-1}, WIRD in-place aktualisiert (Kopie empfohlen).
+        s: (L,L) in {+1,-1}. Wird NICHT in-place mutiert (intern kopiert);
+            das aktualisierte Gitter ist der Rueckgabewert.
         bonds: quenched Disorder.
         beta: inverse Temperatur > 0.
         rng: numpy-Generator.
@@ -531,6 +532,9 @@ def locate_transition(results: list[DisorderResult], threshold: float = 0.5) -> 
     # negativer Gradient (Abfall) pro Intervall.
     dm = np.diff(ms)
     dp = np.diff(ps)
+    if np.any(dp <= 0):
+        # Doppelte p-Punkte -> 0/0-Gradient, argmin auf NaN waere willkuerlich.
+        raise ValueError("scan points must have pairwise distinct p values")
     slope = dm / dp
     k = int(np.argmin(slope))  # steilster Abfall
     return float(0.5 * (ps[k] + ps[k + 1]))

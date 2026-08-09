@@ -49,6 +49,7 @@ __all__ = [
     "RunManifest",
     "RunResult",
     "run",
+    "postprocess_multichain",
     "run_from_manifest",
     "write_manifest",
     "load_manifest",
@@ -94,6 +95,35 @@ class RunManifest:
     adapt_T0: float = 100.0
     # --- Umgebung (Provenienz; treibt das Resultat NICHT, dokumentiert es) ---
     environment: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Fail-closed-Validierung beim Konstruieren UND beim Laden (load_manifest).
+
+        Vorher wurde ein defektes Manifest erst tief im Lauf abgelehnt (z.B.
+        n_chains=1 -> split_rhat-Fehler); jetzt an der Vertrauensgrenze.
+        """
+        if not isinstance(self.base_seed, int):
+            raise ValueError(f"base_seed must be an int, got {type(self.base_seed).__name__}")
+        if not isinstance(self.n_chains, int) or self.n_chains < 2:
+            raise ValueError(f"n_chains must be an int >= 2 (split-R-hat), got {self.n_chains}")
+        if not isinstance(self.L, int) or self.L < 2:
+            raise ValueError(f"L must be an int >= 2, got {self.L}")
+        if not isinstance(self.n_steps, int) or self.n_steps < 1:
+            raise ValueError(f"n_steps must be an int >= 1, got {self.n_steps}")
+        if not isinstance(self.burn_in, int) or not (0 <= self.burn_in < self.n_steps):
+            raise ValueError(f"need 0 <= burn_in < n_steps, got {self.burn_in}/{self.n_steps}")
+        if not (0.0 < self.beta_min < self.beta_max):
+            raise ValueError(f"need 0 < beta_min < beta_max, got {self.beta_min}/{self.beta_max}")
+        for name in ("beta_target", "beta_start"):
+            v = getattr(self, name)
+            if not (self.beta_min <= v <= self.beta_max):
+                raise ValueError(
+                    f"{name} {v} outside compact Theta [{self.beta_min}, {self.beta_max}]"
+                )
+        if not (self.adapt_c > 0 and self.adapt_T0 > 0):
+            raise ValueError(
+                f"need adapt_c > 0 and adapt_T0 > 0, got {self.adapt_c}/{self.adapt_T0}"
+            )
 
     def with_environment(self) -> RunManifest:
         """Kopie mit aktuell aufgezeichneter Umgebung (Versionen, git-SHA, Plattform)."""
@@ -172,16 +202,25 @@ def _hash_results(
 
 def run(manifest: RunManifest) -> RunResult:
     """Fuehre den Phase-5-Lauf gemaess Manifest aus (deterministisch)."""
-    H = _multichain_H(manifest)  # (M, n_post)
+    return postprocess_multichain(_multichain_H(manifest))
+
+
+def postprocess_multichain(H: np.ndarray) -> RunResult:
+    """Post-Processing (R-hat + CLT + Hash) fuer (M, n_post) H-Trajektorien.
+
+    Von run() UND vom Phase-6-Checkpoint/Restart (checkpoint.py) genutzt --
+    derselbe Code-Pfad garantiert, dass ein resumierter Lauf denselben
+    result_hash produziert wie der ununterbrochene (kein Divergenz-Risiko).
+    """
     chain_means = [float(row.mean()) for row in H]
 
     r = split_rhat(H)
 
-    # CLT-Varianz je Kette, dann Mittel (gepoolter Reproduzierbarkeits-Skalar).
-    g_list = [clt_variance(row).sigma2_g_gamma for row in H]
-    o_list = [clt_variance(row).sigma2_g_obm for row in H]
-    sigma2_gamma = float(np.mean(g_list))
-    sigma2_obm = float(np.mean(o_list))
+    # CLT-Varianz je Kette (EIN Aufruf je Kette; vorher lief die ganze
+    # FFT/tau_int-Pipeline doppelt), dann Mittel (gepoolter Skalar).
+    per_chain = [clt_variance(row) for row in H]
+    sigma2_gamma = float(np.mean([r.sigma2_g_gamma for r in per_chain]))
+    sigma2_obm = float(np.mean([r.sigma2_g_obm for r in per_chain]))
 
     result_hash = _hash_results(chain_means, r.rhat, sigma2_gamma, sigma2_obm)
     return RunResult(

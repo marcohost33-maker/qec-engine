@@ -3,8 +3,10 @@
 AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 
 - `selftest.json` — JSON-Gate-Log des letzten lokalen `adaptiverg-qec selftest`-Laufs
-  (23 Gates, je gegen ein unabhängiges Orakel; G9–G12 = Phase-2 Swendsen-MCRG,
-  G13–G18 = Phase-3a autokorr-Fehler, G19–G23 = Phase-3b 2D-Ising-Swendsen-MATRIX).
+  (45 Gates, je gegen ein unabhängiges Orakel; G9–G12 = Phase-2 Swendsen-MCRG,
+  G13–G18 = Phase-3a autokorr-Fehler, G19–G23 = Phase-3b 2D-Ising-Swendsen-MATRIX,
+  G24–G32 = Phase-4 Wolff/Multi-RG, G33–G38 = Phase-5 CLT/R̂/Manifest,
+  G39–G45 = Phase-6 SNIS/Surrogate-DA/Checkpoint).
   Reproduzierbar via:
 
   ```bash
@@ -37,6 +39,15 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 
   ```bash
   python -m adaptiverg_qec.mcrg   # schreibt results/phase2-swendsen.json
+  ```
+
+- `phase6-snis-surrogate-checkpoint.json` — **Phase-6:** SNIS gegen geschlossene
+  χ²/ESS/Bias-Orakel der offenen 1D-Ising-Kette, Delayed-Acceptance-Surrogat
+  (Exaktheit + Drift-Guard) und Checkpoint/Restart-Demo (byte-identischer
+  `result_hash`). Reproduzierbar via:
+
+  ```bash
+  adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json
   ```
 
 Die SHA-256 dieser Logs ist lauf-spezifisch (Zeitstempel/Elapsed) und wird daher nicht

@@ -39,11 +39,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
+
 from .qec_diagnostics import logical_error_rate_exact
 
 
 def _check_odd_distance(d: int) -> None:
-    if not isinstance(d, int):
+    # np.integer mit akzeptieren -- Konsistenz mit qec_diagnostics (Audit P1-13):
+    # d aus np.arange/np.int64 soll nicht nur in Inkr.1, sondern auch hier laufen.
+    if not isinstance(d, (int, np.integer)):
         raise TypeError(f"distance d must be an int, got {type(d).__name__}")
     if d < 1 or d % 2 == 0:
         raise ValueError(f"distance d must be odd and >= 1, got {d}")
@@ -120,8 +124,16 @@ def fit_distance_exponent(
     if list(p_probe) != sorted(p_probe) or len(set(p_probe)) != len(p_probe):
         raise ValueError("p_probe must be strictly increasing (distinct, ascending)")
 
+    pls = [logical_error_rate_exact(d, pp) for pp in p_probe]
+    if any(pl <= 0.0 for pl in pls):
+        # Grosses d x winziges p unterlaeuft float64 -> log(0) waere ValueError
+        # aus math; hier fail-closed MIT handlungsleitender Meldung (Audit-Gap).
+        raise ValueError(
+            f"p_L(d={d}, p) underflowed to 0 for some p in {tuple(p_probe)}; "
+            "choose larger p_probe values"
+        )
     xs = [math.log(pp) for pp in p_probe]
-    ys = [math.log(logical_error_rate_exact(d, pp)) for pp in p_probe]
+    ys = [math.log(pl) for pl in pls]
     n = len(xs)
     mx = math.fsum(xs) / n
     my = math.fsum(ys) / n
@@ -174,7 +186,9 @@ def pseudo_threshold_bisection(
     Args:
         d1, d2: verschiedene ungerade Distanzen >= 1.
         lo, hi: Startklammer mit 0 < lo < 0.5 < hi < 1.
-        iterations: Bisektions-Iterationen (80 -> < 2^-80 Restfehler).
+        iterations: Bisektions-Iterationen. Hinweis (ehrlich): float64-Bisektion
+            saturiert nach ~52 Schritten auf Maschinengenauigkeit (~2^-52 relativ);
+            weitere Iterationen sind No-Ops, KEIN "2^-80-Restfehler".
 
     Returns:
         ThresholdCrossing mit numerischem p* und Orakel-Vergleich.
@@ -256,8 +270,8 @@ def lambda_suppression(d: int, p: float) -> LambdaFactor:
         raise ValueError(f"p must be in the sub-threshold range (0, 0.5), got {p}")
     pl_d = logical_error_rate_exact(d, p)
     pl_d2 = logical_error_rate_exact(d + 2, p)
-    if pl_d2 <= 0.0:
-        raise ValueError(f"p_L(d+2, p) underflowed to 0 at p={p}; choose larger p")
+    if pl_d2 <= 0.0 or pl_d <= 0.0:
+        raise ValueError(f"p_L underflowed to 0 at d={d}/{d + 2}, p={p}; choose larger p")
     a_d = leading_coefficient_exact(d)
     a_d2 = leading_coefficient_exact(d + 2)
     return LambdaFactor(

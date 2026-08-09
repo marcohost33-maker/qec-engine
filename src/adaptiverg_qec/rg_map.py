@@ -41,7 +41,10 @@ def rg_map(g: np.ndarray) -> np.ndarray:
     generisch d-dimensional bleibt).
     """
     g = np.asarray(g)
-    out = np.empty_like(g, dtype=g.dtype)
+    # Float64 erzwingen (komplex bleibt komplex fuer Complex-Step): mit
+    # g.dtype wuerde Integer-Input das Ergebnis still auf int truncaten
+    # (rg_map([1]) -> [0] statt [0.6836...]), Audit P1-8.
+    out = np.empty_like(g, dtype=np.result_type(g.dtype, np.float64))
     out[0] = rg_map_scalar(g[0])
     return out
 
