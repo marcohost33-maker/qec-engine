@@ -17,8 +17,13 @@ ununterbrochene manifest.run()-Lauf. Moeglich machen das:
 INTEGRITAET + LOCKFILE (fail-closed)
 ------------------------------------
 - Der Checkpoint traegt einen SHA-256 ueber seinen kanonischen JSON-Payload;
-  ein manipulierter/korrupter Checkpoint wird LAUT abgewiesen (kein stilles
-  Weiterrechnen auf kaputtem Zustand).
+  ein korrumpierter/inkonsistent editierter Checkpoint wird LAUT abgewiesen
+  (kein stilles Weiterrechnen auf kaputtem Zustand). EHRLICHE GRENZE
+  (Codex-Review): der Hash ist UNKEYED -- er erkennt KORRUPTION und
+  versehentliche Edits, ist aber KEINE kryptographische Authentifizierung:
+  ein Akteur mit Schreibzugriff kann Payload UND Hash konsistent ersetzen.
+  Schutz gegen boeswillige Writer erfordert einen separat geschuetzten
+  Schluessel/Signatur und ist bewusst NICHT Teil dieses Moduls.
 - Ein Lockfile (<checkpoint>.lock, O_CREAT|O_EXCL) verhindert konkurrierende
   Writer/Resumer auf demselben Checkpoint. Fail-closed: existiert das Lock,
   bricht der Aufruf mit CheckpointLockedError ab (keine Auto-Uebernahme;
@@ -175,9 +180,12 @@ def _write_checkpoint(
 def load_checkpoint(path: str | Path) -> dict[str, Any]:
     """Lade + verifiziere einen Checkpoint (Schema + Integritaets-Hash).
 
+    Der Integritaets-Hash ist UNKEYED (erkennt Korruption/inkonsistente Edits,
+    keine kryptographische Authentifizierung -- s. Modul-Docstring).
+
     Raises:
         CheckpointError: Schema-Mismatch, fehlende Felder oder Hash-Mismatch
-            (Manipulation/Korruption) -- fail-closed.
+            (Korruption/inkonsistenter Edit) -- fail-closed.
     """
     p = Path(path)
     if not p.exists():
@@ -260,33 +268,44 @@ def resume(
 
     Ergebnis-Vertrag: RunResult.result_hash ist BYTE-IDENTISCH zu dem des
     ununterbrochenen manifest.run()-Laufs (Gate G44).
+
+    Locking (Codex-Review-Fix, TOCTOU): das Lock wird VOR dem Laden erworben
+    und ueber Laden + Validierung + Lauf gehalten -- zwei ueberlappende
+    resume()-Aufrufe koennen nie beide auf demselben (ggf. inzwischen
+    geloeschten) Payload weiterrechnen.
     """
+    # Codex-Review-Fix: dieselbe Parameter-Validierung wie run_resumable
+    # (checkpoint_every=0 wuerde sonst endlos denselben Checkpoint schreiben).
+    if checkpoint_every < 1:
+        raise ValueError(f"checkpoint_every must be >= 1, got {checkpoint_every}")
+    if interrupt_after is not None and interrupt_after < 1:
+        raise ValueError(f"interrupt_after must be >= 1, got {interrupt_after}")
     path = Path(checkpoint_path)
-    payload = load_checkpoint(path)
-    manifest = RunManifest(**payload["manifest"])
-    if manifest.schema != MANIFEST_SCHEMA:  # pragma: no cover - defensive
-        raise CheckpointError(f"embedded manifest schema mismatch: {manifest.schema!r}")
-
-    cs = payload["chain_state"]
-    state = ChainState(
-        x=np.array(cs["x"], dtype=np.int8),
-        H=int(cs["H"]),
-        beta=float(cs["beta"]),
-        t=int(cs["t"]),
-        accepted=int(cs["accepted"]),
-        attempted=int(cs["attempted"]),
-    )
-    if state.x.size != manifest.L:
-        raise CheckpointError(f"chain state length {state.x.size} != manifest L {manifest.L}")
-    if not np.all((state.x == 0) | (state.x == 1)):
-        raise CheckpointError("chain state x must be in {0,1}")
-    if not (0 <= state.t <= manifest.n_steps):
-        raise CheckpointError(f"chain state t {state.t} outside [0, {manifest.n_steps}]")
-
-    rng = np.random.Generator(np.random.Philox())
-    rng.bit_generator.state = _rng_state_from_json(payload["rng_state"])
-
     with checkpoint_lock(path):
+        payload = load_checkpoint(path)
+        manifest = RunManifest(**payload["manifest"])
+        if manifest.schema != MANIFEST_SCHEMA:  # pragma: no cover - defensive
+            raise CheckpointError(f"embedded manifest schema mismatch: {manifest.schema!r}")
+
+        cs = payload["chain_state"]
+        state = ChainState(
+            x=np.array(cs["x"], dtype=np.int8),
+            H=int(cs["H"]),
+            beta=float(cs["beta"]),
+            t=int(cs["t"]),
+            accepted=int(cs["accepted"]),
+            attempted=int(cs["attempted"]),
+        )
+        if state.x.size != manifest.L:
+            raise CheckpointError(f"chain state length {state.x.size} != manifest L {manifest.L}")
+        if not np.all((state.x == 0) | (state.x == 1)):
+            raise CheckpointError("chain state x must be in {0,1}")
+        if not (0 <= state.t <= manifest.n_steps):
+            raise CheckpointError(f"chain state t {state.t} outside [0, {manifest.n_steps}]")
+
+        rng = np.random.Generator(np.random.Philox())
+        rng.bit_generator.state = _rng_state_from_json(payload["rng_state"])
+
         return _run_chains(
             manifest,
             path,
@@ -326,6 +345,22 @@ def _run_chains(
             state, rng = new_chain_state(
                 cfg, seed=manifest.base_seed + c, beta_start=manifest.beta_start
             )
+            if c > 0:
+                # Codex-Review-Fix: Checkpoint an der KETTEN-GRENZE. Ohne ihn
+                # gaebe es bei n_steps <= checkpoint_every NIE einen periodischen
+                # Write (die Bedingung unten feuert nur MITTEN in einer Kette),
+                # und ein echter Crash zwischen Ketten verloere allen Fortschritt.
+                _write_checkpoint(
+                    path,
+                    manifest,
+                    chain_index=c,
+                    state=state,
+                    rng_state=rng.bit_generator.state,
+                    done_H=done_H,
+                    done_beta=done_beta,
+                    partial_H=H_traj,
+                    partial_beta=beta_traj,
+                )
 
         while state.t < manifest.n_steps:
             t_stop = min(state.t + checkpoint_every, manifest.n_steps)

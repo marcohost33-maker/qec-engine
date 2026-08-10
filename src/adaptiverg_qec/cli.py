@@ -391,6 +391,11 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
         ),
         ("snis chi2 L<2", lambda: snis.chi2_divergence_open_chain(0.4, 0.3, 1)),
         (
+            # Codex-Fix: {0,1}-Bits (A-Kernel-Konvention) sind KEINE Spins.
+            "snis non-spin alphabet {0,1}",
+            lambda: snis.snis_reweight(np.zeros((10, 8)), K_proposal=0.3, K_target=0.4),
+        ),
+        (
             "snis bias-scaling len mismatch",
             lambda: snis.measure_bias_scaling(n_values=(100,), n_replicates=(10, 10)),
         ),

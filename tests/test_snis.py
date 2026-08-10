@@ -49,6 +49,11 @@ class TestClosedFormOracles:
         chi2_enum = float(np.sum(wt**2 / wp)) - 1.0
         assert snis.chi2_divergence_open_chain(Kt, Kp, L) == pytest.approx(chi2_enum, rel=1e-10)
 
+    def test_chi2_overflow_returns_inf_not_raise(self):
+        """Codex-Fix: extremer Mismatch -> chi2=inf (ESS-Kollaps), kein OverflowError."""
+        chi2 = snis.chi2_divergence_open_chain(1.2, 0.1, 2048)
+        assert math.isinf(chi2) and chi2 > 0
+
     def test_chi2_zero_iff_equal_couplings(self):
         assert snis.chi2_divergence_open_chain(0.5, 0.5, 16) == pytest.approx(0.0, abs=1e-14)
         assert snis.chi2_divergence_open_chain(0.6, 0.5, 16) > 0.0
@@ -81,6 +86,28 @@ class TestSnisReweight:
         assert not e.ess_adequate
         assert e.ess < e.min_ess
 
+    def test_overflow_regime_flags_collapse_instead_of_raising(self):
+        """Codex-Fix: chi2=inf-Regime laeuft durch und meldet ess_adequate=False."""
+        s = sample_ising_open_chain(0.1, 2048, 64, seed=3)
+        e = snis.snis_reweight(s, K_proposal=0.1, K_target=1.2)
+        assert math.isinf(e.chi2_oracle)
+        assert e.ess_rel_oracle == 0.0
+        assert not e.ess_adequate
+
+    def test_degenerate_sample_miss_is_infinite_sigma(self):
+        """Codex-Fix: error==0 bei abs_error>0 -> n_sigma=inf (kein 'Treffer')."""
+        e = snis.snis_reweight(np.ones((10, 8)), K_proposal=0.3, K_target=0.4)
+        assert e.error == 0.0 and e.abs_error > 0.0
+        assert math.isinf(e.n_sigma)
+
+    def test_rejects_non_spin_alphabet(self):
+        """Codex-Fix: {0,1}-Bits (A-Kernel-Konvention) werden LAUT abgelehnt."""
+        with pytest.raises(ValueError):
+            snis.snis_reweight(np.zeros((10, 8)), K_proposal=0.3, K_target=0.4)
+        bits01 = np.random.default_rng(0).integers(0, 2, size=(10, 8)).astype(float)
+        with pytest.raises(ValueError):
+            snis.snis_reweight(bits01, K_proposal=0.3, K_target=0.4)
+
     def test_reproducible(self):
         a = snis.snis_from_couplings(K_proposal=0.4, K_target=0.5, L=16, n_samples=3000, seed=7)
         b = snis.snis_from_couplings(K_proposal=0.4, K_target=0.5, L=16, n_samples=3000, seed=7)
@@ -100,6 +127,16 @@ class TestBiasScaling:
     def test_scaled_bias_near_one(self):
         rep = snis.measure_bias_scaling(n_values=(100,), n_replicates=(6000,), seed=3)
         assert 0.5 <= rep.scaled_bias[0] <= 1.5
+
+    def test_chunk_independent_results(self):
+        """Codex-Fix: chunk ist reines Speicher-Tuning -- Ergebnisse byte-identisch."""
+        kw = dict(n_values=(50,), n_replicates=(200,), seed=17)
+        a = snis.measure_bias_scaling(chunk=200, **kw)
+        b = snis.measure_bias_scaling(chunk=37, **kw)
+        c = snis.measure_bias_scaling(chunk=1, **kw)
+        assert a.bias_hat == b.bias_hat == c.bias_hat
+        assert a.mse_hat == b.mse_hat == c.mse_hat
+        assert a.var_deltamethod_mean == b.var_deltamethod_mean == c.var_deltamethod_mean
 
 
 class TestEdgeInputs:

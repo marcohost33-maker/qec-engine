@@ -110,7 +110,9 @@ Schließt die drei seit Phase-4/5 offen deklarierten Punkte in bounded, orakel-v
    gegen das exakte π für JEDES Surrogat. **Schärfster Anker:** γ=0 ist BIT-IDENTISCH zum
    Metropolis-A-Kernel (gleicher Philox-Stream, gleiche Flip-Folge). Miskalibrierte Surrogate
    (γ=−0.25/+0.30) treffen das Transfer-Matrix-Orakel (Exaktheit unabhängig von Surrogat-Güte);
-   34–42 % exakte Auswertungen gespart. **Surrogate-Drift-Guard** („Surrogate-Drift unter
+   34–42 % weniger Stufe-2-Auswertungen — **Accounting-Größe** (Zahl der Ziel-Auswertungen, die
+   ein reales teures Target bräuchte; ΔH wird in diesem Toy ohnehin je Proposal exakt berechnet,
+   kein gemessener Speedup). **Surrogate-Drift-Guard** („Surrogate-Drift unter
    Schwelle"): mittlere Log-Diskrepanz je Stufe-2-Eval; hält bei γ=0, feuert bei γ=0.4.
    **Ehrlich:** 1D-Toy, Surrogat nicht real billiger — Korrektheits-Maschinerie, kein
    Speedup-Claim; Kombination mit Diminishing Adaptation offen.
@@ -119,9 +121,13 @@ Schließt die drei seit Phase-4/5 offen deklarierten Punkte in bounded, orakel-v
    Post-Processing als EIN Code-Pfad (`manifest.postprocess_multichain`) für direkten UND
    resumierten Lauf. **Determinismus-Vertrag (Gate G44):** Interrupt mitten in einer Kette (auch
    mehrfach) + Resume ⇒ `result_hash` byte-identisch zu `manifest.run()`. Fail-closed (G45):
-   O_EXCL-Lockfile (konkurrierende Writer/Resumer → `CheckpointLockedError`; verwaistes Lock wird
-   NICHT still übernommen), SHA-256-Integritäts-Hash (Tamper/Korruption → laut abgewiesen),
-   atomare Writes. **Scope:** Phase-5-Multichain-Lauf; 2D-Wolff/MCRG-Pipelines nicht gecheckpointet.
+   O_EXCL-Lockfile (konkurrierende Writer/Resumer → `CheckpointLockedError`; über Laden UND Lauf
+   gehalten — kein TOCTOU-Fenster; verwaistes Lock wird NICHT still übernommen),
+   SHA-256-Integritäts-Hash (Korruption/inkonsistenter Edit → laut abgewiesen; **unkeyed**:
+   Korruptions-Erkennung, KEINE kryptographische Authentifizierung gegen Akteure mit
+   Schreibzugriff), atomare Writes, Checkpoints auch an Ketten-Grenzen (Fortschritt bleibt
+   auch bei n_steps ≤ checkpoint_every erhalten). **Scope:** Phase-5-Multichain-Lauf;
+   2D-Wolff/MCRG-Pipelines nicht gecheckpointet.
 
 **Im selben Inkrement (Audit-Härtung, Korrektheit):** zell-eigene Seeds in `qec_diagnostics`/
 `surface_decoder`-Sweeps (vorher teilten alle Zellen einer Kurve denselben RNG-Stream →

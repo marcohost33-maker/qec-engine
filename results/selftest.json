@@ -4,7 +4,7 @@
   "n_pass": 45,
   "n_total": 45,
   "all_pass": true,
-  "elapsed_s": 163.728,
+  "elapsed_s": 169.919,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -44,7 +44,7 @@
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "76 edge checks; all invalid inputs rejected"
+      "detail": "77 edge checks; all invalid inputs rejected"
     },
     {
       "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
@@ -204,7 +204,7 @@
     {
       "gate": "G40 SNIS bias O(1/N) + chi^2 MSE bound",
       "pass": true,
-      "detail": "bias(N=(100, 400))=('-4.51e-03', '-7.55e-04') c_bias=-0.4674 bias*N/c=('0.97', '0.65')(~1) sign_ok=True MSE<=4(1+chi2)/N=True deltamethod/MSE=('0.88', '0.97')(in .75-1.25)"
+      "detail": "bias(N=(100, 400))=('-4.61e-03', '-1.08e-03') c_bias=-0.4674 bias*N/c=('0.99', '0.92')(~1) sign_ok=True MSE<=4(1+chi2)/N=True deltamethod/MSE=('0.87', '0.96')(in .75-1.25)"
     },
     {
       "gate": "G41 SNIS ESS-collapse flagged + repro",

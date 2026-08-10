@@ -95,6 +95,12 @@ def chi2_divergence_open_chain(K_target: float, K_proposal: float, L: int) -> fl
         return abs(k) + math.log1p(math.exp(-2.0 * abs(k))) - math.log(2.0)
 
     log_ratio = (L - 1) * (_lc(2.0 * Kt - Kp) + _lc(Kp) - 2.0 * _lc(Kt))
+    # Codex-Review-Fix: bei extremem Mismatch (grosses L * grosses Delta-K)
+    # ueberschreitet log_ratio den float64-Exponentenbereich (~709). Genau das
+    # IST der ESS-Kollaps-Fall -> chi^2 = inf zurueckgeben (ess_rel_oracle -> 0,
+    # ess_adequate=False), statt mit OverflowError abzubrechen.
+    if log_ratio > 700.0:
+        return float("inf")
     return math.expm1(log_ratio)
 
 
@@ -147,7 +153,15 @@ class SNISEstimate:
 
     @property
     def n_sigma(self) -> float:
-        return self.abs_error / self.error if self.error > 0 else 0.0
+        """Abweichung vom Orakel in Fehler-Einheiten.
+
+        error==0 bei abs_error>0 (degenerierte Stichprobe, z.B. alle Spins
+        aligned) ist ein MAXIMALER Miss, kein perfekter Treffer -> inf
+        (Codex-Review-Fix, spiegelt die gehaerteten QEC-Diagnostiken).
+        """
+        if self.error > 0:
+            return self.abs_error / self.error
+        return 0.0 if self.abs_error == 0.0 else float("inf")
 
 
 def snis_reweight(
@@ -181,6 +195,11 @@ def snis_reweight(
     Kt = _check_coupling(K_target, "K_target")
     if not (min_ess > 0):
         raise ValueError(f"min_ess must be > 0, got {min_ess}")
+    # Codex-Review-Fix: Spin-Alphabet validieren. {0,1}-Konfigurationen (etwa
+    # A-Kernel-Bits) wuerden sonst still als {-1,+1}-Spins interpretiert --
+    # alle Gewichte/ESS blieben endlich, aber fuer das FALSCHE Modell.
+    if not np.all(np.abs(s) == 1.0):
+        raise ValueError("s must contain only spins in {-1, +1} (got other values)")
 
     S = (s[:, :-1] * s[:, 1:]).sum(axis=1)  # (N,)
     g = S / (L - 1)
@@ -277,7 +296,10 @@ def measure_bias_scaling(
     Bias-Koeffizient c_bias (Delta-Methode, exponential-family-exakt) macht den
     Test scharf: bias_hat * N / c_bias ~ 1.
 
-    Vektorisiert in Chunks (Speicher-Bound O(chunk*N*L)).
+    RNG-Vertrag (Codex-Review-Fix): jedes Replikat hat einen EIGENEN,
+    replikat-indexierten Seed -- das Ergebnis ist unabhaengig vom
+    Speicher-Tuning-Parameter `chunk` (der nur die Batch-Groesse der
+    vektorisierten Auswertung steuert, nie die Zufallsstroeme).
     """
     if len(n_values) != len(n_replicates):
         raise ValueError("n_values and n_replicates must have equal length")
@@ -307,12 +329,17 @@ def measure_bias_scaling(
         g_hats = np.empty(R, dtype=np.float64)
         var_est = np.empty(R, dtype=np.float64)
         done = 0
-        chunk_idx = 0
         while done < R:
             r = min(chunk, R - done)
-            s = sample_ising_open_chain(
-                Kp, L, r * N, seed=seed + 1000003 * j + 7919 * chunk_idx
-            ).reshape(r, N, L)
+            # Ein eigener Seed JE REPLIKAT (nicht je Chunk): Ergebnisse sind
+            # damit byte-identisch fuer jede chunk-Wahl (SeedSequence haengt
+            # nur vom Replikat-Index ab, nicht von der Batch-Partitionierung).
+            s = np.stack(
+                [
+                    sample_ising_open_chain(Kp, L, N, seed=seed + 1_000_000_007 * j + (done + k))
+                    for k in range(r)
+                ]
+            )  # (r, N, L)
             S = (s[:, :, :-1] * s[:, :, 1:]).sum(axis=2)  # (r, N)
             g = S / (L - 1)
             logw = (Kt - Kp) * S
@@ -323,7 +350,6 @@ def measure_bias_scaling(
             g_hats[done : done + r] = gh
             var_est[done : done + r] = np.sum(w**2 * (g - gh[:, None]) ** 2, axis=1)
             done += r
-            chunk_idx += 1
         b = float(g_hats.mean() - oracle_g)
         sem = float(g_hats.std(ddof=1) / math.sqrt(R))
         bias_hat.append(b)

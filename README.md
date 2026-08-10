@@ -107,8 +107,8 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **CLT-Varianz σ²_g (`clt.py`, Phase-5)** | **real** — MCMC-CLT `σ²_g = 2·τ_int·Var(g)` (Γ-Methode) + **unabhängiger OBM-Schätzer** (Flegal-Jones 2010). Gegen geschlossene AR(1)-Form `σ²_g=σ²_ε/(1−φ)²` (φ=0.8, Orakel 25.0 → Γ 25.26 rel.0.010, OBM 24.49 rel.0.020). **Coverage beidseitig:** korrektes σ²_g deckt 95%-CI mit 0.937; iid-Annahme UNTERdeckt mit 0.490 |
 | **R̂-Multichain (`rhat.py`, Phase-5)** | **real** — rank-normalized split-R̂ + folded-R̂ + bulk/tail-ESS (Vehtari et al. 2021, R̂<1.01). A-Kernel M=4 → R̂=1.0003 (converged, ESS_bulk≈5149). **Beidseitig:** Mittel-Drift → R̂=1.62 (bulk); Skalen-Drift → R̂=1.27 (folded>bulk) |
 | **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
-| **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % exakte Auswertungen gespart; Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
-| **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer; SHA-256-Integritäts-Hash weist manipulierte Checkpoints LAUT ab |
+| **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % weniger Stufe-2-Auswertungen (Accounting-Größe, kein gemessener Speedup im 1D-Toy); Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
+| **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer (über Laden+Lauf gehalten); SHA-256-Integritäts-Hash weist korrumpierte Checkpoints LAUT ab (unkeyed — Korruptions-Erkennung, keine krypt. Authentifizierung) |
 | MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
@@ -229,16 +229,21 @@ regenerierbar via `adaptiverg-qec phase6 --json ...`; Gates G39–G45):
    Fox 2005) — Stufe 1 befragt nur das Surrogat `β̃=β(1+γ)`, Stufe 2 korrigiert exakt. Detailed
    balance gegen das EXAKTE π für **jedes** Surrogat: γ=0 ist **bit-identisch** zum
    Metropolis-A-Kernel (gleicher Philox-Stream), miskalibrierte Surrogate (γ=−0.25/+0.3)
-   treffen das Transfer-Matrix-Orakel trotzdem. 34–42 % der exakten Energie-Auswertungen werden
-   eingespart (Stufe-1-Rejects). **Surrogate-Drift-Guard** (Spec Phase-4) überwacht die
-   Log-Diskrepanz je Stufe-2-Auswertung: hält bei γ=0, feuert bei γ=0.4. **Ehrlich:** 1D-Toy —
-   demonstriert wird die Korrektheits-Maschinerie, kein Speedup-Claim; DA×Adaptation offen.
+   treffen das Transfer-Matrix-Orakel trotzdem. Die Ersparnis-Zähler (34–42 % weniger
+   Stufe-2-Auswertungen) sind eine **Accounting-Größe** — sie zählen, wie oft ein *reales*
+   teures Target ausgewertet werden müsste; in diesem 1D-Toy wird ΔH ohnehin für jeden
+   Proposal exakt berechnet (kein gemessener Speedup). **Surrogate-Drift-Guard** (Spec
+   Phase-4) überwacht die Log-Diskrepanz je Stufe-2-Auswertung: hält bei γ=0, feuert bei
+   γ=0.4. **Ehrlich:** 1D-Toy — Korrektheits-Maschinerie, kein Speedup-Claim; DA×Adaptation offen.
 3. **Checkpoint/Restart + Lockfile (`checkpoint.py`):** vollständige Philox-State-Serialisierung
    (JSON, verlustfrei) + gemeinsamer `advance_chain`/`postprocess_multichain`-Code-Pfad mit
    `manifest.run()`. **Determinismus-Vertrag:** Interrupt (auch mehrfach) + Resume ⇒
    `result_hash` **byte-identisch** zum ununterbrochenen Lauf (Gate G44). Fail-closed:
-   O_EXCL-Lockfile gegen konkurrierende Writer/Resumer; SHA-256-Integritäts-Hash weist
-   manipulierte/korrupte Checkpoints laut ab (Gate G45); atomare Writes (`os.replace`).
+   O_EXCL-Lockfile gegen konkurrierende Writer/Resumer (über Laden+Lauf gehalten);
+   SHA-256-Integritäts-Hash weist korrumpierte/inkonsistent editierte Checkpoints laut ab
+   (Gate G45) — **unkeyed**, d. h. Korruptions-Erkennung, *keine* kryptographische
+   Authentifizierung gegen Akteure mit Schreibzugriff; atomare Writes (`os.replace`);
+   Checkpoints auch an Ketten-Grenzen.
 
 Zusätzlich wurden im selben Inkrement Audit-Befunde gefixt (Details im PR/Commit): zell-eigene
 Seeds in den QEC-Sweeps (vorher teilten alle Zellen einer Kurve denselben RNG-Stream),

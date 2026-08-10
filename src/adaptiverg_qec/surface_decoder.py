@@ -352,13 +352,25 @@ def estimate_mwpm_threshold(
     ]
     diff = [a - b for a, b in zip(pl_large, pl_small, strict=True)]
 
-    # Erste Vorzeichen-Aenderung in diff -> lineare Interpolation auf die Nullstelle.
+    # Erster ECHTER Vorzeichenwechsel in diff -> lineare Interpolation auf die
+    # Nullstelle. Codex-Review-Fix: flache Null-Plateaus (y0 == y1 == 0, z.B.
+    # beide Kurven ohne beobachtete Fehler bei sparsamen Shots) sind KEINE
+    # Threshold-Evidenz und zaehlen nicht als Kreuzung; ein exakter Nullpunkt
+    # mit nicht-null Nachbarn zaehlt als Kreuzung AN diesem Gitterpunkt.
     p_threshold = float("nan")
     for i in range(len(ps) - 1):
-        if (diff[i] <= 0.0 <= diff[i + 1]) or (diff[i] >= 0.0 >= diff[i + 1]):
+        y0, y1 = diff[i], diff[i + 1]
+        if y0 == 0.0 and y1 == 0.0:
+            continue  # Null-Plateau: keine Evidenz
+        if y0 == 0.0:
+            p_threshold = ps[i]
+            break
+        if y1 == 0.0:
+            p_threshold = ps[i + 1]
+            break
+        if (y0 < 0.0 < y1) or (y0 > 0.0 > y1):
             x0, x1 = ps[i], ps[i + 1]
-            y0, y1 = diff[i], diff[i + 1]
-            p_threshold = x0 - y0 * (x1 - x0) / (y1 - y0) if y1 != y0 else 0.5 * (x0 + x1)
+            p_threshold = x0 - y0 * (x1 - x0) / (y1 - y0)
             break
 
     abs_error = (

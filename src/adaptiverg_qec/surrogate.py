@@ -34,7 +34,12 @@ ueberschreitet (Surrogat zu schlecht -> Effizienz-Verlust; Korrektheit bleibt).
 
 EHRLICHE SCOPE-GRENZE: das Surrogat ist hier NICHT billiger als das Original
 (1D-Toy) -- demonstriert wird die KORREKTHEITS-Maschinerie (DA-Kernel + Guard),
-kein Speedup-Claim. Kombination mit Diminishing Adaptation bleibt offen.
+kein Speedup-Claim. Insbesondere (Codex-Review): dH wird in DIESER Implementierung
+fuer jeden Proposal ohnehin exakt berechnet (Surrogat und Ziel teilen dieselbe
+lokale Groesse dH); die Ersparnis-Zaehler n_exact_evals/exact_eval_savings sind
+daher eine ACCOUNTING-GROESSE -- sie zaehlen, wie oft ein REALES teures Ziel in
+Stufe 2 ausgewertet werden MUESSTE (== Stufe-1-Akzepte), nicht real gesparte
+Rechenzeit dieses Toys. Kombination mit Diminishing Adaptation bleibt offen.
 """
 
 from __future__ import annotations
@@ -81,9 +86,13 @@ class DAResult:
     """Gesamt-Akzeptanzrate (Stufe 1 UND Stufe 2 akzeptiert)."""
     n_attempts: int
     n_exact_evals: int
-    """Anzahl exakter Energie-Auswertungen (== Stufe-1-Akzeptanzen)."""
+    """Anzahl Stufe-2-Auswertungen (== Stufe-1-Akzeptanzen) -- die Zahl der
+    Ziel-Auswertungen, die ein REALES teures Target braeuchte. ACCOUNTING-
+    Groesse: in diesem 1D-Toy wird dH ohnehin fuer jeden Proposal exakt
+    berechnet (s. Modul-Docstring); kein gemessener Speedup."""
     exact_eval_savings: float
-    """1 - n_exact_evals/n_attempts: Anteil eingesparter exakter Auswertungen."""
+    """1 - n_exact_evals/n_attempts: HYPOTHETISCHER Anteil eingesparter
+    Ziel-Auswertungen bei teurem Target (Accounting, kein gemessener Speedup)."""
     stage1_accept_rate: float
     stage2_reject_rate: float
     """Anteil der Stufe-1-Akzeptanzen, die Stufe 2 wieder verwirft."""

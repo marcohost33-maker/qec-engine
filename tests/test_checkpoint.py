@@ -128,6 +128,40 @@ class TestFailClosed:
         with pytest.raises(ValueError):
             checkpoint.run_resumable(mf, tmp_path / "ck.json", interrupt_after=0)
 
+    def test_resume_validates_params_too(self, tmp_path):
+        """Codex-Fix: resume() validiert checkpoint_every/interrupt_after wie run_resumable
+        (checkpoint_every=0 wuerde sonst endlos denselben Checkpoint schreiben)."""
+        mf = _small_manifest()
+        p = tmp_path / "ck.json"
+        assert checkpoint.run_resumable(mf, p, checkpoint_every=50, interrupt_after=60) is None
+        with pytest.raises(ValueError):
+            checkpoint.resume(p, checkpoint_every=0)
+        with pytest.raises(ValueError):
+            checkpoint.resume(p, interrupt_after=0)
+
+
+class TestChainBoundaryCheckpoint:
+    def test_boundary_checkpoint_when_chains_shorter_than_interval(self, tmp_path):
+        """Codex-Fix: n_steps <= checkpoint_every -> Checkpoint an der Ketten-Grenze.
+
+        Vorher gab es in diesem Regime NIE einen periodischen Write (die
+        Mid-Chain-Bedingung feuert nicht); ein Crash zwischen Ketten verlor
+        allen Fortschritt.
+        """
+        mf = _small_manifest(n_chains=3, n_steps=100, burn_in=20)
+        direct = manifest.run(mf)
+        p = tmp_path / "ck.json"
+        # interrupt genau an der Grenze: Kette 0 (100 Sweeps) fertig, Kette 1 Budget 0.
+        r = checkpoint.run_resumable(mf, p, checkpoint_every=500, interrupt_after=100)
+        assert r is None and p.exists()
+        payload = checkpoint.load_checkpoint(p)
+        assert payload["chain_index"] == 1
+        assert payload["chain_state"]["t"] == 0  # Grenz-Checkpoint: Kette 1 frisch
+        assert len(payload["done_H"]) == 1  # Kette 0 vollstaendig persistiert
+        res = checkpoint.resume(p, checkpoint_every=500)
+        assert res is not None
+        assert res.result_hash == direct.result_hash
+
 
 class TestManifestValidation:
     def test_post_init_fail_closed(self):
