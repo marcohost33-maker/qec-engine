@@ -1,0 +1,163 @@
+{
+  "artifact": "proofblock_v13_d2_multiseed",
+  "generated_utc": "2026-07-22T16:45:55.231777+00:00",
+  "agent": "Data",
+  "repo_head": "b1daa459fcf24da9e6c61459398ea543eab351b0",
+  "branch": "fix/qec-eigval-doc-hardening",
+  "oracle_source": "spec/reproducers/proofblock_v13_oracles.py::defect2_oracle",
+  "note_missing_gate": "Kein 'noise variance ratio'-Gate (1.85-2.15) im Rueckgabe-Dict von defect2_oracle vorhanden; 5 belegte Kennzahlen = measured_slope_A, measured_exponent_B, bias_slope, r2_a, r2_b.",
+  "seeds": [
+    2026,
+    7,
+    101,
+    404,
+    909
+  ],
+  "seed_derivations": {
+    "A0": "seed+3",
+    "gstar": "seed+7",
+    "rng_a": "seed+11",
+    "rng_b": "seed+13"
+  },
+  "per_seed": [
+    {
+      "seed": 2026,
+      "measured_slope_A": -0.9995598807622276,
+      "r2_a": 0.9999912105378312,
+      "bias_slope": 1.9989734761759708,
+      "r2_bias": 0.9999998323248712,
+      "measured_exponent_B": -0.1667706159487293,
+      "r2_b": 0.9999938096889944,
+      "gate_pass_seed": true
+    },
+    {
+      "seed": 7,
+      "measured_slope_A": -1.0032947322183077,
+      "r2_a": 0.9999697114323763,
+      "bias_slope": 1.9989734762075977,
+      "r2_bias": 0.9999998323248626,
+      "measured_exponent_B": -0.16626474901869956,
+      "r2_b": 0.9999906889455688,
+      "gate_pass_seed": true
+    },
+    {
+      "seed": 101,
+      "measured_slope_A": -1.002025349069281,
+      "r2_a": 0.9999499730529747,
+      "bias_slope": 1.998973476251977,
+      "r2_bias": 0.9999998323248509,
+      "measured_exponent_B": -0.16603531812915626,
+      "r2_b": 0.999896872267207,
+      "gate_pass_seed": true
+    },
+    {
+      "seed": 404,
+      "measured_slope_A": -0.9999933829616847,
+      "r2_a": 0.9999477257529681,
+      "bias_slope": 1.998973476217778,
+      "r2_bias": 0.9999998323248618,
+      "measured_exponent_B": -0.16698896139728414,
+      "r2_b": 0.999917783754103,
+      "gate_pass_seed": true
+    },
+    {
+      "seed": 909,
+      "measured_slope_A": -1.000405831823894,
+      "r2_a": 0.9999677252132998,
+      "bias_slope": 1.9989734762055351,
+      "r2_bias": 0.9999998323248633,
+      "measured_exponent_B": -0.1661779869248936,
+      "r2_b": 0.999965621871536,
+      "gate_pass_seed": true
+    }
+  ],
+  "stats_5x": {
+    "measured_slope_A": {
+      "mean": -1.001055835367079,
+      "std": 0.0013958370842513412,
+      "min": -1.0032947322183077,
+      "max": -0.9995598807622276
+    },
+    "measured_exponent_B": {
+      "mean": -0.16644752628375256,
+      "std": 0.0003670186564984892,
+      "min": -0.16698896139728414,
+      "max": -0.16603531812915626
+    },
+    "bias_slope": {
+      "mean": 1.9989734762117717,
+      "std": 2.445637823118758e-11,
+      "min": 1.9989734761759708,
+      "max": 1.998973476251977
+    },
+    "r2_a": {
+      "mean": 0.99996526919789,
+      "std": 1.5750956071738387e-05,
+      "min": 0.9999477257529681,
+      "max": 0.9999912105378312
+    },
+    "r2_b": {
+      "mean": 0.9999529553054817,
+      "std": 3.907862676844114e-05,
+      "min": 0.999896872267207,
+      "max": 0.9999938096889944
+    }
+  },
+  "proposed_bands_ratification": {
+    "measured_slope_A": {
+      "band_PROPOSED": [
+        -1.15,
+        -0.85
+      ],
+      "observed_min": -1.0032947322183077,
+      "observed_max": -0.9995598807622276,
+      "band_width": 0.29999999999999993,
+      "observed_spread": 0.0037348514560801016,
+      "margin_low": 0.14670526778169224,
+      "margin_high": 0.1495598807622276,
+      "covered_with_margin": true,
+      "verdict": "ZU-WEIT"
+    },
+    "measured_exponent_B": {
+      "band_PROPOSED": [
+        -0.2,
+        -0.13
+      ],
+      "observed_min": -0.16698896139728414,
+      "observed_max": -0.16603531812915626,
+      "band_width": 0.07,
+      "observed_spread": 0.000953643268127885,
+      "margin_low": 0.03301103860271587,
+      "margin_high": 0.03603531812915625,
+      "covered_with_margin": true,
+      "verdict": "ZU-WEIT"
+    },
+    "bias_slope": {
+      "band_PROPOSED": [
+        1.8,
+        2.2
+      ],
+      "observed_min": 1.9989734761759708,
+      "observed_max": 1.998973476251977,
+      "band_width": 0.40000000000000013,
+      "observed_spread": 7.600631235504807e-11,
+      "margin_low": 0.19897347617597072,
+      "margin_high": 0.2010265237480231,
+      "covered_with_margin": true,
+      "verdict": "ZU-WEIT"
+    },
+    "r2_a": {
+      "min_PROPOSED": 0.99,
+      "observed_min": 0.9999477257529681,
+      "margin": 0.009947725752968095,
+      "verdict": "RATIFY-OK"
+    },
+    "r2_b": {
+      "min_PROPOSED": 0.95,
+      "observed_min": 0.999896872267207,
+      "margin": 0.04989687226720707,
+      "verdict": "RATIFY-OK"
+    }
+  },
+  "net_ratifiable": false
+}
