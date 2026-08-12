@@ -301,3 +301,38 @@ Errata-/Korrektur-Companion zum binären SoT `spec/AdaptiveRG-QEC_ProofBlock_v1.
 - Reifegrad: Spec-Korrektur, L0-Selbst-Precheck; Equalita-Ratifikation offen — nicht selbst-zertifiziert.
 
 *Codie | 2026-07-02 | ProofBlock-v1.3-Errata-Append*
+
+---
+
+## Lineage-Append (append-only) — 2026-08-09: Phase-6 (SNIS + Surrogate-DA + Checkpoint) + Audit-Härtung
+
+**Neue Primärquellen (Phase-6, alle web-etabliert):**
+- **Christen, J.A. & Fox, C. (2005).** "Markov chain Monte Carlo using an approximation."
+  *J. Comput. Graph. Stat.* 14(4), 795–810. — Delayed-Acceptance-MCMC: zweistufige Akzeptanz
+  (Stufe 1 Surrogat, Stufe 2 exakte Korrektur) erhält detailed balance gegen das exakte Ziel
+  fuer JEDES Surrogat. Basis von `surrogate.py`.
+- **Agapiou, S., Papaspiliopoulos, O., Sanz-Alonso, D., Stuart, A.M. (2017).** "Importance
+  Sampling: Intrinsic Dimension and Computational Cost." *Statist. Sci.* 32(3), 405–431.
+  — MSE-Bound der selbst-normalisierten IS: MSE <= 4*(1+chi^2)/N fuer |g|<=1 (Thm 2.1 / Kap. 2,
+  rho = E_q[(dpi/dq)^2] = 1+chi^2). Basis des chi^2-Varianz-Bound-Gates (G40).
+- **Owen, A.B.** *Monte Carlo theory, methods and examples*, Kap. 9 (Importance Sampling) —
+  Delta-Methoden-Varianz/Bias des SNIS-Ratio-Schaetzers (fuehrender O(1/N)-Bias; hier
+  exponential-family-exakt ausgewertet: bias ~ (1+chi^2)(tanh K_t - tanh(2K_t-K_p))/N).
+- Geschlossene chi^2-Form der offenen 1D-Ising-Kette: Z(K) = 2(2 cosh K)^{L-1} (Bond-Faktorisierung)
+  => 1+chi^2 = [cosh(2K_t-K_p) cosh(K_p)/cosh^2(K_t)]^{L-1}; in `tests/test_snis.py` gegen
+  vollstaendige 2^8-Enumeration verifiziert (KEIN Self-Check).
+
+**Phase-6-real:** `snis.py` (G39–G41), `surrogate.py` (G42–G43), `checkpoint.py` (G44–G45);
+Artefakt `results/phase6-snis-surrogate-checkpoint.json`; Selftest 45/45. Der Append vom
+2026-06-19 ("WEITERHIN OFFEN: SNIS + Surrogate + Checkpoint/Lockfile") ist damit abgearbeitet;
+**weiterhin offen:** Defensive Mixture, SNIS auf 2D/RBIM-Targets, DA×Adaptation, MMD-Drift.
+
+**Audit-Härtung (Korrektheit, gleiche PR):** zell-eigene Seeds in QEC-Sweeps (vorher EIN Seed
+fuer alle (n,p)-Zellen -> rangkorrelierte Kurven), Jeffreys-regularisierte std_err (k=0-Zellen
+waren unfalsifizierbar, n_sigma=0), mcrg-n_sigma auf SEM (vorher sqrt(8) zu lax), R-hat/ESS bei
+konstanten Ketten mit verschiedenen Mitteln -> inf/0 statt "converged", RunManifest-Validierung,
+rg_map-dtype-Fix, G3-Gate non-vakuoes. Betroffene regenerierte Artefakte:
+`results/phase2-swendsen.json`, `results/qec-diagnostics-rep-code.json`,
+`results/qec-fit-diagnostics-rep-code.json`, `results/qec-surface-mwpm.json`, `results/selftest.json`.
+
+*Claude Code | 2026-08-09 | Phase-6-Append | Reality-Anchor: dev/Prototyp, bounded orakel-validiert, nicht selbst-zertifiziert*

@@ -12,70 +12,75 @@
       {
         "d": 3,
         "p": 0.1,
-        "p_L_mwpm": 0.027435,
-        "std_err": 0.00036525553229896466,
+        "p_L_mwpm": 0.027465,
+        "std_err": 0.000365464818084557,
         "p_L_exact": 0.028000000000000008,
-        "n_sigma": 1.546862265011634
+        "n_sigma": 1.4638891995240582
       },
       {
         "d": 5,
         "p": 0.1,
-        "p_L_mwpm": 0.008435,
-        "std_err": 0.00020449756447204942,
+        "p_L_mwpm": 0.008665,
+        "std_err": 0.00020727194525208437,
         "p_L_exact": 0.008560000000000002,
-        "n_sigma": 0.6112542236026813
+        "n_sigma": 0.5065808586506875
       },
       {
         "d": 7,
         "p": 0.1,
-        "p_L_mwpm": 0.002825,
-        "std_err": 0.00011868065080290047,
+        "p_L_mwpm": 0.002865,
+        "std_err": 0.00011956720262150974,
         "p_L_exact": 0.002728000000000001,
-        "n_sigma": 0.8173194142749711
+        "n_sigma": 1.1457991572628232
       }
     ],
-    "worst_n_sigma": 1.546862265011634
+    "worst_n_sigma": 1.4638891995240582
   },
   "oracle_B": {
     "model": "rotated surface code, code-capacity pure-X-flip, MWPM threshold",
     "literature_mwpm_threshold": 0.103,
     "literature_ml_threshold_for_context": 0.1094,
     "literature_source": "Dennis, Kitaev, Landahl & Preskill, J. Math. Phys. 43, 4452 (2002)",
-    "shots_per_cell": 60000,
+    "shots_per_cell": 80000,
     "ps": [
+      0.09,
       0.095,
       0.1,
       0.105,
-      0.11
+      0.11,
+      0.115
     ],
     "rows": [
       {
         "d_small": 7,
         "d_large": 9,
-        "p_threshold": 0.09524038461538462,
+        "crossing_found": true,
+        "p_threshold": 0.09798591549295774,
         "p_literature": 0.103,
-        "abs_error": 0.007759615384615379
+        "abs_error": 0.005014084507042257
       },
       {
         "d_small": 9,
         "d_large": 11,
-        "p_threshold": 0.10151234567901235,
+        "crossing_found": true,
+        "p_threshold": 0.09623222748815166,
         "p_literature": 0.103,
-        "abs_error": 0.0014876543209876442
+        "abs_error": 0.006767772511848333
       },
       {
         "d_small": 7,
         "d_large": 11,
-        "p_threshold": 0.09776946107784432,
+        "crossing_found": true,
+        "p_threshold": 0.09703346203346204,
         "p_literature": 0.103,
-        "abs_error": 0.005230538922155678
+        "abs_error": 0.005966537966537955
       }
     ],
     "best_pair": [
-      9,
-      11
+      7,
+      9
     ],
-    "best_abs_error": 0.0014876543209876442
+    "best_abs_error": 0.005014084507042257
   },
   "seed": 11
 }

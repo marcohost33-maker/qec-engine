@@ -49,7 +49,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .qec_diagnostics import logical_error_rate_exact
+from .qec_diagnostics import cell_seed, logical_error_rate_exact
 
 # --- optional-dependency-Gate -------------------------------------------------
 # Ohne das [surface]-Extra bleibt HAVE_SURFACE False; die Funktionen werfen einen
@@ -112,9 +112,9 @@ class RepetitionMwpmEstimate:
         p: physikalische Bit-Flip-Wahrscheinlichkeit in (0, 0.5).
         shots: Anzahl unabhaengiger Realisierungen.
         p_L_mwpm: MWPM-Schaetzer der logischen Fehlerrate (PyMatching).
-        std_err: Binomial-Standardfehler.
+        std_err: Jeffreys-regularisierter Binomial-Standardfehler (nie 0).
         p_L_exact: exaktes Binomial-Orakel (Inkrement 1).
-        n_sigma: |p_L_mwpm - p_L_exact| / std_err (0 wenn std_err==0).
+        n_sigma: |p_L_mwpm - p_L_exact| / std_err (immer wohldefiniert).
     """
 
     d: int
@@ -177,8 +177,12 @@ def repetition_mwpm_vs_oracle(d: int, p: float, shots: int, seed: int) -> Repeti
 
     p_l_mwpm = float(logical_error.mean())
     p_l_exact = logical_error_rate_exact(d, p)
-    std_err = math.sqrt(p_l_mwpm * (1.0 - p_l_mwpm) / shots) if shots > 0 else 0.0
-    n_sigma = abs(p_l_mwpm - p_l_exact) / std_err if std_err > 0.0 else 0.0
+    # Jeffreys-regularisierter Standardfehler (nie 0): auch Null-Ereignis-Zellen
+    # bleiben falsifizierbar (s. qec_diagnostics.simulate_logical_error_rate).
+    k = int(logical_error.sum())
+    p_tilde = (k + 0.5) / (shots + 1.0)
+    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / shots)
+    n_sigma = abs(p_l_mwpm - p_l_exact) / std_err
     return RepetitionMwpmEstimate(
         d=d,
         p=p,
@@ -283,6 +287,9 @@ class ThresholdEstimate:
 
     d_small: int
     d_large: int
+    crossing_found: bool
+    """False, wenn diff nie das Vorzeichen wechselt (kein Threshold im p-Fenster);
+    p_threshold ist dann NaN und abs_error inf -- LAUT geflaggt, nicht still."""
     p_threshold: float
     p_literature: float
     abs_error: float
@@ -335,17 +342,35 @@ def estimate_mwpm_threshold(
     if shots < 1:
         raise ValueError(f"shots must be >= 1, got {shots}")
 
-    pl_small = [surface_logical_error_rate(d_small, p, shots, seed) for p in ps]
-    pl_large = [surface_logical_error_rate(d_large, p, shots, seed) for p in ps]
+    # Zell-eigene Seeds (cell_seed): vorher teilten ALLE (d, p)-Zellen denselben
+    # Sampler-Seed -> Kurvenpunkte rangkorreliert statt unabhaengige Evidenz.
+    pl_small = [
+        surface_logical_error_rate(d_small, p, shots, cell_seed(seed, d_small, p)) for p in ps
+    ]
+    pl_large = [
+        surface_logical_error_rate(d_large, p, shots, cell_seed(seed, d_large, p)) for p in ps
+    ]
     diff = [a - b for a, b in zip(pl_large, pl_small, strict=True)]
 
-    # Erste Vorzeichen-Aenderung in diff -> lineare Interpolation auf die Nullstelle.
+    # Erster ECHTER Vorzeichenwechsel in diff -> lineare Interpolation auf die
+    # Nullstelle. Codex-Review-Fix: flache Null-Plateaus (y0 == y1 == 0, z.B.
+    # beide Kurven ohne beobachtete Fehler bei sparsamen Shots) sind KEINE
+    # Threshold-Evidenz und zaehlen nicht als Kreuzung; ein exakter Nullpunkt
+    # mit nicht-null Nachbarn zaehlt als Kreuzung AN diesem Gitterpunkt.
     p_threshold = float("nan")
     for i in range(len(ps) - 1):
-        if (diff[i] <= 0.0 <= diff[i + 1]) or (diff[i] >= 0.0 >= diff[i + 1]):
+        y0, y1 = diff[i], diff[i + 1]
+        if y0 == 0.0 and y1 == 0.0:
+            continue  # Null-Plateau: keine Evidenz
+        if y0 == 0.0:
+            p_threshold = ps[i]
+            break
+        if y1 == 0.0:
+            p_threshold = ps[i + 1]
+            break
+        if (y0 < 0.0 < y1) or (y0 > 0.0 > y1):
             x0, x1 = ps[i], ps[i + 1]
-            y0, y1 = diff[i], diff[i + 1]
-            p_threshold = x0 - y0 * (x1 - x0) / (y1 - y0) if y1 != y0 else 0.5 * (x0 + x1)
+            p_threshold = x0 - y0 * (x1 - x0) / (y1 - y0)
             break
 
     abs_error = (
@@ -354,6 +379,7 @@ def estimate_mwpm_threshold(
     return ThresholdEstimate(
         d_small=int(d_small),
         d_large=int(d_large),
+        crossing_found=bool(math.isfinite(p_threshold)),
         p_threshold=p_threshold,
         p_literature=MWPM_THRESHOLD_LITERATURE,
         abs_error=abs_error,
@@ -369,8 +395,8 @@ def run_surface_diagnostics(
     rep_p: float = 0.10,
     rep_shots: int = 200_000,
     threshold_pairs: tuple[tuple[int, int], ...] = ((7, 9), (9, 11), (7, 11)),
-    threshold_ps: tuple[float, ...] = (0.095, 0.10, 0.105, 0.11),
-    threshold_shots: int = 60_000,
+    threshold_ps: tuple[float, ...] = (0.090, 0.095, 0.10, 0.105, 0.11, 0.115),
+    threshold_shots: int = 80_000,
     seed: int = 11,
 ) -> dict:
     """Voller Inkrement-3-Lauf: Repetition-MWPM-vs-Orakel + Surface-Threshold-Schaetzer.
@@ -383,7 +409,8 @@ def run_surface_diagnostics(
     rep_rows = []
     worst_n_sigma = 0.0
     for d in rep_distances:
-        est = repetition_mwpm_vs_oracle(d, rep_p, rep_shots, seed)
+        # Zell-eigener Seed je Distanz (dekorreliert, reproduzierbar).
+        est = repetition_mwpm_vs_oracle(d, rep_p, rep_shots, cell_seed(seed, d, rep_p))
         worst_n_sigma = max(worst_n_sigma, est.n_sigma)
         rep_rows.append(
             {
@@ -410,9 +437,11 @@ def run_surface_diagnostics(
             {
                 "d_small": thr.d_small,
                 "d_large": thr.d_large,
-                "p_threshold": thr.p_threshold,
+                "crossing_found": thr.crossing_found,
+                # None statt NaN/inf: das Artefakt bleibt strikt gueltiges JSON.
+                "p_threshold": thr.p_threshold if thr.crossing_found else None,
                 "p_literature": thr.p_literature,
-                "abs_error": thr.abs_error,
+                "abs_error": thr.abs_error if thr.crossing_found else None,
             }
         )
 
@@ -474,10 +503,13 @@ def _main() -> int:
     )
     print(f"  {'d_small':>7} {'d_large':>7} {'p_threshold':>12} {'abs_err':>10}")
     for r in b["rows"]:
-        print(
-            f"  {r['d_small']:>7} {r['d_large']:>7} "
-            f"{r['p_threshold']:>12.4f} {r['abs_error']:>10.4f}"
-        )
+        if r["crossing_found"]:
+            print(
+                f"  {r['d_small']:>7} {r['d_large']:>7} "
+                f"{r['p_threshold']:>12.4f} {r['abs_error']:>10.4f}"
+            )
+        else:
+            print(f"  {r['d_small']:>7} {r['d_large']:>7} {'no crossing':>12} {'--':>10}")
     print(
         f"  best_pair={b['best_pair']} best_abs_error={b['best_abs_error']:.4f} "
         f"(MWPM 0.103, NICHT ML/Nishimori {b['literature_ml_threshold_for_context']})"

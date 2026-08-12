@@ -31,6 +31,7 @@ import numpy as np
 from . import (
     a_kernel,
     autocorr,
+    checkpoint,
     clt,
     drift,
     ising1d,
@@ -39,6 +40,8 @@ from . import (
     mcrg_matrix,
     mcrg_multirg,
     rg_map,
+    snis,
+    surrogate,
     wolff2d,
 )
 from . import manifest as manifest_mod
@@ -84,12 +87,25 @@ def _g2_drift_holds() -> tuple[bool, str]:
 
 
 def _g3_drift_fires() -> tuple[bool, str]:
-    """Non-contracting Trajektorie: Guard FEUERT (lambda_hat >= 1)."""
+    """Non-contracting Trajektorie: Guard FEUERT (lambda_hat >= 1).
+
+    GEHAERTET (Audit G3-Vakuitaet): verlangt wird ein FINITES lambda_hat >= 1
+    mit genug Ausserhalb-Evidenz -- der nan-Fail-closed-Pfad (zu wenig Evidenz,
+    Guard nie wirklich ausgeuebt) zaehlt NICHT mehr als "gefeuert".
+    """
     rng = np.random.default_rng(0)
     walk = np.abs(np.cumsum(rng.integers(-1, 2, size=6000))).astype(float) + 1.0
     rep = drift.estimate_drift(walk, d=5.0)
-    ok = (not rep.holds) and (math.isnan(rep.lambda_hat) or rep.lambda_hat >= 1.0)
-    return ok, f"lambda_hat={rep.lambda_hat:.4f} holds={rep.holds} (expected fire)"
+    ok = (
+        (not rep.holds)
+        and math.isfinite(rep.lambda_hat)
+        and rep.lambda_hat >= 1.0
+        and rep.n_outside >= 10
+    )
+    return ok, (
+        f"lambda_hat={rep.lambda_hat:.4f} holds={rep.holds} n_out={rep.n_outside} "
+        f"(finite lambda>=1 required, nan-path does NOT count)"
+    )
 
 
 def _g4_jacobian_consistency() -> tuple[bool, str]:
@@ -357,6 +373,68 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
             lambda: mcrg_multirg.swendsen_matrix_raw(np.ones((100, 2)), np.ones((80, 2))),
         ),
         ("odd_operators too-small", lambda: mcrg_multirg.odd_operators(np.ones((1,)))),
+        # Phase-6 Silent-Failure-Gate: SNIS / Surrogate-DA / Checkpoint / Manifest.
+        ("snis s not 2D", lambda: snis.snis_reweight(np.ones(10), K_proposal=0.3, K_target=0.4)),
+        (
+            "snis n<2",
+            lambda: snis.snis_reweight(np.ones((1, 8)), K_proposal=0.3, K_target=0.4),
+        ),
+        (
+            "snis K_target inf",
+            lambda: snis.snis_from_couplings(
+                K_proposal=0.3, K_target=float("inf"), L=8, n_samples=10, seed=1
+            ),
+        ),
+        (
+            "snis min_ess<=0",
+            lambda: snis.snis_reweight(np.ones((10, 8)), K_proposal=0.3, K_target=0.4, min_ess=0.0),
+        ),
+        ("snis chi2 L<2", lambda: snis.chi2_divergence_open_chain(0.4, 0.3, 1)),
+        (
+            # Codex-Fix: {0,1}-Bits (A-Kernel-Konvention) sind KEINE Spins.
+            "snis non-spin alphabet {0,1}",
+            lambda: snis.snis_reweight(np.zeros((10, 8)), K_proposal=0.3, K_target=0.4),
+        ),
+        (
+            "snis bias-scaling len mismatch",
+            lambda: snis.measure_bias_scaling(n_values=(100,), n_replicates=(10, 10)),
+        ),
+        (
+            "surrogate gamma<=-1",
+            lambda: surrogate.run_da_mcmc(
+                _CFG, beta=0.8, n_steps=10, burn_in=0, seed=1, gamma=-1.0
+            ),
+        ),
+        (
+            "surrogate beta outside Theta",
+            lambda: surrogate.run_da_mcmc(_CFG, beta=99.0, n_steps=10, burn_in=0, seed=1),
+        ),
+        (
+            "surrogate burn_in>=n_steps",
+            lambda: surrogate.run_da_mcmc(_CFG, beta=0.8, n_steps=10, burn_in=10, seed=1),
+        ),
+        (
+            "surrogate drift_threshold<=0",
+            lambda: surrogate.run_da_mcmc(
+                _CFG, beta=0.8, n_steps=10, burn_in=0, seed=1, drift_threshold=0.0
+            ),
+        ),
+        (
+            "checkpoint load nonexistent",
+            lambda: checkpoint.load_checkpoint("results/__does_not_exist__.json"),
+        ),
+        (
+            "checkpoint_every<1",
+            lambda: checkpoint.run_resumable(
+                manifest_mod.RunManifest(), "unused.json", checkpoint_every=0
+            ),
+        ),
+        ("manifest n_chains<2", lambda: manifest_mod.RunManifest(n_chains=1)),
+        ("manifest burn_in>=n_steps", lambda: manifest_mod.RunManifest(n_steps=10, burn_in=10)),
+        (
+            "manifest beta_target outside Theta",
+            lambda: manifest_mod.RunManifest(beta_target=99.0),
+        ),
     ]
     failures = []
     for name, fn in checks:
@@ -1044,6 +1122,233 @@ def _g38_manifest_seed_drives_run() -> tuple[bool, str]:
     )
 
 
+# ===========================================================================
+# PHASE-6: SNIS (chi^2-Bound) + Surrogate-DA + Checkpoint/Restart-Lockfile
+# ===========================================================================
+
+
+def _g39_snis_vs_closed_oracles() -> tuple[bool, str]:
+    """Phase-6: SNIS-Schaetzer + ESS treffen die GESCHLOSSENEN Orakel.
+
+    (a) g_hat trifft tanh(K_t) innerhalb 3 sigma (Median ueber 3 Seeds, wie G15);
+    (b) empirisches ESS/N trifft das geschlossene 1/(1+chi^2) (|diff| < 0.05).
+    chi^2 ist fuer die offene 1D-Kette exponential-family-exakt berechenbar --
+    ein unabhaengiges Orakel, keine Selbst-Referenz.
+    """
+    pairs = ((0.3, 0.5), (0.5, 0.4), (0.4, 0.6))
+    worst_med_sigma = 0.0
+    worst_ess_diff = 0.0
+    parts = []
+    for Kp, Kt in pairs:
+        ests = [
+            snis.snis_from_couplings(
+                K_proposal=Kp, K_target=Kt, L=16, n_samples=20000, seed=mcrg.K_seed(Kp + Kt, sd)
+            )
+            for sd in range(3)
+        ]
+        med_sigma = float(np.median([e.n_sigma for e in ests]))
+        ess_diff = max(abs(e.ess_rel - e.ess_rel_oracle) for e in ests)
+        worst_med_sigma = max(worst_med_sigma, med_sigma)
+        worst_ess_diff = max(worst_ess_diff, ess_diff)
+        e0 = ests[0]
+        parts.append(
+            f"{Kp}->{Kt}:g={e0.g_hat:.4f}vs{e0.oracle:.4f}(med{med_sigma:.1f}s)"
+            f",ESS/N={e0.ess_rel:.3f}vs{e0.ess_rel_oracle:.3f}"
+        )
+    ok = worst_med_sigma <= 3.0 and worst_ess_diff < 0.05
+    return ok, (
+        f"{' '.join(parts)} | worst_med={worst_med_sigma:.2f}sigma(<=3) "
+        f"worst|ESS/N-oracle|={worst_ess_diff:.3f}(<0.05) L=16 N=20k 3seeds"
+    )
+
+
+def _g40_snis_bias_scaling_and_bound() -> tuple[bool, str]:
+    """Phase-6: SNIS-Bias ist O(1/N) MIT dem geschlossenen Koeffizienten;
+    MSE respektiert den chi^2-Bound (Agapiou et al. 2017).
+
+    Delta-Methoden-Orakel (exponential-family-exakt):
+      bias ~ c_bias/N, c_bias = (1+chi^2)(tanh K_t - tanh(2K_t-K_p)).
+    Gates: (a) Vorzeichen des gemessenen Bias == Vorzeichen von c_bias (beide N);
+    (b) bias*N/c_bias ~ 1 (Banden [0.6,1.4] bei N=100 / [0.4,1.6] bei N=400);
+    (c) MSE <= 4(1+chi^2)/N (beide N); (d) Delta-Methoden-Varianz kalibriert
+    (mittlere Schaetzung within 25% der empirischen Replikat-MSE).
+    """
+    rep = snis.measure_bias_scaling(seed=20260809)
+    sign_ok = all(np.sign(b) == np.sign(rep.bias_coefficient_oracle) for b in rep.bias_hat)
+    bands = ((0.6, 1.4), (0.4, 1.6))
+    scale_ok = all(lo <= s <= hi for s, (lo, hi) in zip(rep.scaled_bias, bands, strict=True))
+    mse_ok = all(m <= b for m, b in zip(rep.mse_hat, rep.mse_bound, strict=True))
+    calib = [v / m for v, m in zip(rep.var_deltamethod_mean, rep.mse_hat, strict=True)]
+    calib_ok = all(0.75 <= c <= 1.25 for c in calib)
+    ok = sign_ok and scale_ok and mse_ok and calib_ok
+    return ok, (
+        f"bias(N={rep.n_values})={tuple(f'{b:.2e}' for b in rep.bias_hat)} "
+        f"c_bias={rep.bias_coefficient_oracle:.4f} "
+        f"bias*N/c={tuple(f'{s:.2f}' for s in rep.scaled_bias)}(~1) sign_ok={sign_ok} "
+        f"MSE<=4(1+chi2)/N={mse_ok} deltamethod/MSE={tuple(f'{c:.2f}' for c in calib)}(in .75-1.25)"
+    )
+
+
+def _g41_snis_ess_collapse_and_repro() -> tuple[bool, str]:
+    """Phase-6: ESS-Kollaps wird GEFLAGGT (beidseitig) + Reproduzierbarkeit.
+
+    Extremes Reweighting (K 0.1->1.2, L=32) -> chi^2 ~ 7e5 -> ESS ~ 1: der
+    Schaetzer MUSS ess_adequate=False melden. Gesundes Reweighting MUSS
+    ess_adequate=True melden (non-vakuoes beidseitig). Gleicher Seed ->
+    bit-identisches g_hat; anderer Seed -> anderes g_hat.
+    """
+    bad = snis.snis_from_couplings(K_proposal=0.1, K_target=1.2, L=32, n_samples=2000, seed=5)
+    a = snis.snis_from_couplings(K_proposal=0.4, K_target=0.5, L=16, n_samples=5000, seed=7)
+    b = snis.snis_from_couplings(K_proposal=0.4, K_target=0.5, L=16, n_samples=5000, seed=7)
+    c = snis.snis_from_couplings(K_proposal=0.4, K_target=0.5, L=16, n_samples=5000, seed=8)
+    collapse_flagged = (not bad.ess_adequate) and bad.ess < bad.min_ess
+    healthy_ok = a.ess_adequate
+    repro = a.g_hat == b.g_hat and a.g_hat != c.g_hat
+    ok = collapse_flagged and healthy_ok and repro
+    return ok, (
+        f"collapse: ESS={bad.ess:.1f}(<{bad.min_ess:.0f}) flagged={not bad.ess_adequate} "
+        f"(chi2_oracle={bad.chi2_oracle:.1e}); healthy adequate={healthy_ok}; "
+        f"seed-repro={repro}"
+    )
+
+
+def _g42_da_exactness() -> tuple[bool, str]:
+    """Phase-6: Delayed-Acceptance ist EXAKT -- bit-genau (gamma=0) + statistisch.
+
+    (a) gamma=0: DA-Kernel bit-identisch zum reinen Metropolis-A-Kernel
+        (identischer Philox-Stream, H_traj byte-gleich) -- scharfer Anker.
+    (b) gamma=-0.25/+0.30 (absichtlich MISKALIBRIERTES Surrogat): mean_H trifft
+        das Transfer-Matrix-Orakel trotzdem (Christen-Fox-Exaktheit; das
+        Surrogat aendert nur die Effizienz, nie die Stationaritaet).
+    """
+    beta = 0.8
+    a = a_kernel.run_adaptive_mcmc(
+        _CFG, beta_target=beta, n_steps=3000, burn_in=800, seed=17, beta_start=beta
+    )
+    da0 = surrogate.run_da_mcmc(_CFG, beta=beta, n_steps=3000, burn_in=800, seed=17, gamma=0.0)
+    bit = bool(
+        np.array_equal(a.H_traj, da0.H_traj) and np.array_equal(a.final_state, da0.final_state)
+    )
+    exact = ising1d.mean_energy(beta, _CFG.L)
+    worst = 0.0
+    parts = []
+    for gamma in (-0.25, 0.30):
+        da = surrogate.run_da_mcmc(
+            _CFG, beta=beta, n_steps=8000, burn_in=2000, seed=23, gamma=gamma
+        )
+        err = abs(da.mean_H - exact)
+        worst = max(worst, err)
+        parts.append(f"g={gamma}:{da.mean_H:.3f}")
+    ok = bit and worst < 0.15
+    return ok, (
+        f"gamma=0 bit-identical to Metropolis={bit}; miscalibrated surrogate "
+        f"[{' '.join(parts)}] vs exact {exact:.3f} worst|err|={worst:.3f}(<0.15)"
+    )
+
+
+def _g43_da_savings_and_drift_guard() -> tuple[bool, str]:
+    """Phase-6: DA spart exakte Auswertungen; Drift-Guard BEIDSEITIG.
+
+    (a) n_exact_evals == Stufe-1-Akzepte < n_attempts (echte Ersparnis > 10%);
+    (b) gutes Surrogat (gamma=0): Guard haelt (Diskrepanz 0, nicht gefeuert);
+    (c) schlechtes Surrogat (gamma=0.4): Guard FEUERT (Diskrepanz > Schwelle)
+        und Stufe 2 verwirft real (stage2_reject_rate > 0).
+    """
+    good = surrogate.run_da_mcmc(_CFG, beta=0.8, n_steps=3000, burn_in=500, seed=3, gamma=0.0)
+    bad = surrogate.run_da_mcmc(_CFG, beta=0.8, n_steps=3000, burn_in=500, seed=3, gamma=0.4)
+    savings_ok = (
+        good.n_exact_evals < good.n_attempts
+        and good.exact_eval_savings > 0.10
+        and bad.n_exact_evals < bad.n_attempts
+    )
+    guard_holds = (not good.drift_guard.fired) and good.drift_guard.mean_discrepancy == 0.0
+    guard_fires = (
+        bad.drift_guard.fired
+        and bad.drift_guard.mean_discrepancy > bad.drift_guard.threshold
+        and bad.stage2_reject_rate > 0.0
+    )
+    ok = savings_ok and guard_holds and guard_fires
+    return ok, (
+        f"savings(gamma=0)={good.exact_eval_savings:.2f}(>0.10, "
+        f"{good.n_exact_evals}/{good.n_attempts} exact evals); "
+        f"guard holds(gamma=0)={not good.drift_guard.fired}; fires(gamma=0.4)="
+        f"{bad.drift_guard.fired} (disc={bad.drift_guard.mean_discrepancy:.3f}"
+        f">thr={bad.drift_guard.threshold}, stage2_rej={bad.stage2_reject_rate:.3f})"
+    )
+
+
+def _g44_checkpoint_resume_byte_identical() -> tuple[bool, str]:
+    """Phase-6: Interrupt -> Checkpoint -> Resume == byte-identischer result_hash.
+
+    Der resumierte Lauf muss EXAKT denselben result_hash liefern wie der
+    ununterbrochene manifest.run()-Lauf (Philox-State-Serialisierung + gemeinsamer
+    advance_chain/postprocess-Code-Pfad). Interrupt mitten in Kette 2 von 3.
+    """
+    import tempfile
+
+    mf = manifest_mod.RunManifest(base_seed=424242, n_chains=3, n_steps=800, burn_in=200, L=16)
+    h_direct = manifest_mod.run(mf).result_hash
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "ck.json"
+        r1 = checkpoint.run_resumable(mf, p, checkpoint_every=300, interrupt_after=1300)
+        interrupted = r1 is None and p.exists()
+        r2 = checkpoint.resume(p, checkpoint_every=300)
+        resumed_ok = r2 is not None and r2.result_hash == h_direct
+        cleaned = not p.exists()
+    ok = bool(interrupted and resumed_ok and cleaned)
+    return ok, (
+        f"interrupt@1300/2400 sweeps -> checkpoint written={interrupted}; "
+        f"resume hash == direct hash={resumed_ok} ({h_direct[:16]}...); "
+        f"checkpoint cleaned up after success={cleaned}"
+    )
+
+
+def _g45_checkpoint_lock_and_tamper() -> tuple[bool, str]:
+    """Phase-6: Lockfile + Integritaet fail-closed (beide Angriffspfade LAUT).
+
+    (a) zweites Lock auf demselben Checkpoint -> CheckpointLockedError;
+    (b) Resume bei existierendem Lock -> CheckpointLockedError;
+    (c) manipulierter Checkpoint (Byte-Flip) -> CheckpointError (Hash-Mismatch).
+    """
+    import tempfile
+
+    mf = manifest_mod.RunManifest(base_seed=99, n_chains=2, n_steps=300, burn_in=50, L=16)
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "ck.json"
+        r = checkpoint.run_resumable(mf, p, checkpoint_every=100, interrupt_after=150)
+        assert r is None and p.exists()
+        # (a) doppeltes Lock.
+        double_lock = False
+        with checkpoint.checkpoint_lock(p):
+            try:
+                with checkpoint.checkpoint_lock(p):
+                    pass
+            except checkpoint.CheckpointLockedError:
+                double_lock = True
+            # (b) Resume waehrend Lock gehalten wird.
+            resume_locked = False
+            try:
+                checkpoint.resume(p)
+            except checkpoint.CheckpointLockedError:
+                resume_locked = True
+        # (c) Tamper: ein Zeichen im Payload kippen.
+        raw = p.read_text(encoding="utf-8")
+        tampered = raw.replace('"chain_index": ', '"chain_index": 1', 1)
+        if tampered == raw:  # pragma: no cover - defensive fallback
+            tampered = raw.replace("0", "1", 1)
+        p.write_text(tampered, encoding="utf-8")
+        tamper_rejected = False
+        try:
+            checkpoint.resume(p)
+        except checkpoint.CheckpointError:
+            tamper_rejected = True
+    ok = double_lock and resume_locked and tamper_rejected
+    return ok, (
+        f"double-lock rejected={double_lock}; resume-under-lock rejected={resume_locked}; "
+        f"tampered checkpoint rejected={tamper_rejected} (fail-closed)"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -1086,6 +1391,13 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G36 R-hat flags non-converged (mean+scale drift)", _g36_rhat_nonconverged_flagged),
     ("G37 manifest round-trip byte-identical hash", _g37_manifest_roundtrip_reproducible),
     ("G38 manifest seed drives run (changed->diff hash)", _g38_manifest_seed_drives_run),
+    ("G39 SNIS g-hat + ESS vs closed chi^2 oracles", _g39_snis_vs_closed_oracles),
+    ("G40 SNIS bias O(1/N) + chi^2 MSE bound", _g40_snis_bias_scaling_and_bound),
+    ("G41 SNIS ESS-collapse flagged + repro", _g41_snis_ess_collapse_and_repro),
+    ("G42 DA exact: bit-identical + miscalibrated oracle", _g42_da_exactness),
+    ("G43 DA savings + surrogate drift-guard both ways", _g43_da_savings_and_drift_guard),
+    ("G44 checkpoint resume byte-identical hash", _g44_checkpoint_resume_byte_identical),
+    ("G45 checkpoint lockfile + tamper fail-closed", _g45_checkpoint_lock_and_tamper),
 ]
 
 
@@ -1288,6 +1600,139 @@ def run_phase5(
     return 0
 
 
+def run_phase6(*, json_path: str | None = None, seed: int = 20260809) -> int:
+    """Phase-6-Lauf: SNIS (chi^2-Orakel) + Surrogate-DA + Checkpoint-Demo.
+
+    Erzeugt das regenerierbare Artefakt results/phase6-snis-surrogate-checkpoint.json.
+    """
+    import tempfile
+
+    # --- SNIS gegen geschlossene Orakel -------------------------------------
+    snis_rows = []
+    for Kp, Kt in ((0.3, 0.5), (0.5, 0.4), (0.4, 0.6)):
+        e = snis.snis_from_couplings(
+            K_proposal=Kp, K_target=Kt, L=16, n_samples=20000, seed=mcrg.K_seed(Kp + Kt, seed)
+        )
+        snis_rows.append(
+            {
+                "K_proposal": e.K_proposal,
+                "K_target": e.K_target,
+                "n_samples": e.n_samples,
+                "g_hat": e.g_hat,
+                "oracle_tanh_Kt": e.oracle,
+                "error_deltamethod": e.error,
+                "n_sigma": e.n_sigma,
+                "ess_rel": e.ess_rel,
+                "ess_rel_oracle": e.ess_rel_oracle,
+                "chi2_hat": e.chi2_hat,
+                "chi2_oracle": e.chi2_oracle,
+                "ess_adequate": e.ess_adequate,
+            }
+        )
+    bias = snis.measure_bias_scaling(seed=seed)
+    print("Phase-6: SNIS + Surrogate-DA + Checkpoint")
+    for r in snis_rows:
+        print(
+            f"  SNIS {r['K_proposal']}->{r['K_target']}: g_hat={r['g_hat']:.4f} "
+            f"vs {r['oracle_tanh_Kt']:.4f} ({r['n_sigma']:.2f}s), "
+            f"ESS/N={r['ess_rel']:.3f} vs {r['ess_rel_oracle']:.3f}"
+        )
+    print(
+        f"  SNIS bias: c_bias={bias.bias_coefficient_oracle:.4f}, "
+        f"bias*N/c={tuple(round(s, 3) for s in bias.scaled_bias)} (~1)"
+    )
+
+    # --- Surrogate-DA --------------------------------------------------------
+    beta = 0.8
+    exact = ising1d.mean_energy(beta, _CFG.L)
+    da_rows = []
+    for gamma in (0.0, -0.25, 0.30):
+        da = surrogate.run_da_mcmc(
+            _CFG, beta=beta, n_steps=8000, burn_in=2000, seed=seed % (2**31), gamma=gamma
+        )
+        da_rows.append(
+            {
+                "gamma": gamma,
+                "mean_H": da.mean_H,
+                "oracle_mean_H": exact,
+                "abs_err": abs(da.mean_H - exact),
+                "acceptance": da.acceptance,
+                "exact_eval_savings": da.exact_eval_savings,
+                "stage2_reject_rate": da.stage2_reject_rate,
+                "drift_guard_fired": da.drift_guard.fired,
+                "drift_guard_mean_discrepancy": da.drift_guard.mean_discrepancy,
+            }
+        )
+        print(
+            f"  DA gamma={gamma}: <H>={da.mean_H:.3f} vs {exact:.3f}, "
+            f"savings={da.exact_eval_savings:.2f}, guard_fired={da.drift_guard.fired}"
+        )
+
+    # --- Checkpoint/Restart-Demo ---------------------------------------------
+    mf = manifest_mod.RunManifest(base_seed=424242, n_chains=3, n_steps=800, burn_in=200, L=16)
+    h_direct = manifest_mod.run(mf).result_hash
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "ck.json"
+        interrupted = checkpoint.run_resumable(mf, p, checkpoint_every=300, interrupt_after=1300)
+        resumed = checkpoint.resume(p, checkpoint_every=300)
+    ck_block = {
+        "manifest": mf.to_dict(),
+        "interrupt_after_sweeps": 1300,
+        "total_sweeps": mf.n_chains * mf.n_steps,
+        "direct_result_hash": h_direct,
+        "resumed_result_hash": resumed.result_hash if resumed else None,
+        "byte_identical": bool(resumed and resumed.result_hash == h_direct),
+        "interrupted_returned_none": interrupted is None,
+    }
+    print(
+        f"  Checkpoint: resume hash == direct hash: {ck_block['byte_identical']} "
+        f"({h_direct[:16]}...)"
+    )
+
+    if json_path:
+        payload = {
+            "tool": "adaptiverg_qec.phase6 (SNIS + Surrogate-DA + Checkpoint/Lockfile)",
+            "snis": {
+                "method": "self-normalized importance sampling, open 1D Ising chain",
+                "oracles": {
+                    "chi2": "[cosh(2Kt-Kp) cosh(Kp)/cosh^2(Kt)]^(L-1) - 1 (closed form)",
+                    "ess_rel": "1/(1+chi2)",
+                    "bias": "(1+chi2)(tanh Kt - tanh(2Kt-Kp))/N (delta method, leading order)",
+                    "mse_bound": "4(1+chi2)/N for |g|<=1 (Agapiou et al. 2017, Thm 2.1)",
+                },
+                "rows": snis_rows,
+                "bias_scaling": {
+                    "n_values": list(bias.n_values),
+                    "n_replicates": list(bias.n_replicates),
+                    "bias_hat": list(bias.bias_hat),
+                    "bias_sem": list(bias.bias_sem),
+                    "bias_coefficient_oracle": bias.bias_coefficient_oracle,
+                    "scaled_bias": list(bias.scaled_bias),
+                    "mse_hat": list(bias.mse_hat),
+                    "mse_bound": list(bias.mse_bound),
+                    "var_deltamethod_mean": list(bias.var_deltamethod_mean),
+                },
+            },
+            "surrogate_da": {
+                "method": "delayed-acceptance Metropolis (Christen & Fox 2005), "
+                "surrogate beta~ = beta(1+gamma)",
+                "beta": beta,
+                "L": _CFG.L,
+                "oracle": "transfer-matrix <H> (ising1d.mean_energy)",
+                "exactness_note": "gamma=0 is bit-identical to the plain Metropolis kernel",
+                "rows": da_rows,
+            },
+            "checkpoint": ck_block,
+            "seed": seed,
+        }
+        out_path = _resolve_json_path(json_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"  artifact -> {out_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
@@ -1297,8 +1742,11 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         nargs="?",
         default="demo",
-        choices=["demo", "selftest", "phase5"],
-        help="demo (default), selftest, or phase5 (CLT + R-hat + manifest)",
+        choices=["demo", "selftest", "phase5", "phase6"],
+        help=(
+            "demo (default), selftest, phase5 (CLT + R-hat + manifest), "
+            "or phase6 (SNIS + surrogate-DA + checkpoint)"
+        ),
     )
     parser.add_argument(
         "--selftest", action="store_true", help="run selftest gates (alias for 'selftest' command)"
@@ -1323,6 +1771,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.selftest or args.command == "selftest":
         return run_selftest(args.json)
+    if args.command == "phase6":
+        return run_phase6(json_path=args.json)
     if args.command == "phase5":
         return run_phase5(
             n_chains=args.n_chains,

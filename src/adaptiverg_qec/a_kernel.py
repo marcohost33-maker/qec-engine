@@ -69,6 +69,95 @@ def diminishing_step_sizes(n: int, c: float, T0: float) -> np.ndarray:
 
 
 @dataclass
+class ChainState:
+    """Resumierbarer Zustand einer A-Kernel-Kette (Phase-6 Checkpoint/Restart).
+
+    Zusammen mit dem RNG-Bit-Generator-State (rng.bit_generator.state) beschreibt
+    dieser Zustand den Sampler VOLLSTAENDIG: advance_chain() ab (state, rng)
+    liefert bit-identisch dieselbe Fortsetzung wie ein ununterbrochener Lauf.
+    """
+
+    x: np.ndarray
+    """Aktuelle Konfiguration x in {0,1}^L."""
+    H: int
+    """Aktuelles H(x) (inkrementell mitgefuehrt)."""
+    beta: float
+    """Aktuelles theta_t = beta_t (Diminishing-Adaptation-Zustand)."""
+    t: int
+    """Anzahl abgeschlossener Sweeps."""
+    accepted: int
+    attempted: int
+
+
+def new_chain_state(
+    cfg: MVPConfig, *, seed: int, beta_start: float
+) -> tuple[ChainState, np.random.Generator]:
+    """Initialisiere (ChainState, Philox-RNG) exakt wie run_adaptive_mcmc."""
+    if not (cfg.beta_min <= beta_start <= cfg.beta_max):
+        raise ValueError(f"beta_start {beta_start} outside compact Theta")
+    rng = np.random.Generator(np.random.Philox(key=seed))
+    x = _initial_state(rng, cfg.L)
+    return (
+        ChainState(x=x, H=hamiltonian(x), beta=float(beta_start), t=0, accepted=0, attempted=0),
+        rng,
+    )
+
+
+def _sweep(x: np.ndarray, H: int, beta: float, rng: np.random.Generator) -> tuple[int, int]:
+    """Ein Sweep = L Einzel-Flip-Metropolis-Schritte (detailed balance).
+
+    Mutiert x in-place; gibt (H_neu, akzeptierte Flips) zurueck. RNG-Verbrauch:
+    je Versuch 1x integers, plus 1x random NUR falls dH > 0 (bit-Stream-Vertrag,
+    auf dem G6/G37 und der Checkpoint-Determinismus beruhen).
+    """
+    L = x.size
+    accepted = 0
+    for _ in range(L):
+        i = int(rng.integers(0, L))
+        dH = _delta_H_flip(x, i)
+        # Akzeptanz min(1, exp(-beta dH)). dH<=0 immer akzeptiert.
+        if dH <= 0 or rng.random() < np.exp(-beta * dH):
+            x[i] = 1 - x[i]
+            H += dH
+            accepted += 1
+    return H, accepted
+
+
+def advance_chain(
+    state: ChainState,
+    rng: np.random.Generator,
+    cfg: MVPConfig,
+    *,
+    beta_target: float,
+    a_t: np.ndarray,
+    t_stop: int,
+    H_out: np.ndarray,
+    beta_out: np.ndarray,
+    configs_out: np.ndarray | None = None,
+) -> None:
+    """Fuehre die Kette von state.t bis t_stop-1 fort (mutiert state + Arrays).
+
+    a_t ist der VOLLE Schedule des Gesamtlaufs (Index = absoluter Sweep t), damit
+    ein Resume denselben Schedule-Wert sieht wie der ununterbrochene Lauf.
+    """
+    if t_stop > a_t.size or t_stop > H_out.size:
+        raise ValueError(f"t_stop {t_stop} exceeds schedule/output length")
+    x = state.x
+    for t in range(state.t, t_stop):
+        # Diminishing Adaptation Richtung beta_target, in Theta geclippt (Containment).
+        state.beta += a_t[t] * (beta_target - state.beta)
+        state.beta = min(max(state.beta, cfg.beta_min), cfg.beta_max)
+        state.H, acc = _sweep(x, state.H, state.beta, rng)
+        state.accepted += acc
+        state.attempted += x.size
+        H_out[t] = state.H
+        beta_out[t] = state.beta
+        if configs_out is not None:
+            configs_out[t] = x
+    state.t = t_stop
+
+
+@dataclass
 class SampleResult:
     """Ausgabe eines A-Kernel-Laufs."""
 
@@ -135,49 +224,35 @@ def run_adaptive_mcmc(
     if not (cfg.beta_min <= beta_start <= cfg.beta_max):
         raise ValueError(f"beta_start {beta_start} outside compact Theta")
 
-    rng = np.random.Generator(np.random.Philox(key=seed))
+    state, rng = new_chain_state(cfg, seed=seed, beta_start=beta_start)
     L = cfg.L
-    x = _initial_state(rng, L)
-    H = hamiltonian(x)
 
     a_t = diminishing_step_sizes(n_steps, adapt_c, adapt_T0)
     adaptation_sum = float(np.sum(a_t))
 
-    beta = float(beta_start)
     H_traj = np.empty(n_steps, dtype=np.float64)
     beta_traj = np.empty(n_steps, dtype=np.float64)
     configs = np.empty((n_steps, L), dtype=np.int8) if record_configs else None
-    accepted = 0
-    attempted = 0
 
-    for t in range(n_steps):
-        # Diminishing Adaptation Richtung beta_target, in Theta geclippt (Containment).
-        beta += a_t[t] * (beta_target - beta)
-        beta = min(max(beta, cfg.beta_min), cfg.beta_max)
-
-        # Ein Sweep = L Einzel-Flip-Metropolis-Schritte (detailed balance).
-        for _ in range(L):
-            i = int(rng.integers(0, L))
-            dH = _delta_H_flip(x, i)
-            attempted += 1
-            # Akzeptanz min(1, exp(-beta dH)). dH<=0 immer akzeptiert.
-            if dH <= 0 or rng.random() < np.exp(-beta * dH):
-                x[i] = 1 - x[i]
-                H += dH
-                accepted += 1
-
-        H_traj[t] = H
-        beta_traj[t] = beta
-        if configs is not None:
-            configs[t] = x
+    advance_chain(
+        state,
+        rng,
+        cfg,
+        beta_target=beta_target,
+        a_t=a_t,
+        t_stop=n_steps,
+        H_out=H_traj,
+        beta_out=beta_traj,
+        configs_out=configs,
+    )
 
     post = H_traj[burn_in:]
     return SampleResult(
         H_traj=H_traj,
         beta_traj=beta_traj,
         mean_H=float(np.mean(post)),
-        acceptance=accepted / attempted,
+        acceptance=state.accepted / state.attempted,
         adaptation_sum=adaptation_sum,
-        final_state=x.copy(),
+        final_state=state.x.copy(),
         configs=configs,
     )

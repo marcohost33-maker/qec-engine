@@ -165,7 +165,12 @@ def integrated_autocorr_time(
         if g < 0.0:
             window, tau_int = w, tau
             break
-    tau_int = max(tau_int, 0.5)  # untere physikalische Schranke
+    # EHRLICHE KONVENTION (Audit P0-5): tau_int wird bei 0.5 GEKLEMMT. Fuer
+    # positiv korrelierte MCMC-Reihen (der Zweck dieses Moduls) ist das die
+    # korrekte i.i.d.-Untergrenze; fuer ANTI-korrelierte Reihen (tau_int < 0.5)
+    # ist der zurueckgegebene Fehler dadurch bewusst KONSERVATIV (zu gross),
+    # nie zu klein. Konsequenz: n_eff <= n gilt per Konstruktion.
+    tau_int = max(tau_int, 0.5)
 
     variance = float(np.var(x))  # = gamma(0) (biased), konsistent mit rho-Normierung
     sem_iid = float(np.sqrt(variance / n)) if n > 0 else float("nan")

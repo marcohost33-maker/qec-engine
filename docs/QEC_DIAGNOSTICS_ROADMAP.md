@@ -80,19 +80,24 @@ Luecke, additiv und ohne Bestehendes anzufassen.
 - **Orakel A (real ausgefuehrt):** Repetition-Code, code-capacity bit-flip, MWPM aus der
   Paritaets-Pruefmatrix. Auf dem 1D-Matching-Graphen IST MWPM ML-optimal -> MWPM-Monte-Carlo
   MUSS das exakte Binomial-Orakel (Inkr.1) treffen. `d∈{3,5,7}` @ p=0.10, 200 000 shots,
-  seed=11 -> worst `n_sigma = 1.55` (rein statistische Uebereinstimmung). Das ist der von
-  Inkr.2 zurueckgestellte unabhaengige Cross-Anchor-Decoder.
+  zell-eigene Seeds (base 11) -> worst `n_sigma = 1.46` (rein statistische
+  Uebereinstimmung). Das ist der von Inkr.2 zurueckgestellte unabhaengige
+  Cross-Anchor-Decoder.
 - **Orakel B (real ausgefuehrt):** Rotated-Surface-Code, code-capacity pure-X-flip
   (X_ERROR(p) nur auf Daten-Qubits, perfekte Messung, 1 Runde), MWPM via Stim-DEM +
-  PyMatching. Threshold-Schaetzer = Distanz-Kurven-Kreuzung. 60 000 shots/Zelle, seed=11:
-  `(7,9)->0.0952`, `(9,11)->0.1015`, `(7,11)->0.0978`; **best pair (9,11): `p_th = 0.1015`
-  vs publiziert 0.103 -> `abs_err = 0.0015`**.
+  PyMatching. Threshold-Schaetzer = Distanz-Kurven-Kreuzung. 80 000 shots/Zelle,
+  p-Fenster 0.090–0.115, ZELL-EIGENE Seeds (Audit-Fix: vorher teilten alle Zellen einer
+  Kurve denselben Sampler-Seed -> rangkorrelierte Punkte, und die fruehere Bestmarke
+  `(9,11): abs_err=0.0015` war ein Artefakt dieser Korrelation):
+  `(7,9)->0.0980`, `(9,11)->0.0962`, `(7,11)->0.0970`; **best pair (7,9): `p_th = 0.0980`
+  vs publiziert 0.103 -> `abs_err = 0.0050`** (ehrlicher, weil unabhaengige Zellen).
 - **Korrektheits-Disziplin (ehrlich, kein Overclaim):** validiert gegen den MWPM-Wert
   **0.103** (Dennis, Kitaev, Landahl & Preskill, J. Math. Phys. 43, 4452 (2002) =
   Nulltemperatur-RBIM), BEWUSST NICHT gegen den optimalen ML/Tensor-Network-Threshold
   **0.1094** (Nishimori-Punkt 2D-RBIM). MWPM ist near-optimal aber sub-optimal; ein
   Schaetzer, der 0.109 „erreicht", waere verdaechtig. Endliche Distanzen -> keine L->oo-FSS;
-  der Kreuzungs-Schaetzer driftet von unten zum Threshold (sichtbar: (7,9)<(9,11)).
+  der Kreuzungs-Schaetzer liegt systematisch unterhalb; der Distanz-Drift ist bei
+  80k Shots/Zelle mit unabhaengigen Seeds nicht aufgeloest.
 - `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`). Tests
   `tests/test_surface_decoder.py` (Orakel A/B + Threshold-Verhalten + Silent-Failure-Gate
   + optional-dep-Gate-Verhalten).

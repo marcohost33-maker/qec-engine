@@ -109,6 +109,16 @@ def test_surface_threshold_behaviour_curves_cross() -> None:
 
 
 @requires_surface
+def test_zero_plateau_is_not_a_crossing() -> None:
+    """Codex-Fix: beide Kurven ohne beobachtete Fehler (diff == 0 flach) ist
+    KEINE Threshold-Evidenz -> crossing_found=False, p_threshold NaN."""
+    thr = sd.estimate_mwpm_threshold(3, 5, ps=(0.001, 0.002), shots=200, seed=1)
+    assert not thr.crossing_found
+    assert math.isnan(thr.p_threshold)
+    assert thr.abs_error == float("inf")
+
+
+@requires_surface
 def test_surface_mwpm_threshold_near_published_value() -> None:
     """Kreuzungs-Schaetzer (groesste Distanzen) nahe publiziertem MWPM-Threshold 0.103.
 

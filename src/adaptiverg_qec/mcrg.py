@@ -176,10 +176,9 @@ def sample_ising_open_chain(K: float, L: int, n_samples: int, *, seed: int) -> n
     p_agree = float(np.exp(K) / (np.exp(K) + np.exp(-K)))
     s = np.empty((n_samples, L), dtype=np.float64)
     s[:, 0] = 1.0 - 2.0 * rng.integers(0, 2, size=n_samples)
-    if L > 1:
-        agree = rng.random((n_samples, L - 1)) < p_agree
-        bond = np.where(agree, 1.0, -1.0)
-        s[:, 1:] = s[:, 0:1] * np.cumprod(bond, axis=1)
+    agree = rng.random((n_samples, L - 1)) < p_agree
+    bond = np.where(agree, 1.0, -1.0)
+    s[:, 1:] = s[:, 0:1] * np.cumprod(bond, axis=1)
     return s
 
 
@@ -242,8 +241,12 @@ def swendsen_T_scalar(s: np.ndarray, *, periodic: bool = False) -> SwendsenEstim
     T_hat = cov_SpS / cov_SpSp
 
     # K aus der NN-Korrelation rueckgewinnen (unabhaengiges Orakel im Sample):
-    # offene Kette: mean ueber alle inneren Bonds; <s_i s_{i+1}> = tanh K.
-    nn_corr = float(np.mean(s[:, :-1] * s[:, 1:]))
+    # <s_i s_{i+1}> = tanh K. Die Bond-Menge MUSS zur Randbedingung passen
+    # (periodisch: inkl. Wrap-Bond; offen: nur innere Bonds) -- Audit P1-9.
+    if periodic:
+        nn_corr = float(np.mean(s * np.roll(s, -1, axis=1)))
+    else:
+        nn_corr = float(np.mean(s[:, :-1] * s[:, 1:]))
     nn_corr = min(max(nn_corr, -0.999999), 0.999999)
     K_est = float(np.arctanh(nn_corr))
     oracle = float(np.tanh(2.0 * K_est))
@@ -268,11 +271,11 @@ class ValidationRow:
     T_hat_mean: float
     """Mittel der T-hat ueber die Seeds."""
     T_hat_std: float
-    """Multi-Seed-Standardabweichung (Fehlerbalken)."""
+    """Multi-Seed-Standardabweichung (Einzel-Seed-Streuung)."""
     T_hat_sem: float
     """Standardfehler des Mittels = std/sqrt(n_seeds)."""
     n_sigma: float
-    """|mean - oracle| / std (0 falls std==0)."""
+    """|mean - oracle| / sem (Signifikanz des MITTELS; inf falls sem==0 bei err>0)."""
     seeds: tuple[int, ...]
     n_samples: int
 
@@ -317,7 +320,11 @@ def validate_swendsen(
         mean = float(ests.mean())
         std = float(ests.std(ddof=1))
         sem = std / np.sqrt(len(seeds))
-        n_sigma = abs(mean - oracle) / std if std > 0 else 0.0
+        # Signifikanz des MITTELS gehoert auf den Standardfehler des Mittels
+        # (sem = std/sqrt(n_seeds)), nicht auf die Einzel-Seed-Streuung std --
+        # sonst ist der 3-sigma-Test um sqrt(n_seeds) zu lax (Audit P0-3).
+        abs_err = abs(mean - oracle)
+        n_sigma = abs_err / sem if sem > 0 else (0.0 if abs_err == 0.0 else float("inf"))
         rows.append(
             ValidationRow(
                 K=float(K),
