@@ -39,9 +39,7 @@ def test_metropolis_vs_exact_L4() -> None:
         w = np.exp(logw)
         w /= w.sum()
         e_exact = float((w * e_all).sum())
-        ch = i2.checkerboard_metropolis(
-            K, L, n_sweeps=20000, burn_in=3000, seed=7, record_every=2
-        )
+        ch = i2.checkerboard_metropolis(K, L, n_sweeps=20000, burn_in=3000, seed=7, record_every=2)
         e_mc = float(i2.energy_per_spin(ch.configs).mean())
         assert abs(e_mc - e_exact) < 0.02, f"K={K}: mc={e_mc} exact={e_exact}"
 
@@ -56,12 +54,8 @@ def test_metropolis_reproducible() -> None:
 
 
 def test_metropolis_ordered_above_kc() -> None:
-    cold = i2.checkerboard_metropolis(
-        0.6, 16, n_sweeps=3000, burn_in=1500, seed=1, record_every=5
-    )
-    hot = i2.checkerboard_metropolis(
-        0.25, 16, n_sweeps=3000, burn_in=1500, seed=1, record_every=5
-    )
+    cold = i2.checkerboard_metropolis(0.6, 16, n_sweeps=3000, burn_in=1500, seed=1, record_every=5)
+    hot = i2.checkerboard_metropolis(0.25, 16, n_sweeps=3000, burn_in=1500, seed=1, record_every=5)
     m_cold = float(np.abs(i2.magnetization_per_spin(cold.configs)).mean())
     m_hot = float(np.abs(i2.magnetization_per_spin(hot.configs)).mean())
     assert m_cold > 0.85
