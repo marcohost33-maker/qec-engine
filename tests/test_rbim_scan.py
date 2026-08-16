@@ -45,8 +45,7 @@ def test_stream_identity_changes_with_lattice_and_replicate() -> None:
 
 def test_many_child_streams_have_no_deterministic_collisions() -> None:
     seeds = {
-        derive_stream_seeds(base_seed=99, p=0.1, L=8, replicate=r).bond_seed
-        for r in range(1000)
+        derive_stream_seeds(base_seed=99, p=0.1, L=8, replicate=r).bond_seed for r in range(1000)
     }
     assert len(seeds) == 1000
 
