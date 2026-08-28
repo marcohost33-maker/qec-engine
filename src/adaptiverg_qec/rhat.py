@@ -38,7 +38,10 @@ ALGORITHMUS (exakt nach Paper + Online-Appendix)
        ESS = (M n) / (1 + 2 sum_{t>=1} rho_t),  rho_t = 1 - W_t/(2 var_plus),
    wobei W_t die ueber Ketten gemittelte Varianz der Differenzen bei Lag t ist
    (Multichain-Variogramm, BDA3 Gl. 11.7). Bulk-ESS nutzt z; tail-ESS nutzt das
-   Minimum der ESS der 5%- und 95%-Quantil-Indikatoren (konservativ, Vehtari).
+   Minimum der ESS der 5%- und 95%-Quantil-Indikatoren (Vehtari) -- ABER nur
+   ueber die tatsaechlich MESSBAREN: ein entarteter (konstanter) Indikator wird
+   uebersprungen, und dann ist der Wert kein Minimum aus zweien mehr. Siehe die
+   Anmerkung an der Fundstelle; 'konservativ' gilt nur bei zwei messbaren.
 
 NON-VAKUOESER, BEIDSEITIGER TEST
 --------------------------------
@@ -83,7 +86,12 @@ class RhatResult:
     ess_bulk: float
     """Bulk effektive Stichprobe (rang-normalisiert)."""
     ess_tail: float
-    """Tail effektive Stichprobe (min ESS der 5%/95%-Indikatoren)."""
+    """Tail effektive Stichprobe: min ESS ueber die MESSBAREN 5%/95%-Indikatoren.
+
+    Entartet einer der beiden (konstante Indikator-Spalte), wird er uebersprungen
+    und dieser Wert stammt aus nur EINEM Indikator -- er ist dann kein Minimum
+    aus zweien und nicht in dem Sinne konservativ, wie der Name nahelegt.
+    """
     n_chains: int
     """Anzahl Eingangs-Ketten M."""
     n_draws: int
@@ -271,7 +279,20 @@ def split_rhat(draws: np.ndarray) -> RhatResult:
     rhat = max(bulk_rhat, folded_rhat)
 
     # --- tail-ESS: ESS der 5%/95%-Quantil-Indikatoren (rang-normalisiert),
-    #     reportiert als das MINIMUM (konservativ; schlechtester Schwanz).
+    #     reportiert als das MINIMUM der MESSBAREN (schlechtester Schwanz).
+    #
+    # EHRLICHKEITS-ANMERKUNG (2026-08-28, gemessen, Verhalten bewusst unveraendert):
+    # Hier stand 'konservativ'. Das gilt nur, solange BEIDE Indikatoren messbar
+    # sind. Entartet einer -- konstante Spalte --, wird er unten uebersprungen,
+    # und der gemeldete Wert stammt aus einem einzigen Indikator. Gemessen:
+    # klebriger Zwei-Zustands-Sampler -> ess_tail 587.95, identisch mit ess_bulk;
+    # iid-Zweiwert-Daten -> ess_tail 8000.00, das MAXIMUM. Eine Zusicherung, die
+    # konservativ klingt und es im Entartungsfall nicht ist, ist gefaehrlicher als
+    # gar keine.
+    # Die Hausregel waere fail-closed (uebersprungen -> 0.0). Dagegen spricht die
+    # ungemessene Wirkung auf stark gebundene Observablen wie H, deren Indikatoren
+    # regelmaessig entarten: das wuerde bestehende Akzeptanzkriterien rot faerben.
+    # Entschieden am 2026-08-28: Zusicherung berichtigen, Verhalten offen fuehren.
     q05, q95 = np.quantile(chains, [0.05, 0.95])
     ess_tails = []
     for q, lower in ((q05, True), (q95, False)):
