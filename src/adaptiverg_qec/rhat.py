@@ -155,6 +155,25 @@ def _rhat_on(split_chains: np.ndarray) -> float:
         # Konstante Ketten: NUR wenn auch B==0 (alle identisch) konvergiert;
         # konstante Ketten mit VERSCHIEDENEN Mitteln sind maximal getrennt
         # (vorher: return 1.0 unabhaengig von B -> falsches "converged").
+        #
+        # WARUM 1.0 fuer b <= 0 BEWUSST STEHEN BLEIBT (kein vergessener Defekt):
+        # 1.0 ist hier der analytische Grenzwert der Formel, kein Platzhalter.
+        # Fuer B = 0 ist var_plus = (N-1)/N * W, also var_plus / W = (N-1)/N --
+        # der Quotient kuerzt W heraus und ist damit auch fuer W -> 0 wohl-
+        # definiert; R-hat = sqrt((N-1)/N) -> 1 fuer N -> inf. Der Wert 1.0
+        # entsteht also NICHT dadurch, dass ein Fehlerfall zu "gut" gerundet
+        # wird.
+        #
+        # WARUM ER TROTZDEM NICHT ALLEIN GENUEGT: R-hat ist per Konstruktion ein
+        # VERHAELTNIS Between/Within und misst ausschliesslich, ob die Ketten
+        # untereinander streuen -- identische Ketten sind in genau diesem Sinn
+        # perfekt "gemischt". Die Frage "haben die Ketten ueberhaupt etwas
+        # abgetastet?" ist eine Frage nach der STICHPROBENGROESSE, nicht nach
+        # R-hat; sie wird von _ess_on beantwortet, das im Entartungsfall 0.0
+        # liefert. Konsequenz fuer Aufrufer: R-hat < RHAT_THRESHOLD allein ist
+        # KEIN Konvergenz-Beleg. Das Akzeptanzkriterium muss ESS > 0 (in der
+        # Praxis: Vehtari-Faustregel ESS > 100 pro Kette) mitfuehren, sonst
+        # passiert eine eingefrorene Kette die Diagnostik.
         return 1.0 if b <= 0.0 else float("inf")
     var_plus = (n - 1) / n * w + b / n
     return float(np.sqrt(var_plus / w))
@@ -174,9 +193,27 @@ def _ess_on(split_chains: np.ndarray) -> float:
     b = n / (two_m - 1) * float(np.sum((chain_means - grand_mean) ** 2))
     w = float(np.mean(split_chains.var(axis=1, ddof=1)))
     if w <= 0.0:
-        # Konstante Ketten: identisch -> volle Stichprobe; verschiedene Mittel ->
-        # keine effektive Stichprobe (0 statt vorher faelschlich 2M*N).
-        return float(two_m * n) if b <= 0.0 else 0.0
+        # ENTARTET: keine Within-Chain-Varianz, d.h. jede Split-Kette steht still.
+        # ESS = 0.0 -- unabhaengig davon, ob die Ketten auf DERSELBEN Konstanten
+        # stehen (b <= 0) oder auf VERSCHIEDENEN (b > 0).
+        #
+        # Begruendung: ESS misst, wieviele unabhaengige Ziehungen die Stichprobe
+        # wert ist. Eine Kette, die sich nie bewegt hat, hat die Zielverteilung
+        # nicht einmal abgetastet und traegt null Information ueber sie; jede
+        # positive Zahl waere eine Aussage ueber eine Stichprobe, die es nicht
+        # gibt. Das ist keine Konventionsfrage.
+        #
+        # HISTORIE: der b<=0-Zweig gab frueher 2M*N ("volle Stichprobe") zurueck.
+        # Eine eingefrorene Kette bekam damit die MAXIMAL moegliche wirksame
+        # Stichprobe -- einen besseren Diagnostik-Wert als eine gesunde Kette,
+        # deren Autokorrelation die Zahl zurecht drueckt. Der b>0-Zweig war
+        # bereits auf 0.0 korrigiert; dieser Schnitt gleicht b<=0 an.
+        #
+        # HAUSREGEL: die Geschwistermodule beantworten den Entartungsfall
+        # fail-closed (autocorr.py raise, mcrg.py raise, drift.py nan +
+        # holds=False). rhat.py war das einzige Modul, das mit einem
+        # Erfolgswert antwortete.
+        return 0.0
     var_plus = (n - 1) / n * w + b / n
 
     # Pro-Ketten-Autokovarianz via FFT, dann ueber Ketten mitteln (BDA3 11.7).
