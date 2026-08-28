@@ -197,15 +197,43 @@ def test_constant_chains_different_means_flagged() -> None:
 
 
 def test_rhat_alone_does_not_catch_frozen_chains() -> None:
-    """Dokumentiert die Grenze von R-hat -- und begruendet, warum ESS mitgeprueft wird.
+    """Dokumentiert die Grenze von R-hat -- und dass das Verdikt sie NICHT erbt.
 
     R-hat ist ein Verhaeltnis Between/Within und misst nur, ob die Ketten
-    untereinander streuen; identische Ketten sind in diesem Sinn perfekt gemischt.
-    R-hat bleibt hier bewusst beim analytischen Grenzwert 1.0 und meldet
-    converged=True. Wer NUR R-hat prueft, laesst eine eingefrorene Kette durch --
-    genau deshalb gehoert ESS > 0 ins Akzeptanzkriterium.
+    untereinander streuen; identische Ketten sind in diesem Sinn perfekt
+    gemischt und passieren die R-hat-Achse. Genau deshalb ist diese Achse
+    allein kein Verdikt.
+
+    REGRESSION: bis zur ESS-Kopplung stand hier ``assert r.converged`` -- das
+    ausgewiesene Verdikt meldete True, waehrend ``ess_bulk == 0.0`` danebenstand.
+    Das ist der Fehlschlag, den dieser Test jetzt festnagelt.
     """
     r = rhat.split_rhat(np.full((4, 2000), 7.0))
     assert r.rhat == pytest.approx(1.0, abs=1e-9)
-    assert r.converged  # <- R-hat allein ist hier NICHT diskriminierend ...
-    assert r.ess_bulk == 0.0  # <- ... die ESS ist es.
+    assert r.rhat_below_threshold  # <- R-hat allein ist hier NICHT diskriminierend ...
+    assert r.ess_bulk == 0.0  # <- ... die ESS ist es ...
+    assert not r.ess_sufficient
+    assert not r.converged  # <- ... und das Verdikt folgt jetzt der ESS.
+
+
+def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
+    """Nagelt fest, dass die 1.0 im Entartungszweig eine KONVENTION ist.
+
+    Fuer B = 0 ist var_plus = (N-1)/N * W, also R-hat = sqrt((N-1)/N) -- ein
+    Wert UNTER 1, der erst fuer N -> inf gegen 1 strebt. Der Zweig gibt bewusst
+    die neutrale Marke 1.0 zurueck statt des exakten endlichen Werts. Dieser
+    Test haelt beide Zahlen nebeneinander, damit die Differenz nicht wieder als
+    "analytischer Grenzwert" missverstanden wird.
+    """
+    n_draws = 2000
+    r = rhat.split_rhat(np.full((4, n_draws), 7.0))
+    n_split = n_draws // 2  # _split halbiert jede Kette
+    exakter_endlicher_wert = float(np.sqrt((n_split - 1) / n_split))
+
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)
+    assert exakter_endlicher_wert < 1.0
+    assert r.rhat > exakter_endlicher_wert  # die Konvention liegt ueber dem exakten Wert
+
+    # Der Abstand waechst, je kuerzer die Kette ist -- fuer die kuerzeste
+    # zulaessige Split-Laenge N = 2 betraegt der exakte Wert rund 0.707.
+    assert float(np.sqrt((2 - 1) / 2)) == pytest.approx(0.7071067811865476, abs=1e-12)

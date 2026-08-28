@@ -98,9 +98,56 @@ class RhatResult:
     """Draws pro Eingangs-Kette n."""
 
     @property
-    def converged(self) -> bool:
-        """True gdw R-hat < RHAT_THRESHOLD (Vehtari < 1.01)."""
+    def rhat_below_threshold(self) -> bool:
+        """NUR das R-hat-Kriterium: R-hat < RHAT_THRESHOLD (Vehtari < 1.01).
+
+        Bewusst als eigene Eigenschaft ausgewiesen, weil es allein KEIN
+        Konvergenz-Beleg ist: R-hat ist ein Verhaeltnis Between/Within und misst
+        ausschliesslich, ob die Ketten untereinander streuen. Eingefrorene
+        Ketten streuen nicht -- sie sind in genau diesem Sinn perfekt gemischt
+        und passieren dieses Kriterium. Wer nur hierauf schaut, akzeptiert
+        genau die Pathologie, die die Diagnostik abweisen soll.
+        """
         return self.rhat < RHAT_THRESHOLD
+
+    @property
+    def ess_sufficient(self) -> bool:
+        """Hat die Stichprobe ueberhaupt etwas abgetastet? ESS > 0 in bulk UND tail.
+
+        Fail-closed-Untergrenze, keine Konventionsfrage: ESS = 0 heisst, die
+        Ketten haben sich nie bewegt und tragen null Information ueber die
+        Zielverteilung. Nicht-endliche Werte gelten ebenfalls als ungenuegend.
+
+        Das ist die HARTE Untergrenze, nicht die Praxis-Empfehlung. Vehtari
+        et al. verlangen zusaetzlich rund ESS > 100 pro Kette, bevor die
+        Schaetzer als belastbar gelten; diese Schwelle ist eine Entscheidung
+        des Aufrufers ueber seine Genauigkeitsanforderung und steht daher
+        bewusst nicht hier.
+        """
+        return (
+            np.isfinite(self.ess_bulk)
+            and np.isfinite(self.ess_tail)
+            and self.ess_bulk > 0.0
+            and self.ess_tail > 0.0
+        )
+
+    @property
+    def converged(self) -> bool:
+        """Ausgewiesenes Konvergenz-Verdikt: R-hat-Kriterium UND ESS > 0.
+
+        HISTORIE (Grund fuer die Kopplung): diese Eigenschaft prueft frueher NUR
+        ``rhat < RHAT_THRESHOLD``. Damit meldete ``split_rhat(np.full((4, 2000),
+        7.0))`` gleichzeitig ``ess_bulk == 0.0`` UND ``converged is True`` -- das
+        Verdikt bescheinigte etwas, das es nicht geprueft hatte. Der Wert wurde
+        ueber ``manifest.postprocess_multichain`` als ``rhat_converged``
+        weitergereicht und von der Phase-5-CLI als ``"converged"`` serialisiert;
+        jeder Verbraucher, der dem oeffentlichen Flag folgte, akzeptierte die
+        eingefrorene Kette.
+
+        Wer die beiden Achsen einzeln braucht, nimmt
+        :attr:`rhat_below_threshold` und :attr:`ess_sufficient`.
+        """
+        return self.rhat_below_threshold and self.ess_sufficient
 
 
 def _as_chains(draws: np.ndarray) -> np.ndarray:
@@ -165,12 +212,22 @@ def _rhat_on(split_chains: np.ndarray) -> float:
         # (vorher: return 1.0 unabhaengig von B -> falsches "converged").
         #
         # WARUM 1.0 fuer b <= 0 BEWUSST STEHEN BLEIBT (kein vergessener Defekt):
-        # 1.0 ist hier der analytische Grenzwert der Formel, kein Platzhalter.
-        # Fuer B = 0 ist var_plus = (N-1)/N * W, also var_plus / W = (N-1)/N --
-        # der Quotient kuerzt W heraus und ist damit auch fuer W -> 0 wohl-
-        # definiert; R-hat = sqrt((N-1)/N) -> 1 fuer N -> inf. Der Wert 1.0
-        # entsteht also NICHT dadurch, dass ein Fehlerfall zu "gut" gerundet
-        # wird.
+        # 1.0 ist eine KONVENTION -- der asymptotische Wert --, NICHT der exakte
+        # Wert der Formel bei endlicher Kettenlaenge. Genau: fuer B = 0 ist
+        # var_plus = (N-1)/N * W, also var_plus / W = (N-1)/N; der Quotient
+        # kuerzt W heraus und ist damit auch fuer W -> 0 wohldefiniert. Der
+        # EXAKTE endliche Wert ist damit sqrt((N-1)/N) < 1 -- fuer die kuerzeste
+        # zulaessige Eingabe (N = 2) rund 0.707. Erst im getrennten Grenzuebergang
+        # N -> inf strebt er gegen 1. W -> 0 aendert daran nichts.
+        #
+        # Wir geben trotzdem 1.0 zurueck, weil ein gemeldetes R-hat UNTER 1 in
+        # jeder Vehtari-Konvention als "so gut wie irgend moeglich" gelesen wird
+        # und Aufrufer, die auf `rhat < 1.01` schwellen, dadurch keinerlei
+        # zusaetzliche Information bekaemen -- wohl aber einen Wert, der wie ein
+        # Rechenfehler aussieht. Der Wert 1.0 entsteht also NICHT dadurch, dass
+        # ein Fehlerfall zu "gut" gerundet wird; er ist die neutrale Marke des
+        # Zweigs. Festgehalten in test_degenerate_rhat_is_a_convention_not_the_
+        # finite_sample_value.
         #
         # WARUM ER TROTZDEM NICHT ALLEIN GENUEGT: R-hat ist per Konstruktion ein
         # VERHAELTNIS Between/Within und misst ausschliesslich, ob die Ketten
