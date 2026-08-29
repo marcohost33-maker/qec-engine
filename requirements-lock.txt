@@ -13,12 +13,12 @@ numpy==2.5.2
 packaging==26.3
 pillow==12.3.0
 pluggy==1.6.0
-Pygments==2.20.0
+Pygments==2.21.0
 PyMatching==2.4.0
 pyparsing==3.3.2
 pytest==9.1.1
 python-dateutil==2.9.0.post0
-ruff==0.16.2
-scipy==1.18.0
+ruff==0.16.4
+scipy==1.18.1
 six==1.17.0
 stim==1.16.0
