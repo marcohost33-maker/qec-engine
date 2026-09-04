@@ -1580,6 +1580,8 @@ def run_phase5(
                 "ess_bulk": result.ess_bulk,
                 "ess_tail": result.ess_tail,
                 "converged": result.rhat_converged,
+                "rhat_below_threshold": result.rhat_below_threshold,
+                "ess_sufficient": result.ess_sufficient,
                 "chain_mean_H": result.chain_mean_H,
             },
             "clt_variance": {

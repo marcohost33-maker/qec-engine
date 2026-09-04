@@ -156,6 +156,16 @@ class RunResult:
     ess_bulk: float
     ess_tail: float
     rhat_converged: bool
+    """Ausgewiesenes Konvergenz-Verdikt: R-hat-Kriterium UND ESS > 0 (fail-closed).
+
+    Der Name ist historisch; das Feld traegt seit der ESS-Kopplung BEIDE Achsen.
+    Wer sie einzeln braucht, nimmt die folgenden zwei Felder -- so ist am
+    Artefakt ablesbar, WORAN ein Nicht-Verdikt lag, statt es raten zu muessen.
+    """
+    rhat_below_threshold: bool
+    """Nur die R-hat-Achse (< 1.01). Allein KEIN Konvergenz-Beleg."""
+    ess_sufficient: bool
+    """Nur die Stichproben-Achse: ESS bulk UND tail endlich und > 0."""
     sigma2_g_gamma: float
     """CLT-Varianz von H (Gamma-Methode), gepoolt ueber Ketten (Mittel)."""
     sigma2_g_obm: float
@@ -231,6 +241,8 @@ def postprocess_multichain(H: np.ndarray) -> RunResult:
         ess_bulk=r.ess_bulk,
         ess_tail=r.ess_tail,
         rhat_converged=r.converged,
+        rhat_below_threshold=r.rhat_below_threshold,
+        ess_sufficient=r.ess_sufficient,
         sigma2_g_gamma=sigma2_gamma,
         sigma2_g_obm=sigma2_obm,
         result_hash=result_hash,

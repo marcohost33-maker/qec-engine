@@ -38,7 +38,10 @@ ALGORITHMUS (exakt nach Paper + Online-Appendix)
        ESS = (M n) / (1 + 2 sum_{t>=1} rho_t),  rho_t = 1 - W_t/(2 var_plus),
    wobei W_t die ueber Ketten gemittelte Varianz der Differenzen bei Lag t ist
    (Multichain-Variogramm, BDA3 Gl. 11.7). Bulk-ESS nutzt z; tail-ESS nutzt das
-   Minimum der ESS der 5%- und 95%-Quantil-Indikatoren (konservativ, Vehtari).
+   Minimum der ESS der 5%- und 95%-Quantil-Indikatoren (Vehtari) -- ABER nur
+   ueber die tatsaechlich MESSBAREN: ein entarteter (konstanter) Indikator wird
+   uebersprungen, und dann ist der Wert kein Minimum aus zweien mehr. Siehe die
+   Anmerkung an der Fundstelle; 'konservativ' gilt nur bei zwei messbaren.
 
 NON-VAKUOESER, BEIDSEITIGER TEST
 --------------------------------
@@ -83,16 +86,68 @@ class RhatResult:
     ess_bulk: float
     """Bulk effektive Stichprobe (rang-normalisiert)."""
     ess_tail: float
-    """Tail effektive Stichprobe (min ESS der 5%/95%-Indikatoren)."""
+    """Tail effektive Stichprobe: min ESS ueber die MESSBAREN 5%/95%-Indikatoren.
+
+    Entartet einer der beiden (konstante Indikator-Spalte), wird er uebersprungen
+    und dieser Wert stammt aus nur EINEM Indikator -- er ist dann kein Minimum
+    aus zweien und nicht in dem Sinne konservativ, wie der Name nahelegt.
+    """
     n_chains: int
     """Anzahl Eingangs-Ketten M."""
     n_draws: int
     """Draws pro Eingangs-Kette n."""
 
     @property
-    def converged(self) -> bool:
-        """True gdw R-hat < RHAT_THRESHOLD (Vehtari < 1.01)."""
+    def rhat_below_threshold(self) -> bool:
+        """NUR das R-hat-Kriterium: R-hat < RHAT_THRESHOLD (Vehtari < 1.01).
+
+        Bewusst als eigene Eigenschaft ausgewiesen, weil es allein KEIN
+        Konvergenz-Beleg ist: R-hat ist ein Verhaeltnis Between/Within und misst
+        ausschliesslich, ob die Ketten untereinander streuen. Eingefrorene
+        Ketten streuen nicht -- sie sind in genau diesem Sinn perfekt gemischt
+        und passieren dieses Kriterium. Wer nur hierauf schaut, akzeptiert
+        genau die Pathologie, die die Diagnostik abweisen soll.
+        """
         return self.rhat < RHAT_THRESHOLD
+
+    @property
+    def ess_sufficient(self) -> bool:
+        """Hat die Stichprobe ueberhaupt etwas abgetastet? ESS > 0 in bulk UND tail.
+
+        Fail-closed-Untergrenze, keine Konventionsfrage: ESS = 0 heisst, die
+        Ketten haben sich nie bewegt und tragen null Information ueber die
+        Zielverteilung. Nicht-endliche Werte gelten ebenfalls als ungenuegend.
+
+        Das ist die HARTE Untergrenze, nicht die Praxis-Empfehlung. Vehtari
+        et al. verlangen zusaetzlich rund ESS > 100 pro Kette, bevor die
+        Schaetzer als belastbar gelten; diese Schwelle ist eine Entscheidung
+        des Aufrufers ueber seine Genauigkeitsanforderung und steht daher
+        bewusst nicht hier.
+        """
+        return (
+            np.isfinite(self.ess_bulk)
+            and np.isfinite(self.ess_tail)
+            and self.ess_bulk > 0.0
+            and self.ess_tail > 0.0
+        )
+
+    @property
+    def converged(self) -> bool:
+        """Ausgewiesenes Konvergenz-Verdikt: R-hat-Kriterium UND ESS > 0.
+
+        HISTORIE (Grund fuer die Kopplung): diese Eigenschaft prueft frueher NUR
+        ``rhat < RHAT_THRESHOLD``. Damit meldete ``split_rhat(np.full((4, 2000),
+        7.0))`` gleichzeitig ``ess_bulk == 0.0`` UND ``converged is True`` -- das
+        Verdikt bescheinigte etwas, das es nicht geprueft hatte. Der Wert wurde
+        ueber ``manifest.postprocess_multichain`` als ``rhat_converged``
+        weitergereicht und von der Phase-5-CLI als ``"converged"`` serialisiert;
+        jeder Verbraucher, der dem oeffentlichen Flag folgte, akzeptierte die
+        eingefrorene Kette.
+
+        Wer die beiden Achsen einzeln braucht, nimmt
+        :attr:`rhat_below_threshold` und :attr:`ess_sufficient`.
+        """
+        return self.rhat_below_threshold and self.ess_sufficient
 
 
 def _as_chains(draws: np.ndarray) -> np.ndarray:
@@ -155,6 +210,35 @@ def _rhat_on(split_chains: np.ndarray) -> float:
         # Konstante Ketten: NUR wenn auch B==0 (alle identisch) konvergiert;
         # konstante Ketten mit VERSCHIEDENEN Mitteln sind maximal getrennt
         # (vorher: return 1.0 unabhaengig von B -> falsches "converged").
+        #
+        # WARUM 1.0 fuer b <= 0 BEWUSST STEHEN BLEIBT (kein vergessener Defekt):
+        # 1.0 ist eine KONVENTION -- der asymptotische Wert --, NICHT der exakte
+        # Wert der Formel bei endlicher Kettenlaenge. Genau: fuer B = 0 ist
+        # var_plus = (N-1)/N * W, also var_plus / W = (N-1)/N; der Quotient
+        # kuerzt W heraus und ist damit auch fuer W -> 0 wohldefiniert. Der
+        # EXAKTE endliche Wert ist damit sqrt((N-1)/N) < 1 -- fuer die kuerzeste
+        # zulaessige Eingabe (N = 2) rund 0.707. Erst im getrennten Grenzuebergang
+        # N -> inf strebt er gegen 1. W -> 0 aendert daran nichts.
+        #
+        # Wir geben trotzdem 1.0 zurueck, weil ein gemeldetes R-hat UNTER 1 in
+        # jeder Vehtari-Konvention als "so gut wie irgend moeglich" gelesen wird
+        # und Aufrufer, die auf `rhat < 1.01` schwellen, dadurch keinerlei
+        # zusaetzliche Information bekaemen -- wohl aber einen Wert, der wie ein
+        # Rechenfehler aussieht. Der Wert 1.0 entsteht also NICHT dadurch, dass
+        # ein Fehlerfall zu "gut" gerundet wird; er ist die neutrale Marke des
+        # Zweigs. Festgehalten in test_degenerate_rhat_is_a_convention_not_the_
+        # finite_sample_value.
+        #
+        # WARUM ER TROTZDEM NICHT ALLEIN GENUEGT: R-hat ist per Konstruktion ein
+        # VERHAELTNIS Between/Within und misst ausschliesslich, ob die Ketten
+        # untereinander streuen -- identische Ketten sind in genau diesem Sinn
+        # perfekt "gemischt". Die Frage "haben die Ketten ueberhaupt etwas
+        # abgetastet?" ist eine Frage nach der STICHPROBENGROESSE, nicht nach
+        # R-hat; sie wird von _ess_on beantwortet, das im Entartungsfall 0.0
+        # liefert. Konsequenz fuer Aufrufer: R-hat < RHAT_THRESHOLD allein ist
+        # KEIN Konvergenz-Beleg. Das Akzeptanzkriterium muss ESS > 0 (in der
+        # Praxis: Vehtari-Faustregel ESS > 100 pro Kette) mitfuehren, sonst
+        # passiert eine eingefrorene Kette die Diagnostik.
         return 1.0 if b <= 0.0 else float("inf")
     var_plus = (n - 1) / n * w + b / n
     return float(np.sqrt(var_plus / w))
@@ -174,9 +258,27 @@ def _ess_on(split_chains: np.ndarray) -> float:
     b = n / (two_m - 1) * float(np.sum((chain_means - grand_mean) ** 2))
     w = float(np.mean(split_chains.var(axis=1, ddof=1)))
     if w <= 0.0:
-        # Konstante Ketten: identisch -> volle Stichprobe; verschiedene Mittel ->
-        # keine effektive Stichprobe (0 statt vorher faelschlich 2M*N).
-        return float(two_m * n) if b <= 0.0 else 0.0
+        # ENTARTET: keine Within-Chain-Varianz, d.h. jede Split-Kette steht still.
+        # ESS = 0.0 -- unabhaengig davon, ob die Ketten auf DERSELBEN Konstanten
+        # stehen (b <= 0) oder auf VERSCHIEDENEN (b > 0).
+        #
+        # Begruendung: ESS misst, wieviele unabhaengige Ziehungen die Stichprobe
+        # wert ist. Eine Kette, die sich nie bewegt hat, hat die Zielverteilung
+        # nicht einmal abgetastet und traegt null Information ueber sie; jede
+        # positive Zahl waere eine Aussage ueber eine Stichprobe, die es nicht
+        # gibt. Das ist keine Konventionsfrage.
+        #
+        # HISTORIE: der b<=0-Zweig gab frueher 2M*N ("volle Stichprobe") zurueck.
+        # Eine eingefrorene Kette bekam damit die MAXIMAL moegliche wirksame
+        # Stichprobe -- einen besseren Diagnostik-Wert als eine gesunde Kette,
+        # deren Autokorrelation die Zahl zurecht drueckt. Der b>0-Zweig war
+        # bereits auf 0.0 korrigiert; dieser Schnitt gleicht b<=0 an.
+        #
+        # HAUSREGEL: die Geschwistermodule beantworten den Entartungsfall
+        # fail-closed (autocorr.py raise, mcrg.py raise, drift.py nan +
+        # holds=False). rhat.py war das einzige Modul, das mit einem
+        # Erfolgswert antwortete.
+        return 0.0
     var_plus = (n - 1) / n * w + b / n
 
     # Pro-Ketten-Autokovarianz via FFT, dann ueber Ketten mitteln (BDA3 11.7).
@@ -234,7 +336,20 @@ def split_rhat(draws: np.ndarray) -> RhatResult:
     rhat = max(bulk_rhat, folded_rhat)
 
     # --- tail-ESS: ESS der 5%/95%-Quantil-Indikatoren (rang-normalisiert),
-    #     reportiert als das MINIMUM (konservativ; schlechtester Schwanz).
+    #     reportiert als das MINIMUM der MESSBAREN (schlechtester Schwanz).
+    #
+    # EHRLICHKEITS-ANMERKUNG (2026-08-28, gemessen, Verhalten bewusst unveraendert):
+    # Hier stand 'konservativ'. Das gilt nur, solange BEIDE Indikatoren messbar
+    # sind. Entartet einer -- konstante Spalte --, wird er unten uebersprungen,
+    # und der gemeldete Wert stammt aus einem einzigen Indikator. Gemessen:
+    # klebriger Zwei-Zustands-Sampler -> ess_tail 587.95, identisch mit ess_bulk;
+    # iid-Zweiwert-Daten -> ess_tail 8000.00, das MAXIMUM. Eine Zusicherung, die
+    # konservativ klingt und es im Entartungsfall nicht ist, ist gefaehrlicher als
+    # gar keine.
+    # Die Hausregel waere fail-closed (uebersprungen -> 0.0). Dagegen spricht die
+    # ungemessene Wirkung auf stark gebundene Observablen wie H, deren Indikatoren
+    # regelmaessig entarten: das wuerde bestehende Akzeptanzkriterien rot faerben.
+    # Entschieden am 2026-08-28: Zusicherung berichtigen, Verhalten offen fuehren.
     q05, q95 = np.quantile(chains, [0.05, 0.95])
     ess_tails = []
     for q, lower in ((q05, True), (q95, False)):
