@@ -146,10 +146,15 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
   exakt gilt (vorher nur im Mittel 50/50). Wie hier vorhergesagt hat der Fix die committeten
   Phase-3b/4-Referenzwerte verschoben: die G32-/`test_fix3_central_values_unchanged`-Werte
   wurden unter dem äquivarianten Tie-Break neu erhoben (Herleitung im jeweiligen Docstring),
-  die externen Onsager-Gates G22/G27/G28 blieben unverändert PASS. **Noch offen:** die
-  committeten Ergebnis-Artefakte unter `results/` (u.a. `phase4-wolff-multirg.json`) tragen
-  weiterhin die Vor-Fix-Zahlen; sie werden von keinem Test gelesen, ihre Regeneration ist eine
-  Promotions-Entscheidung.
+  die externen Onsager-Gates G22/G27/G28 blieben unverändert PASS. **Evidenz nachgezogen:**
+  die drei Artefakte, die die Blocking-Regel berühren, wurden aus diesem Commit neu erzeugt —
+  `results/phase3b-swendsen-matrix.json` (`python -m adaptiverg_qec.mcrg_matrix`, 18 s),
+  `results/phase4-wolff-multirg.json` (`python -m adaptiverg_qec.mcrg_multirg`, 135 s) und der
+  Gate-Log `results/selftest.json`
+  (`python -m adaptiverg_qec.cli --selftest --json results/selftest.json`, 414 s, 45/45 PASS).
+  Nur diese drei sind betroffen: `majority_block_b2` wird ausschliesslich von `mcrg_matrix` und
+  `mcrg_multirg` aufgerufen. Ein Gate-Log, der eine Transformation beschreibt, die es in diesem
+  Commit nicht mehr gibt, wäre irreführend — auch wenn ihn kein Test liest.
 - `rbim_nishimori`-Scan (historische Baseline, bewusst unverändert) nutzt weiterhin
   arithmetische Seeds `base_seed + d` / `base_seed + 10000 + d` — also implizite common random
   numbers über p. Der neue Pfad `rbim_scan.py` macht die Wahl explizit: Default
