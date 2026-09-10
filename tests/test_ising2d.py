@@ -306,6 +306,15 @@ def test_majority_block_still_accepts_valid_spins_in_any_container() -> None:
         ref.astype(np.int8),
         ref.tolist(),
     ):
-        out = i2.majority_block_b2(variante, config_index=3, seed=17)
-        assert np.array_equal(out, erwartet)
-        assert out.dtype == np.int8
+        wie = getattr(variante, "dtype", type(variante).__name__)
+        # Eine Ablehnung ist hier ein FEHLSCHLAG, keine Ausnahme, die den Test
+        # abstuerzen laesst: ein abgestuerzter Test ist nicht einzuordnen und
+        # taugt nicht als Beleg. Darum in eine Zusicherung uebersetzen.
+        try:
+            out = i2.majority_block_b2(variante, config_index=3, seed=17)
+        except Exception as exc:
+            raise AssertionError(
+                f"gueltige +/-1-Daten als {wie} wurden abgelehnt: {type(exc).__name__}: {exc}"
+            ) from exc
+        assert np.array_equal(out, erwartet), f"abweichendes Ergebnis fuer {wie}"
+        assert out.dtype == np.int8, f"erwartet int8 fuer {wie}, kam {out.dtype}"
