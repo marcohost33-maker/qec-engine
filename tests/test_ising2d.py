@@ -145,3 +145,116 @@ def test_majority_tie_output_is_an_input_spin() -> None:
 def test_edge_inputs_raise(bad) -> None:
     with pytest.raises((ValueError, TypeError)):
         bad()
+
+
+def _all_2x2_configs() -> np.ndarray:
+    """Alle 2^4 = 16 moeglichen 2x2-Bloecke in {+1,-1}."""
+    states = np.arange(16, dtype=np.int64)
+    bits = ((states[:, None] >> np.arange(4)[None, :]) & 1).astype(np.int8)
+    return (1 - 2 * bits).reshape(16, 2, 2)
+
+
+def test_majority_block_z2_equivariance_exhaustive_2x2() -> None:
+    """Z2-Aequivarianz erschoepfend auf der Block-Ebene.
+
+    ``majority_block_b2`` wirkt blockweise und unabhaengig je 2x2-Block; die
+    einzige Kopplung an die Gittergroesse ist der Hash ueber (block_row,
+    block_col).  Daher ist ein Sweep ueber ALLE 16 moeglichen Blockinhalte,
+    gekreuzt mit allen vier erreichbaren Selektorwerten, ein vollstaendiger
+    Nachweis der Eigenschaft auf Blockebene -- keine Stichprobe.
+
+    Der Tie-Pfad ist dabei nicht Beiwerk: 6 der 16 Blockinhalte (C(4,2)) sind
+    2+2-Ties, also genau der Pfad, auf dem die alte Hash-Bit-Regel
+    ``B(-s) != -B(s)`` lieferte.
+    """
+    blocks = _all_2x2_configs()
+    seen_selectors: set[int] = set()
+    n_tie_checked = 0
+    n_checked = 0
+
+    for seed in (0, 1, 17, 2**63 + 5):
+        for config_index in range(64):
+            selector = int(
+                i2._splitmix64_grid(
+                    config_index,
+                    np.zeros((1, 1), dtype=np.int64),
+                    np.zeros((1, 1), dtype=np.int64),
+                    seed,
+                )[0, 0]
+                & np.uint64(3)
+            )
+            seen_selectors.add(selector)
+            for s in blocks:
+                b = i2.majority_block_b2(s, config_index=config_index, seed=seed)
+                b_flip = i2.majority_block_b2(-s, config_index=config_index, seed=seed)
+                assert np.array_equal(b_flip, -b), (s, config_index, seed)
+                n_checked += 1
+                if s.sum() == 0:
+                    n_tie_checked += 1
+
+    # Nicht-Vakuitaet: alle vier Selektor-Slots und alle 6 Tie-Muster wurden
+    # wirklich durchlaufen -- sonst wuerde ein Sweep, der den Tie-Pfad nie
+    # trifft, ebenfalls bestehen und nichts beweisen.
+    assert seen_selectors == {0, 1, 2, 3}, seen_selectors
+    assert n_checked == 16 * 64 * 4
+    assert n_tie_checked == 6 * 64 * 4
+
+
+def test_majority_block_z2_equivariance_randomized_large() -> None:
+    """Dieselbe Invariante auf grossen Gittern, deterministisch geseedet.
+
+    Deckt die Hash-Indizierung ueber (block_row, block_col) ab, die der
+    erschoepfende 1x1-Block-Sweep nicht beruehrt.  Fester ``Generator``, damit
+    ein Fehlschlag reproduzierbar ist.
+    """
+    rng = np.random.default_rng(20260910)
+    tie_blocks_seen = 0
+    for config_index in range(40):
+        for L in (8, 16, 32):
+            s = rng.choice(np.array([-1, 1], dtype=np.int8), size=(L, L))
+            b = i2.majority_block_b2(s, config_index=config_index, seed=4711)
+            b_flip = i2.majority_block_b2(-s, config_index=config_index, seed=4711)
+            assert np.array_equal(b_flip, -b)
+            lb = L // 2
+            tie_blocks_seen += int((s.reshape(lb, 2, lb, 2).sum(axis=(1, 3)) == 0).sum())
+    # Zufallskonfigurationen erzeugen reichlich Ties; ohne sie waere der Sweep
+    # blind fuer genau den reparierten Pfad.
+    assert tie_blocks_seen > 1000, tie_blocks_seen
+
+
+def test_majority_block_non_tie_blocks_ignore_the_hash() -> None:
+    """Positiv-Kontrolle: der Tie-Pfad darf Nicht-Tie-Bloecke NICHT anfassen.
+
+    Eine Tie-Regel, die alles ueberschreibt (oder eine Implementierung, die
+    jeden Block als Tie behandelt), wuerde jeden Aequivarianz-Test bestehen und
+    waere trotzdem falsch: Z2-Aequivarianz allein ist von ``B(s) = s[0,0]``
+    ebenfalls erfuellt.  Hier wird daher festgehalten, dass Bloecke mit echter
+    Mehrheit unabhaengig von config_index/seed das Vorzeichen der Blocksumme
+    liefern.
+    """
+    blocks = _all_2x2_configs()
+    non_tie = np.array([blk for blk in blocks if blk.sum() != 0])
+    assert non_tie.shape[0] == 10  # 16 - 6 Ties
+
+    for blk in non_tie:
+        expected = np.sign(blk.sum())
+        for config_index in (0, 5, 12345):
+            for seed in (0, 99, 2**63 + 5):
+                out = i2.majority_block_b2(blk, config_index=config_index, seed=seed)
+                assert out.shape == (1, 1)
+                assert out[0, 0] == expected, (blk, config_index, seed)
+
+    # Und auf einem grossen Gitter ohne jeden Tie: Ergebnis == reines Mehrheits-
+    # Vorzeichen, hash-unabhaengig.
+    rng = np.random.default_rng(7)
+    # Jeder 2x2-Block einheitlich +1 oder -1 -> Blocksumme immer +/-4, nie ein Tie,
+    # aber das Gitter ist echt variiert (kein triviales Eins-Gitter).
+    coarse = rng.choice(np.array([-1, 1], dtype=np.int8), size=(8, 8))
+    s = np.kron(coarse, np.ones((2, 2), dtype=np.int8))
+    block_sum = s.reshape(8, 2, 8, 2).sum(axis=(1, 3))
+    assert np.array_equal(np.sign(block_sum).astype(np.int8), coarse)
+    assert np.all(block_sum != 0)
+    a = i2.majority_block_b2(s, config_index=1, seed=1)
+    b = i2.majority_block_b2(s, config_index=2, seed=2)
+    assert np.array_equal(a, b)
+    assert np.array_equal(a, np.sign(block_sum).astype(np.int8))
