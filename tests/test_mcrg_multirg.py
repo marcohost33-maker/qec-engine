@@ -148,22 +148,36 @@ def test_block_size_per_iter_exposed() -> None:
 
 
 def test_fix3_central_values_unchanged() -> None:
-    """Codex-Fix 3 aendert NUR Fehlerbalken, NICHT die y_t/y_h-Zentralwerte.
+    """Reproduzierbarkeits-Anker fuer die G27/G28-Zentralwerte.
 
-    Der Punktschaetzer nutzt weiter das gemeinsame Level-0-Fenster `keep`; nur
-    die Jackknife-Partition wird pro Iteration gewaehlt. Verankert die EXAKTEN
-    G27/G28-Zentralwerte (validate_multirg_2d, seed=0, L=32, n_op=2, burn_in=400)
-    gegen einen Regress. Die Baseline ist tool-gemessen VOR Fix 3 und wird nach
-    Fix 3 byte-identisch reproduziert (nur die Fehlerbalken duerfen sich aendern).
+    Verankert die EXAKTEN Zentralwerte (validate_multirg_2d, seed=0, L=32,
+    n_op=2, burn_in=400) gegen einen unbeabsichtigten Regress.
+
+    REFERENZ-HERKUNFT. Die urspruengliche Referenz war unter dem ALTEN, nicht
+    Z2-aequivarianten Majority-Tie-Break gemessen. Seit
+    `ising2d.majority_block_b2` bei einem 2+2-Tie einen der vier Original-Spins
+    waehlt, gilt `B(-s) == -B(s)` exakt statt nur im Mittel -- die
+    Blocking-Abbildung ist bewusst eine andere, und y_t/y_h als Funktionale der
+    geblockten Konfigurationen verschieben sich zwangslaeufig. Die alte
+    Erwartung haette ab dem Fix behauptet, eine absichtliche Aenderung der
+    RG-Abbildung sei wirkungslos.
+
+    Die neue Referenz ist nicht deshalb richtig, weil sie herauskam, sondern
+    weil (1) die erzeugende Abbildung jetzt exakt Z2-aequivariant ist
+    (erschoepfend belegt in test_ising2d.py), (2) das externe Onsager-Orakel
+    weiter getroffen wird (G22/G27/G28 unveraendert PASS) und (3) die
+    eigentliche Fix-3-Behauptung -- Jackknife-Blockgroesse bewegt nur
+    Fehlerbalken -- snapshot-frei in
+    test_jackknife_block_size_moves_only_error_bars geprueft wird.
     """
     v = mcrg_multirg.validate_multirg_2d(
         L=32, n_op_even=2, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
     )
     np.testing.assert_allclose(
-        v.multirg.y_t_per_iter, [0.93001085, 0.99566981, 1.0219697], rtol=0, atol=1e-7
+        v.multirg.y_t_per_iter, [0.93220357, 1.01267256, 1.00535087], rtol=0, atol=1e-7
     )
     np.testing.assert_allclose(
-        v.multirg_odd.y_h_per_iter, [1.88098809, 1.87282836, 1.87101431], rtol=0, atol=1e-7
+        v.multirg_odd.y_h_per_iter, [1.88074043, 1.87301563, 1.87250009], rtol=0, atol=1e-7
     )
     # Alle Fehlerbalken endlich + nicht-negativ.
     assert np.all(np.isfinite(v.multirg.y_t_err_per_iter)) and np.all(
@@ -179,3 +193,48 @@ def test_explicit_block_size_respected() -> None:
     chain = _wolff_chain(L=32, n=3000, seed=0)
     res = mcrg_multirg.multi_rg_y_t(chain, n_op=2, n_levels=3, block_size=10)
     assert np.all(np.asarray(res.block_size_per_iter) == 10)
+
+
+def test_jackknife_block_size_moves_only_error_bars() -> None:
+    """Fix-3-Kernbehauptung, snapshot-frei: die Jackknife-Blockgroesse darf NUR
+    die Fehlerbalken bewegen, nie die Zentralwerte.
+
+    Warum das die richtige Formulierung ist: der Zentralwert wird in
+    ``multi_rg_y_t``/``multi_rg_y_h`` auf dem vollen getrimmten Fenster berechnet,
+    BEVOR und unabhaengig davon die Jackknife-Schleife die Blockgroesse benutzt
+    (mcrg_multirg: ``y_iter[p] = _y_t_even_from_levels(S_lo, S_hi, ...)`` vor der
+    ``for j in range(nb)``-Schleife).  Ein Regressionstest gegen fest verdrahtete
+    Zahlen prueft das nur mittelbar und bricht bei jeder absichtlichen
+    Physik-Aenderung; diese Fassung prueft die Invariante direkt und ist
+    unabhaengig von der Tie-Break-Konvention.
+
+    ``block_size=50`` teilt ``n_records=800`` ohne Rest (800//50 = 16 Bloecke),
+    also ist das getrimmte Fenster ``keep`` in beiden Laeufen identisch — die
+    Zentralwerte MUESSEN daher bit-identisch sein.
+    """
+    n_records, global_block = 800, 50
+    chain = _wolff_chain(16, n_records, seed=0)
+
+    per_iter_t = mcrg_multirg.multi_rg_y_t(chain, n_op=2, n_levels=3, seed=0)
+    global_t = mcrg_multirg.multi_rg_y_t(chain, n_op=2, n_levels=3, seed=0, block_size=global_block)
+    per_iter_h = mcrg_multirg.multi_rg_y_h(chain, n_op=2, n_levels=3, seed=0)
+    global_h = mcrg_multirg.multi_rg_y_h(chain, n_op=2, n_levels=3, seed=0, block_size=global_block)
+
+    # (b) Zentralwerte bit-identisch -- die eigentliche Invariante.
+    assert np.array_equal(per_iter_t.y_t_per_iter, global_t.y_t_per_iter)
+    assert np.array_equal(per_iter_h.y_h_per_iter, global_h.y_h_per_iter)
+
+    # Nicht-Vakuitaet: die beiden Politiken muessen sich ueberhaupt unterscheiden,
+    # sonst wuerde die Gleichheit oben nichts bedeuten.
+    assert not np.array_equal(per_iter_t.block_size_per_iter, global_t.block_size_per_iter)
+    assert not np.array_equal(per_iter_h.block_size_per_iter, global_h.block_size_per_iter)
+    assert not np.allclose(per_iter_t.y_t_err_per_iter, global_t.y_t_err_per_iter)
+    assert not np.allclose(per_iter_h.y_h_err_per_iter, global_h.y_h_err_per_iter)
+
+    # (a)/(c) per-iter Blockgroessen werden gemeldet und sind gueltig.
+    assert per_iter_t.block_size_per_iter.shape[0] == per_iter_t.n_iters
+    assert per_iter_h.block_size_per_iter.shape[0] == per_iter_h.n_iters
+    assert np.all(per_iter_t.block_size_per_iter >= 1)
+    assert np.all(per_iter_h.block_size_per_iter >= 1)
+    assert np.all(np.isfinite(per_iter_t.y_t_err_per_iter))
+    assert np.all(np.isfinite(per_iter_h.y_h_err_per_iter))

@@ -978,16 +978,45 @@ def _g32_jackknife_block_per_iter() -> tuple[bool, str]:
     """Codex-Fix 3: Jackknife-Blockgroesse PRO ITERATION (nicht global Level 0).
 
     Verifiziert (a) per-iter Blockgroessen werden gemeldet, (b) die y_t/y_h-
-    ZENTRALWERTE bleiben byte-identisch zur Baseline (nur Fehlerbalken aendern),
-    (c) per-iter Blockgroessen koennen zwischen Stufen variieren.
+    ZENTRALWERTE reproduzieren die committete Referenz byte-genau (nur
+    Fehlerbalken haengen an der Blockgroesse), (c) per-iter Blockgroessen
+    koennen zwischen Stufen variieren.
+
+    REFERENZ-HERKUNFT (wichtig -- die Zahlen sind KEIN frei nachgezogener
+    Messwert). Die urspruengliche Referenz stammte aus der Zeit des ALTEN,
+    NICHT Z2-aequivarianten Majority-Tie-Breaks. Der Tie-Break in
+    `ising2d.majority_block_b2` waehlt seither einen der vier Original-Spins
+    des 2x2-Blocks, womit `B(-s) == -B(s)` konstruktiv exakt gilt (vorher nur
+    im Mittel 50/50). Die Blocking-Abbildung selbst ist damit bewusst eine
+    andere; y_t/y_h sind Funktionale der geblockten Konfigurationen und MUESSEN
+    sich verschieben. Die alte Referenz haette behauptet, eine absichtliche
+    Aenderung der RG-Abbildung sei wirkungslos -- sie war ab dem Fix falsch.
+
+    Dass die NEUE Referenz die richtige ist, haengt nicht daran, dass sie
+    herauskam, sondern an drei unabhaengigen Belegen:
+      1. Symmetrie-Orakel: die erzeugende Abbildung ist jetzt exakt
+         Z2-aequivariant (erschoepfend geprueft, tests/test_ising2d.py).
+         Exakte Spin-Flip-Symmetrie ist eine Forderung an eine legitime
+         Ising-Blocking-Regel, keine freie Wahl.
+      2. Externes Physik-Orakel (Onsager, unabhaengig von diesem Code):
+         y_t=1 und y_h=15/8 werden mit den neuen Zentralwerten weiterhin in
+         den ausgewiesenen ehrlichen Banden getroffen -- G22/G27/G28 bleiben
+         unveraendert PASS (best |y_t-1|=0.0054 < 0.035, best |y_h-15/8|=0.0020
+         < 0.05); der ungerade Sektor wird sogar leicht besser.
+      3. Struktur-Invariante: dass die Zentralwerte ueberhaupt nicht an der
+         Jackknife-Blockgroesse haengen -- die eigentliche Fix-3-Behauptung --
+         wird snapshot-frei in
+         tests/test_mcrg_multirg.py::test_jackknife_block_size_moves_only_error_bars
+         geprueft (per-iter-Default vs global fixe Blockgroesse).
     """
     v = mcrg_multirg.validate_multirg_2d(
         L=32, n_op_even=2, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
     )
     bsz_t = np.asarray(v.multirg.block_size_per_iter)
     bsz_h = np.asarray(v.multirg_odd.block_size_per_iter)
-    base_yt = np.array([0.93001085, 0.99566981, 1.0219697])
-    base_yh = np.array([1.88098809, 1.87282836, 1.87101431])
+    # Referenz unter dem Z2-aequivarianten Tie-Break (siehe Docstring).
+    base_yt = np.array([0.93220357, 1.01267256, 1.00535087])
+    base_yh = np.array([1.88074043, 1.87301563, 1.87250009])
     yt_same = np.allclose(v.multirg.y_t_per_iter, base_yt, rtol=0, atol=1e-7)
     yh_same = np.allclose(v.multirg_odd.y_h_per_iter, base_yh, rtol=0, atol=1e-7)
     sized = bsz_t.shape[0] == v.multirg.n_iters and bsz_h.shape[0] == v.multirg_odd.n_iters

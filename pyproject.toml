@@ -1,21 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "adaptiverg-qec"
 version = "0.1.0.dev0"
-description = "AdaptiveRG-QEC Phase-1 MVP: Diagnostik-/Verifikations-Harness mit Konvergenz-Guards (MCMC + minimaler MCRG)."
+description = "AdaptiveRG-QEC diagnostics and verification harness for MCMC, MCRG, and quantum-error-correction experiments."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Coworker Research" }]
 keywords = ["qec", "mcmc", "renormalization-group", "foster-lyapunov", "diagnostics"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
@@ -25,13 +26,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.5"]
-# Inkrement-3: ECHTES MWPM-Decoding hinter optional-dependency-Gate.
-# Ohne dieses Extra importiert surface_decoder.py nicht und seine Tests SKIPPEN
-# (sie failen NICHT hart). Kein Eigen-Decoder: Stim (Sampling) + PyMatching 2 (MWPM).
+# Real MWPM decoding behind an optional dependency gate.  Keep decoder
+# dependencies out of the core install so the analytical/MCMC harness remains
+# lightweight and independently testable.
 surface = ["stim>=1.13", "pymatching>=2.1"]
 
 [project.scripts]
 adaptiverg-qec = "adaptiverg_qec.cli:main"
+
+[project.urls]
+Repository = "https://github.com/marcohost33-maker/qec-engine"
+Issues = "https://github.com/marcohost33-maker/qec-engine/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -48,7 +53,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
-# B008: scipy/numpy style; allow defaults. We keep strict otherwise.
+# B904 is intentionally ignored for compatibility with existing exception
+# chaining style.  Keep this comment synchronized with the configured rule.
 ignore = ["B904"]
 
 [tool.ruff.lint.per-file-ignores]

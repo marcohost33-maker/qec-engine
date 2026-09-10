@@ -141,13 +141,28 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
 `crossing_found`-Flag statt stillem NaN.
 
 **Bekannte, BEWUSST nicht in diesem Inkrement gefixte Limitationen (dokumentiert, Follow-up):**
-- `ising2d.majority_block_b2`-Tie-Break ist deterministisch, aber nicht Z2-äquivariant
-  (Tie-Break flippt nicht unter s→−s); in-Repo-Aufrufer übergeben `config_index`, der Effekt
-  ist im Rahmen der ausgewiesenen Grobheit enthalten. Ein äquivarianter Fix ändert alle
-  committeten Phase-3b/4-Baselines (inkl. G32-Goldwerte) und gehört in ein eigenes Inkrement.
-- `rbim_nishimori`-Scan nutzt denselben `base_seed` über alle p (common random numbers über
-  die Kurve; Disorder-Realisierungen über p genestet) — die p*-Lokalisierung bleibt auf
-  Plausibilitäts-Niveau, wie ausgewiesen.
+- ~~`ising2d.majority_block_b2`-Tie-Break nicht Z2-äquivariant~~ — **erledigt.** Der Tie-Break
+  wählt jetzt einen der vier Original-Spins des 2x2-Blocks, womit `B(-s) == -B(s)` konstruktiv
+  exakt gilt (vorher nur im Mittel 50/50). Wie hier vorhergesagt hat der Fix die committeten
+  Phase-3b/4-Referenzwerte verschoben: die G32-/`test_fix3_central_values_unchanged`-Werte
+  wurden unter dem äquivarianten Tie-Break neu erhoben (Herleitung im jeweiligen Docstring),
+  die externen Onsager-Gates G22/G27/G28 blieben unverändert PASS. **Evidenz nachgezogen:**
+  die drei Artefakte, die die Blocking-Regel berühren, wurden aus diesem Commit neu erzeugt —
+  `results/phase3b-swendsen-matrix.json` (`python -m adaptiverg_qec.mcrg_matrix`, 18 s),
+  `results/phase4-wolff-multirg.json` (`python -m adaptiverg_qec.mcrg_multirg`, 135 s) und der
+  Gate-Log `results/selftest.json`
+  (`python -m adaptiverg_qec.cli --selftest --json results/selftest.json`, 414 s, 45/45 PASS).
+  Nur diese drei sind betroffen: `majority_block_b2` wird ausschliesslich von `mcrg_matrix` und
+  `mcrg_multirg` aufgerufen. Ein Gate-Log, der eine Transformation beschreibt, die es in diesem
+  Commit nicht mehr gibt, wäre irreführend — auch wenn ihn kein Test liest.
+- `rbim_nishimori`-Scan (historische Baseline, bewusst unverändert) nutzt weiterhin
+  arithmetische Seeds `base_seed + d` / `base_seed + 10000 + d` — also implizite common random
+  numbers über p. Der neue Pfad `rbim_scan.py` macht die Wahl explizit: Default
+  `seed_policy="independent"` mischt `p`/`L`/Replikat über `SeedSequence` und trennt Bond- und
+  Thermal-Strom per `spawn(2)`; CRN ist nur noch als ausdrückliche Option erreichbar.
+  **Offen an der Baseline:** die additive Ableitung lässt Bond- und MCMC-Seeds ab
+  `n_disorder >= 10001` exakt überlappen (`base_seed + 10000` tritt in beiden Familien auf);
+  `n_disorder` ist nur gegen `< 1` geprüft.
 - `autocorr.integrated_autocorr_time` klemmt τ_int ≥ 0.5 (für anti-korrelierte Reihen bewusst
   konservativ; jetzt im Code dokumentiert).
 - G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht

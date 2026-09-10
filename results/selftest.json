@@ -4,7 +4,7 @@
   "n_pass": 45,
   "n_total": 45,
   "all_pass": true,
-  "elapsed_s": 169.919,
+  "elapsed_s": 411.083,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -24,7 +24,7 @@
     {
       "gate": "G4 Jacobian-Consistency (CS==FD==analytic)",
       "pass": true,
-      "detail": "max|CS-analytic|=1.11e-16 max|CS-FD|=2.12e-11"
+      "detail": "max|CS-analytic|=1.11e-16 max|CS-FD|=1.18e-11"
     },
     {
       "gate": "G5 RG-Fixpoint (R(0)=0, iter->0)",
@@ -104,17 +104,17 @@
     {
       "gate": "G20 corr-matrices A,B symmetric/PSD/conditioned",
       "pass": true,
-      "detail": "B symmetric(max|B-B.T|=0.0e+00) PSD(min_eig=1.16e+01)=True cond(B)=87.1 A_finite=True"
+      "detail": "B symmetric(max|B-B.T|=0.0e+00) PSD(min_eig=1.12e+01)=True cond(B)=89.9 A_finite=True"
     },
     {
       "gate": "G21 T=A.B^-1 linear-solve consistency (resid~eps)",
       "pass": true,
-      "detail": "max|T@B - A|=2.27e-13 rel=1.72e-16(<1e-9) (linear-solve, no explicit inverse)"
+      "detail": "max|T@B - A|=4.55e-13 rel=3.45e-16(<1e-9) (linear-solve, no explicit inverse)"
     },
     {
       "gate": "G22 y_t matrix vs Onsager y_t=1 (honest band)",
       "pass": true,
-      "detail": "y_t per seed=[0.962 0.975 0.959] mean=0.9652 oracle=1.0 |err|=0.035(<0.2) multiseed_spread=0.009 jackknife_sigma~0.013 lambda_max~1.948 tau~4.3 (COARSE by design)"
+      "detail": "y_t per seed=[0.972 0.961 0.948] mean=0.9605 oracle=1.0 |err|=0.040(<0.2) multiseed_spread=0.012 jackknife_sigma~0.013 lambda_max~1.962 tau~4.1 (COARSE by design)"
     },
     {
       "gate": "G23 Swendsen-matrix reproducibility (seed)",
@@ -139,12 +139,12 @@
     {
       "gate": "G27 y_t multi-RG converges (beats Phase-3b)",
       "pass": true,
-      "detail": "y_t per iter=[0.9300 0.9957 1.0220] oracle=1.0 |err|=[0.0700 0.0043 0.0220] best|err|=0.0043(<0.035 Phase-3b) improved-vs-iter1=True L=32"
+      "detail": "y_t per iter=[0.9322 1.0127 1.0054] oracle=1.0 |err|=[0.0678 0.0127 0.0054] best|err|=0.0054(<0.035 Phase-3b) improved-vs-iter1=True L=32"
     },
     {
       "gate": "G28 y_h matrix vs Onsager 15/8 (best iter)",
       "pass": true,
-      "detail": "y_h per iter=[1.8810 1.8728 1.8710] oracle=15/8=1.8750 |err|=[0.0060 0.0022 0.0040] best|err|=0.0022(<0.05) sigma_jk~0.0008 L=32 (best=min over iters, NOT deepest; deepest|err|=0.0040)"
+      "detail": "y_h per iter=[1.8807 1.8730 1.8725] oracle=15/8=1.8750 |err|=[0.0057 0.0020 0.0025] best|err|=0.0020(<0.05) sigma_jk~0.0008 L=32 (best=min over iters, NOT deepest; deepest|err|=0.0025)"
     },
     {
       "gate": "G29 Phase-4 reproducibility (seed)",
