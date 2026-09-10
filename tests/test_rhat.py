@@ -113,3 +113,127 @@ def test_identical_chains_rhat_one() -> None:
     r = rhat.split_rhat(chains)
     assert np.isfinite(r.rhat)
     assert r.rhat == pytest.approx(1.0, abs=1e-9)
+
+
+def _ar1_chains(m: int, n: int, phi: float, seed: int) -> np.ndarray:
+    """M autokorrelierte AR(1)-Ketten -- gesunde, aber NICHT iid Referenz."""
+    rng = np.random.default_rng(seed)
+    eps = rng.standard_normal((m, n))
+    x = np.empty((m, n))
+    x[:, 0] = eps[:, 0] / np.sqrt(1.0 - phi**2)  # stationaerer Start
+    for t in range(1, n):
+        x[:, t] = phi * x[:, t - 1] + eps[:, t]
+    return x
+
+
+def test_frozen_chains_have_zero_ess() -> None:
+    """Entartet: eingefrorene Ketten (Varianz 0) -> ESS == 0, nicht volle Stichprobe.
+
+    REGRESSION. _ess_on gab im Zweig w<=0 AND b<=0 frueher 2M*N zurueck, also die
+    MAXIMAL moegliche wirksame Stichprobe fuer eine Kette, die sich nie bewegt hat.
+    Eine Kette mit Varianz null hat die Zielverteilung nicht abgetastet und traegt
+    null Information; jede positive ESS waere eine Aussage ueber eine Stichprobe,
+    die es nicht gibt.
+    """
+    chains = np.full((4, 2000), 7.0)
+    r = rhat.split_rhat(chains)
+    assert r.ess_bulk == 0.0, r.ess_bulk
+    # tail faellt mangels nicht-entarteter Quantil-Indikatoren auf ess_bulk zurueck.
+    assert r.ess_tail == 0.0, r.ess_tail
+
+
+def test_frozen_chains_score_worse_than_healthy_chains() -> None:
+    """Die eigentliche Defekt-Aussage: eingefroren darf nicht BESSER dastehen als gesund.
+
+    Vor dem Fix bekam der eingefrorene Fall ess_bulk = 2M*N (Maximum), waehrend die
+    gesunde, autokorrelierte Kette durch ihre Autokorrelation zurecht darunter lag --
+    die Diagnostik bewertete den informationslosen Lauf als den besseren.
+    """
+    frozen = np.full((4, 2000), 7.0)
+    healthy = _ar1_chains(4, 2000, phi=0.8, seed=20260828)
+
+    r_frozen = rhat.split_rhat(frozen)
+    r_healthy = rhat.split_rhat(healthy)
+
+    # Non-vakuoes: die gesunde Referenz muss ueberhaupt eine nennenswerte ESS haben.
+    assert r_healthy.ess_bulk > 100.0, r_healthy.ess_bulk
+    assert r_frozen.ess_bulk < r_healthy.ess_bulk, (r_frozen.ess_bulk, r_healthy.ess_bulk)
+    assert r_frozen.ess_tail < r_healthy.ess_tail, (r_frozen.ess_tail, r_healthy.ess_tail)
+
+
+def test_ess_on_degenerate_branches_return_zero() -> None:
+    """Unit-Guard auf BEIDE Entartungs-Zweige von _ess_on (w <= 0).
+
+    Direkt auf _ess_on, weil der Zweig w<=0 AND b>0 ueber split_rhat praktisch
+    nicht erreichbar ist (siehe test_constant_chains_different_means_flagged):
+    rank_normalize erzeugt dort irrationale, aber bit-identische Werte, deren
+    np.var-Residuum ~1e-32 > 0 ist. Der Zweig existiert trotzdem und wird hier
+    an seiner eigenen Naht geprueft.
+    """
+    # (a) w == 0, b > 0: konstante Split-Ketten auf VERSCHIEDENEN Werten.
+    diff = np.vstack([np.full(1000, float(c)) for c in range(8)])
+    assert float(np.mean(diff.var(axis=1, ddof=1))) == 0.0  # Vorbedingung des Zweigs
+    assert rhat._ess_on(diff) == 0.0
+
+    # (b) w == 0, b == 0: alle Split-Ketten auf DEMSELBEN Wert (der Fix).
+    same = np.full((8, 1000), 3.0)
+    assert float(np.mean(same.var(axis=1, ddof=1))) == 0.0
+    assert rhat._ess_on(same) == 0.0
+    assert rhat._rhat_on(same) == 1.0  # R-hat bleibt bewusst beim Grenzwert
+
+
+def test_constant_chains_different_means_flagged() -> None:
+    """Konstante Ketten mit VERSCHIEDENEN Mitteln werden als nicht-konvergiert geflaggt.
+
+    Charakterisierung des Ist-Verhaltens auf dem oeffentlichen Pfad: hier greift
+    NICHT der Entartungs-Zweig (w ~ 1e-32 > 0, s.o.), sondern die regulaere Formel.
+    Sie liefert ein astronomisches R-hat -- die Nicht-Konvergenz wird also erkannt.
+    """
+    chains = np.vstack([np.full(2000, float(c)) for c in range(4)])
+    r = rhat.split_rhat(chains)
+    assert r.rhat > 1e6, r.rhat
+    assert not r.converged
+    assert r.ess_bulk < 10.0, r.ess_bulk  # verschwindende wirksame Stichprobe
+
+
+def test_rhat_alone_does_not_catch_frozen_chains() -> None:
+    """Dokumentiert die Grenze von R-hat -- und dass das Verdikt sie NICHT erbt.
+
+    R-hat ist ein Verhaeltnis Between/Within und misst nur, ob die Ketten
+    untereinander streuen; identische Ketten sind in diesem Sinn perfekt
+    gemischt und passieren die R-hat-Achse. Genau deshalb ist diese Achse
+    allein kein Verdikt.
+
+    REGRESSION: bis zur ESS-Kopplung stand hier ``assert r.converged`` -- das
+    ausgewiesene Verdikt meldete True, waehrend ``ess_bulk == 0.0`` danebenstand.
+    Das ist der Fehlschlag, den dieser Test jetzt festnagelt.
+    """
+    r = rhat.split_rhat(np.full((4, 2000), 7.0))
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)
+    assert r.rhat_below_threshold  # <- R-hat allein ist hier NICHT diskriminierend ...
+    assert r.ess_bulk == 0.0  # <- ... die ESS ist es ...
+    assert not r.ess_sufficient
+    assert not r.converged  # <- ... und das Verdikt folgt jetzt der ESS.
+
+
+def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
+    """Nagelt fest, dass die 1.0 im Entartungszweig eine KONVENTION ist.
+
+    Fuer B = 0 ist var_plus = (N-1)/N * W, also R-hat = sqrt((N-1)/N) -- ein
+    Wert UNTER 1, der erst fuer N -> inf gegen 1 strebt. Der Zweig gibt bewusst
+    die neutrale Marke 1.0 zurueck statt des exakten endlichen Werts. Dieser
+    Test haelt beide Zahlen nebeneinander, damit die Differenz nicht wieder als
+    "analytischer Grenzwert" missverstanden wird.
+    """
+    n_draws = 2000
+    r = rhat.split_rhat(np.full((4, n_draws), 7.0))
+    n_split = n_draws // 2  # _split halbiert jede Kette
+    exakter_endlicher_wert = float(np.sqrt((n_split - 1) / n_split))
+
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)
+    assert exakter_endlicher_wert < 1.0
+    assert r.rhat > exakter_endlicher_wert  # die Konvention liegt ueber dem exakten Wert
+
+    # Der Abstand waechst, je kuerzer die Kette ist -- fuer die kuerzeste
+    # zulaessige Split-Laenge N = 2 betraegt der exakte Wert rund 0.707.
+    assert float(np.sqrt((2 - 1) / 2)) == pytest.approx(0.7071067811865476, abs=1e-12)
