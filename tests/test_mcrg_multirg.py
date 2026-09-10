@@ -148,22 +148,36 @@ def test_block_size_per_iter_exposed() -> None:
 
 
 def test_fix3_central_values_unchanged() -> None:
-    """Codex-Fix 3 aendert NUR Fehlerbalken, NICHT die y_t/y_h-Zentralwerte.
+    """Reproduzierbarkeits-Anker fuer die G27/G28-Zentralwerte.
 
-    Der Punktschaetzer nutzt weiter das gemeinsame Level-0-Fenster `keep`; nur
-    die Jackknife-Partition wird pro Iteration gewaehlt. Verankert die EXAKTEN
-    G27/G28-Zentralwerte (validate_multirg_2d, seed=0, L=32, n_op=2, burn_in=400)
-    gegen einen Regress. Die Baseline ist tool-gemessen VOR Fix 3 und wird nach
-    Fix 3 byte-identisch reproduziert (nur die Fehlerbalken duerfen sich aendern).
+    Verankert die EXAKTEN Zentralwerte (validate_multirg_2d, seed=0, L=32,
+    n_op=2, burn_in=400) gegen einen unbeabsichtigten Regress.
+
+    REFERENZ-HERKUNFT. Die urspruengliche Referenz war unter dem ALTEN, nicht
+    Z2-aequivarianten Majority-Tie-Break gemessen. Seit
+    `ising2d.majority_block_b2` bei einem 2+2-Tie einen der vier Original-Spins
+    waehlt, gilt `B(-s) == -B(s)` exakt statt nur im Mittel -- die
+    Blocking-Abbildung ist bewusst eine andere, und y_t/y_h als Funktionale der
+    geblockten Konfigurationen verschieben sich zwangslaeufig. Die alte
+    Erwartung haette ab dem Fix behauptet, eine absichtliche Aenderung der
+    RG-Abbildung sei wirkungslos.
+
+    Die neue Referenz ist nicht deshalb richtig, weil sie herauskam, sondern
+    weil (1) die erzeugende Abbildung jetzt exakt Z2-aequivariant ist
+    (erschoepfend belegt in test_ising2d.py), (2) das externe Onsager-Orakel
+    weiter getroffen wird (G22/G27/G28 unveraendert PASS) und (3) die
+    eigentliche Fix-3-Behauptung -- Jackknife-Blockgroesse bewegt nur
+    Fehlerbalken -- snapshot-frei in
+    test_jackknife_block_size_moves_only_error_bars geprueft wird.
     """
     v = mcrg_multirg.validate_multirg_2d(
         L=32, n_op_even=2, n_op_odd=2, n_levels=3, n_records=3000, burn_in=400, seed=0
     )
     np.testing.assert_allclose(
-        v.multirg.y_t_per_iter, [0.93001085, 0.99566981, 1.0219697], rtol=0, atol=1e-7
+        v.multirg.y_t_per_iter, [0.93220357, 1.01267256, 1.00535087], rtol=0, atol=1e-7
     )
     np.testing.assert_allclose(
-        v.multirg_odd.y_h_per_iter, [1.88098809, 1.87282836, 1.87101431], rtol=0, atol=1e-7
+        v.multirg_odd.y_h_per_iter, [1.88074043, 1.87301563, 1.87250009], rtol=0, atol=1e-7
     )
     # Alle Fehlerbalken endlich + nicht-negativ.
     assert np.all(np.isfinite(v.multirg.y_t_err_per_iter)) and np.all(
