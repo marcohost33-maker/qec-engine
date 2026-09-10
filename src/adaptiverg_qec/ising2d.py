@@ -225,16 +225,23 @@ def majority_block_b2(s: np.ndarray, *, config_index: int = 0, seed: int = 0) ->
 
     ``majority_block_b2(-s, ...) == -majority_block_b2(s, ...)``.
     """
-    s = np.asarray(s, dtype=np.int64)
-    if s.ndim != 2:
-        raise ValueError(f"s must be 2D (L,L), got ndim={s.ndim}")
-    L = s.shape[0]
-    if s.shape[1] != L:
-        raise ValueError(f"s must be square, got {s.shape}")
+    # Die Spin-Pruefung laeuft auf der UNVERAENDERTEN Eingabe. Ein vorgezogener
+    # Cast nach int64 wuerde genau die Werte unsichtbar machen, gegen die sie
+    # schuetzt: 1.5 und -1.5 wuerden zu 1 und -1 abgeschnitten und danach als
+    # gueltige Spins durchgehen, NaN/inf wuerden ueber einen undefinierten Cast
+    # (RuntimeWarning) laufen statt ueber die dokumentierte Fehlermeldung. Erst
+    # pruefen, dann casten.
+    s_in = np.asarray(s)
+    if s_in.ndim != 2:
+        raise ValueError(f"s must be 2D (L,L), got ndim={s_in.ndim}")
+    L = s_in.shape[0]
+    if s_in.shape[1] != L:
+        raise ValueError(f"s must be square, got {s_in.shape}")
     if L < 2 or L % 2 != 0:
         raise ValueError(f"L must be even and >= 2, got {L}")
-    if not np.all((s == 1) | (s == -1)):
+    if not np.all((s_in == 1) | (s_in == -1)):
         raise ValueError("s must contain only +/-1 spins")
+    s = s_in.astype(np.int64)
 
     lb = L // 2
     block_view = s.reshape(lb, 2, lb, 2)

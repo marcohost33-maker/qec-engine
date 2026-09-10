@@ -258,3 +258,54 @@ def test_majority_block_non_tie_blocks_ignore_the_hash() -> None:
     b = i2.majority_block_b2(s, config_index=2, seed=2)
     assert np.array_equal(a, b)
     assert np.array_equal(a, np.sign(block_sum).astype(np.int8))
+
+
+@pytest.mark.parametrize(
+    "bad, warum",
+    [
+        (np.array([[1.5, -1.5], [1.5, -1.5]]), "1.5/-1.5 wuerde ein Cast zu 1/-1 abschneiden"),
+        (np.array([[0.5, 0.5], [0.5, 0.5]]), "0.5 -> 0"),
+        (np.array([[0.0, 0.0], [0.0, 0.0]]), "0 ist kein Spin"),
+        (np.array([[2.0, -2.0], [2.0, -2.0]]), "Betrag != 1"),
+        (np.array([[0.9999999999, -1.0], [1.0, -1.0]]), "knapp neben +1 -> 0"),
+        (np.array([[np.nan, 1.0], [1.0, -1.0]]), "NaN"),
+        (np.array([[np.inf, 1.0], [1.0, -1.0]]), "inf"),
+    ],
+)
+def test_majority_block_rejects_non_spin_values_before_casting(bad, warum) -> None:
+    """Die ±1-Pruefung muss VOR dem int-Cast greifen.
+
+    Laeuft der Cast zuerst, kann die Pruefung nicht mehr sehen, wogegen sie
+    schuetzt: ``1.5`` und ``-1.5`` werden zu ``1`` und ``-1`` abgeschnitten und
+    danach als gueltige Spins akzeptiert -- die Funktion blockt dann still
+    veraenderte Daten, statt den dokumentierten ±1-Fehler zu werfen.
+
+    Breit gefangen und der TYP geprueft: stirbt der Aufruf an einer anderen
+    Ausnahme (etwa einem Cast-Fehler), waere der Test sonst nicht einzuordnen.
+    """
+    with pytest.raises(Exception) as exc:
+        i2.majority_block_b2(bad)
+    assert isinstance(exc.value, ValueError), (
+        f"erwartet ValueError ({warum}), kam {type(exc.value).__name__}: {exc.value}"
+    )
+    assert "+/-1" in str(exc.value), f"erwartet die dokumentierte ±1-Meldung, kam: {exc.value}"
+
+
+def test_majority_block_still_accepts_valid_spins_in_any_container() -> None:
+    """Positiv-Kontrolle: gueltige ±1-Daten muessen weiter akzeptiert werden.
+
+    Ein Validator, der jede float-Eingabe ablehnt, bestuende jeden Negativtest
+    und waere trotzdem falsch. Float-Spins (1.0/-1.0), int8-Arrays und rohe
+    Listen sind gueltige Eingaben und muessen dasselbe Ergebnis liefern.
+    """
+    ref = np.array([[1, -1, -1, 1], [1, -1, 1, 1], [-1, -1, 1, -1], [1, 1, -1, -1]])
+    erwartet = i2.majority_block_b2(ref, config_index=3, seed=17)
+    for variante in (
+        ref.astype(np.float64),
+        ref.astype(np.float32),
+        ref.astype(np.int8),
+        ref.tolist(),
+    ):
+        out = i2.majority_block_b2(variante, config_index=3, seed=17)
+        assert np.array_equal(out, erwartet)
+        assert out.dtype == np.int8
