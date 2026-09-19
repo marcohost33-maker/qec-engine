@@ -90,6 +90,8 @@ def test_manifest_cell_seed_is_stable_and_tracks_noise_contract() -> None:
         {"memory_basis": "y"},
         {"decoder": "mystery"},
         {"seed_policy": "shared"},
+        {"sampling_backend": "sinter"},
+        {"reproducibility_tier": "BITWISE_FOREVER"},
     ],
 )
 def test_manifest_invalid_contracts_fail_closed(kwargs: dict) -> None:
