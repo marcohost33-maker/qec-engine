@@ -198,7 +198,6 @@ def test_threshold_rejects_ps_out_of_range() -> None:
         sd.estimate_mwpm_threshold(7, 9, ps=(0.1, 0.6))
 
 
-
 # ---------------------------------------------------------------------------
 # Inkrement 3.1: Multi-Round-Phenomenological-Baseline.
 # ---------------------------------------------------------------------------
