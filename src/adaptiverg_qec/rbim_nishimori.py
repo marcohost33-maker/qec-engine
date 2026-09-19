@@ -441,9 +441,7 @@ def _disorder_stream_seeds(base_seed: int, disorder_index: int) -> tuple[int, in
     if not isinstance(base_seed, (int, np.integer)) or int(base_seed) < 0:
         raise ValueError(f"base_seed must be a non-negative integer, got {base_seed!r}")
     if not isinstance(disorder_index, (int, np.integer)) or int(disorder_index) < 0:
-        raise ValueError(
-            f"disorder_index must be a non-negative integer, got {disorder_index!r}"
-        )
+        raise ValueError(f"disorder_index must be a non-negative integer, got {disorder_index!r}")
     root = np.random.SeedSequence([int(base_seed), int(disorder_index)])
     bond_ss, thermal_ss = root.spawn(2)
     bond_seed = int(bond_ss.generate_state(1, dtype=np.uint64)[0])
