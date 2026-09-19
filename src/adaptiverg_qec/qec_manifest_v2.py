@@ -144,7 +144,9 @@ class QECExperimentManifestV2:
         if self.sampling_backend != "direct-stim-detector-sampler":
             raise ValueError(f"unsupported sampling_backend {self.sampling_backend!r}")
         if self.reproducibility_tier != "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE":
-            raise ValueError(f"unsupported reproducibility_tier {self.reproducibility_tier!r}")
+            raise ValueError(
+                f"unsupported reproducibility_tier {self.reproducibility_tier!r}"
+            )
         if self.decoder != "pymatching-mwpm-dem":
             raise ValueError(f"unsupported decoder {self.decoder!r}")
         if not isinstance(self.noise, StimNoiseProfile):
