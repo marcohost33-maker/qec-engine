@@ -155,14 +155,11 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
   Nur diese drei sind betroffen: `majority_block_b2` wird ausschliesslich von `mcrg_matrix` und
   `mcrg_multirg` aufgerufen. Ein Gate-Log, der eine Transformation beschreibt, die es in diesem
   Commit nicht mehr gibt, wäre irreführend — auch wenn ihn kein Test liest.
-- `rbim_nishimori`-Scan (historische Baseline, bewusst unverändert) nutzt weiterhin
-  arithmetische Seeds `base_seed + d` / `base_seed + 10000 + d` — also implizite common random
-  numbers über p. Der neue Pfad `rbim_scan.py` macht die Wahl explizit: Default
-  `seed_policy="independent"` mischt `p`/`L`/Replikat über `SeedSequence` und trennt Bond- und
-  Thermal-Strom per `spawn(2)`; CRN ist nur noch als ausdrückliche Option erreichbar.
-  **Offen an der Baseline:** die additive Ableitung lässt Bond- und MCMC-Seeds ab
-  `n_disorder >= 10001` exakt überlappen (`base_seed + 10000` tritt in beiden Familien auf);
-  `n_disorder` ist nur gegen `< 1` geprüft.
+- ~~`rbim_nishimori`-Baseline nutzte arithmetische Seeds mit einer deterministischen
+  Bond/MCMC-Kollision ab grossem `n_disorder`.~~ **Erledigt 2026-09-19:** auch die historische
+  Baseline erzeugt je Disorder-Realisierung jetzt zwei hierarchisch getrennte Streams via
+  `SeedSequence([base_seed, d]).spawn(2)`, analog zur bereits gehärteten `rbim_scan.py`.
+  Regressionstests decken explizit `d > 10000` ab; negative Seed-Eingaben failen an der Grenze.
 - `autocorr.integrated_autocorr_time` klemmt τ_int ≥ 0.5 (für anti-korrelierte Reihen bewusst
   konservativ; jetzt im Code dokumentiert).
 - G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht
