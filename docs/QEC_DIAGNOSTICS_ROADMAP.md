@@ -101,11 +101,17 @@ Luecke, additiv und ohne Bestehendes anzufassen.
 - `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`). Tests
   `tests/test_surface_decoder.py` (Orakel A/B + Threshold-Verhalten + Silent-Failure-Gate
   + optional-dep-Gate-Verhalten).
-- **Offen (naechster Schritt):** phenomenological noise (Mess-Fehler, mehrere Runden;
-  publizierter MWPM-Threshold ~2.9%, Wang, Harrington & Preskill 2003) ist NICHT
-  implementiert. Depolarisierendes Rauschen (statt pure-X) waere ein weiterer Schritt
-  (anderer Threshold). CI laeuft weiterhin nur mit `[dev]` -> Surface-Tests skippen dort;
-  ein separater optionaler CI-Job mit `[surface]` ist vorbereitet (s. PR).
+- **Inkrement 3.1 [DONE 2026-09-19]: Multi-Round-Phenomenological-Baseline.**
+  `surface_phenomenological_logical_error_rate` nutzt Stim `rotated_memory_x/z` mit exakt
+  dokumentierter Noise-Policy: `before_round_data_depolarization=p_data` plus
+  `before_measure_flip_probability=p_meas`, ansonsten ideale Operationen. Der Stim-DEM
+  wird graphlike zerlegt und direkt mit PyMatching-MWPM dekodiert; `rounds` ist frei waehlbar.
+  Zero-noise-Orakel, Seed-Reproduzierbarkeit, X/Z-Memory und Negativgrenzen sind getestet.
+  **Claim ceiling:** bewusst NOCH KEIN 2.9%-Threshold-Claim, weil Stim-Daten-Depolarisierung
+  nicht ohne Kalibrierung mit jeder historischen Phenomenological-Konvention identisch ist.
+  **Naechster Schritt:** research-grade p×d×rounds-Sweeps mit Sinter, Wilson/Beta-Binomial-
+  Intervallen, FSS-Kreuzungsmodell und apples-to-apples Literaturmodell; danach circuit-level
+  noise + correlated matching als separate Decoder-Linse.
 
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 
