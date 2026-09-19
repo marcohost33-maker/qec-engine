@@ -53,8 +53,8 @@ Validierung, Reproduzierbarkeit, RG/QEC-Bruecke und systematischer Erkennung fal
 
 Pflicht:
 1. Versioniertes `NoiseProfile`-Schema statt impliziter Parameter.
-2. Stim/Sinter fuer p x d x rounds-Sweeps; kein eigener Sampling-Scheduler.
-3. Pro Zelle eigene RNG-Identitaet, kein stilles CRN.
+2. Direkter Stim-Pfad fuer geseedete bounded Runs; Sinter fuer skalierte p x d x rounds-Sweeps erst nach dem Reproduzierbarkeitsgate aus Issue #42.
+3. Pro Zelle eigene RNG-Identitaet, kein stilles CRN; Sampling-Backend und Reproduzierbarkeits-Tier explizit ausweisen.
 4. Seltene Fehler: Wilson- oder Beta-Posterior-Intervalle statt Null-Varianz bei k=0.
 5. Sequential stopping: min shots + min logical failures + max shots.
 6. FSS-/Crossing-Fit mit Bootstrap ueber Zellen statt Einzel-Crossing als Promotion.
@@ -62,7 +62,7 @@ Pflicht:
 
 Akzeptanz:
 - NoiseProfile vollstaendig serialisiert.
-- Resultat aus Manifest reproduzierbar.
+- Resultat aus Manifest reproduzierbar innerhalb des deklarierten Tiers: Stim-Seed ist nur bei gleicher Stim-Version, Maschinenarchitektur und gleichem Sampling-Aufruf bitgleich; Sinter wird zunaechst als statistisch reproduzierbar behandelt.
 - Nullmodell + Positivkontrolle + Literaturmodell separat.
 - Threshold-Claim nur mit Finite-Size-Drift und Unsicherheitsintervall.
 
@@ -113,7 +113,7 @@ Optionaler Forschungszweig:
 - Exakter Noise-Vertrag als Teil jedes Resultat-Manifests.
 - Zell-eigene RNG-Identitaet.
 - Seltene Fehler: Jeffreys/Wilson/Beta statt Null-Varianz bei k=0.
-- Full evidence lineage: source revision + dependency versions + seed policy + environment.
+- Full evidence lineage: source revision + dependency versions + seed policy + sampling backend + reproducibility tier + environment.
 - Threshold, suppression factor und latency getrennt reporten.
 - Cross-family / independent-oracle Review bei Theorie- und Threshold-Claims.
 - Claim-Tiers: unit/oracle, bounded simulation, FSS-supported simulation, hardware experiment.
@@ -133,8 +133,8 @@ Optionaler Forschungszweig:
 
 1. PR #39 gruener machen und integrieren: R-hat-Semantik + RBIM-Streams.
 2. PR #40 gruener machen und integrieren: bounded Multi-Round-Phenomenological-Baseline.
-3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren.
-4. Sinter-basierte Sweep-Engine mit sequential stopping.
+3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren. **Umgesetzt in PR #41.**
+4. Sinter-Reproduzierbarkeitsgate aus Issue #42 klaeren; danach Sweep-Engine mit sequential stopping.
 5. Wilson/Beta-Intervalle + Bootstrap-FSS.
 6. correlated-MWPM A/B-Linse.
 7. Circuit-level profiles + Latency-Harness.
