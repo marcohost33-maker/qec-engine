@@ -57,7 +57,7 @@ Alles numpy/scipy-only (keine neuen Runtime-Deps).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 import numpy as np
 from scipy import stats
@@ -75,7 +75,7 @@ RHAT_THRESHOLD: float = 1.01
 """Vehtari-et-al.-Diagnostikschwelle. Allein ist R-hat KEIN Konvergenzbeleg."""
 
 
-class DiagnosticState(str, Enum):
+class DiagnosticState(StrEnum):
     """Semantischer Zustand der Multichain-Diagnostik.
 
     DEGENERATE_CONSTANT bedeutet: alle beobachteten Draws sind exakt gleich.
