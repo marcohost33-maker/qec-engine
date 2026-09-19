@@ -57,11 +57,13 @@ Alles numpy/scipy-only (keine neuen Runtime-Deps).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 from scipy import stats
 
 __all__ = [
+    "DiagnosticState",
     "RhatResult",
     "split_rhat",
     "rank_normalize",
@@ -70,7 +72,22 @@ __all__ = [
 ]
 
 RHAT_THRESHOLD: float = 1.01
-"""Vehtari-et-al.-Konvergenz-Schwellwert: R-hat < 1.01 => konvergiert."""
+"""Vehtari-et-al.-Diagnostikschwelle. Allein ist R-hat KEIN Konvergenzbeleg."""
+
+
+class DiagnosticState(str, Enum):
+    """Semantischer Zustand der Multichain-Diagnostik.
+
+    DEGENERATE_CONSTANT bedeutet: alle beobachteten Draws sind exakt gleich.
+    Aus den Draws allein ist nicht entscheidbar, ob die Zielgroesse strukturell
+    konstant ist oder der Sampler feststeckt. STRUCTURAL_CONSTANT wird nur
+    gesetzt, wenn der Aufrufer diese Eigenschaft explizit als Domaenenwissen
+    deklariert. Keiner der beiden Zustaende ist ein Konvergenzverdikt.
+    """
+
+    OK = "OK"
+    DEGENERATE_CONSTANT = "DEGENERATE_CONSTANT"
+    STRUCTURAL_CONSTANT = "STRUCTURAL_CONSTANT"
 
 
 @dataclass(frozen=True)
@@ -96,6 +113,10 @@ class RhatResult:
     """Anzahl Eingangs-Ketten M."""
     n_draws: int
     """Draws pro Eingangs-Kette n."""
+    diagnostic_state: DiagnosticState
+    """Semantischer Diagnostikzustand; trennt numerischen Sentinel von Aussage."""
+    rhat_defined: bool
+    """False bei W=B=0; rhat ist dann nur ein numerischer Konventionswert."""
 
     @property
     def rhat_below_threshold(self) -> bool:
@@ -108,17 +129,20 @@ class RhatResult:
         und passieren dieses Kriterium. Wer nur hierauf schaut, akzeptiert
         genau die Pathologie, die die Diagnostik abweisen soll.
         """
-        return self.rhat < RHAT_THRESHOLD
+        return self.rhat_defined and self.rhat < RHAT_THRESHOLD
 
     @property
     def ess_sufficient(self) -> bool:
         """Hat die Stichprobe ueberhaupt etwas abgetastet? ESS > 0 in bulk UND tail.
 
-        Fail-closed-Untergrenze, keine Konventionsfrage: ESS = 0 heisst, die
-        Ketten haben sich nie bewegt und tragen null Information ueber die
-        Zielverteilung. Nicht-endliche Werte gelten ebenfalls als ungenuegend.
+        Fail-closed-Untergrenze: ESS = 0 ist im exakt konstanten Fall ein
+        Sentinel fuer nicht entscheidbare Sampling-Information, nicht die
+        Behauptung, die mathematische ESS einer strukturell konstanten Observable
+        sei allgemein null. Identische Draws koennen sowohl einen festgefahrenen
+        Sampler als auch eine bekannte konstante Zielgroesse repraesentieren.
+        Nicht-endliche Werte gelten ebenfalls als ungenuegend.
 
-        Das ist die HARTE Untergrenze, nicht die Praxis-Empfehlung. Vehtari
+        Das ist die HARTE Sicherheitsuntergrenze, nicht die Praxis-Empfehlung. Vehtari
         et al. verlangen zusaetzlich rund ESS > 100 pro Kette, bevor die
         Schaetzer als belastbar gelten; diese Schwelle ist eine Entscheidung
         des Aufrufers ueber seine Genauigkeitsanforderung und steht daher
@@ -147,7 +171,11 @@ class RhatResult:
         Wer die beiden Achsen einzeln braucht, nimmt
         :attr:`rhat_below_threshold` und :attr:`ess_sufficient`.
         """
-        return self.rhat_below_threshold and self.ess_sufficient
+        return (
+            self.diagnostic_state is DiagnosticState.OK
+            and self.rhat_below_threshold
+            and self.ess_sufficient
+        )
 
 
 def _as_chains(draws: np.ndarray) -> np.ndarray:
@@ -309,16 +337,31 @@ def _ess_on(split_chains: np.ndarray) -> float:
     return float(max(ess, 1.0))
 
 
-def split_rhat(draws: np.ndarray) -> RhatResult:
+def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatResult:
     """Rank-normalized split-R-hat + folded-R-hat + bulk/tail-ESS (Vehtari 2021).
 
     Args:
         draws: (M, n)-Array, M Ketten je n Draws des SELBEN Skalars. M>=2, n>=4.
+        expected_constant: Nur setzen, wenn externes Domaenenwissen garantiert,
+            dass die Observable strukturell konstant sein muss. Dann wird der
+            Zustand als STRUCTURAL_CONSTANT ausgewiesen, aber nie als CONVERGED.
 
     Returns:
         RhatResult mit rhat = max(bulk, folded), ESS-bulk/tail, converged-Flag.
     """
     chains = _as_chains(draws)
+
+    constant_draws = bool(np.all(chains == chains.flat[0]))
+    if expected_constant and not constant_draws:
+        raise ValueError("expected_constant=True but the observed draws are not exactly constant")
+    if constant_draws:
+        diagnostic_state = (
+            DiagnosticState.STRUCTURAL_CONSTANT
+            if expected_constant
+            else DiagnosticState.DEGENERATE_CONSTANT
+        )
+    else:
+        diagnostic_state = DiagnosticState.OK
 
     # --- bulk: rank-normalize ueber alle Werte, dann split + R-hat/ESS.
     z = rank_normalize(chains)
@@ -369,6 +412,8 @@ def split_rhat(draws: np.ndarray) -> RhatResult:
         ess_tail=float(ess_tail),
         n_chains=int(chains.shape[0]),
         n_draws=int(chains.shape[1]),
+        diagnostic_state=diagnostic_state,
+        rhat_defined=not constant_draws,
     )
 
 
