@@ -207,9 +207,11 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
 > Kreuzungs-Schätzer liegt systematisch unterhalb (gemessen mit zell-eigenen Seeds:
 > (7,9)→0.0980, (9,11)→0.0962, (7,11)→0.0970 — der Distanz-Drift ist bei 80k Shots/Zelle
 > nicht aufgelöst; eine frühere Messung mit geteiltem Seed über alle Zellen war
-> rangkorreliert und wurde ersetzt). Phenomenological-noise (Mess-Fehler, mehrere Runden;
-> publizierter MWPM-Threshold ~2.9%) ist noch nicht implementiert (nächster Schritt).
-> Der in Inkr.2 verworfene hand-gerollte Spacetime-Matcher ist hiermit durch PyMatching ersetzt.
+> rangkorreliert und wurde ersetzt). **Multi-Round-Phenomenological-Baseline ist seit
+> 2026-09-19 implementiert:** Stim injiziert explizit Daten-Depolarisierung je Runde plus
+> Mess-Flip-Fehler, der DEM wird mit PyMatching-MWPM dekodiert. Bewusst **noch kein 2.9%-Claim**:
+> ein apples-to-apples Threshold braucht ein exakt abgeglichenes Literaturmodell + FSS/Sinter-Sweep.
+> Der in Inkr.2 verworfene hand-gerollte Spacetime-Matcher bleibt ersetzt; kein Eigen-Decoder.
 
 ## Phase-6: SNIS + Surrogate-DA + Checkpoint/Restart-Lockfile (NEU)
 
