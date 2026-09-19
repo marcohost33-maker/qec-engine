@@ -196,3 +196,63 @@ def test_threshold_rejects_nonascending_ps() -> None:
 def test_threshold_rejects_ps_out_of_range() -> None:
     with pytest.raises(ValueError, match=r"\(0, 0\.5\)"):
         sd.estimate_mwpm_threshold(7, 9, ps=(0.1, 0.6))
+
+
+# ---------------------------------------------------------------------------
+# Inkrement 3.1: Multi-Round-Phenomenological-Baseline.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+@pytest.mark.parametrize("basis", ["x", "z"])
+def test_phenomenological_zero_noise_is_exactly_zero(basis: str) -> None:
+    """Ohne injizierte Fehler darf der annotierte Raum-Zeit-Pfad nie logisch failen."""
+    est = sd.surface_phenomenological_logical_error_rate(
+        3, rounds=3, p_data=0.0, p_meas=0.0, shots=512, seed=11, memory_basis=basis
+    )
+    assert est.p_logical == 0.0
+    assert est.std_err > 0.0  # Jeffreys-Sentinel bleibt auch bei k=0 falsifizierbar
+
+
+@requires_surface
+def test_phenomenological_run_is_seed_reproducible() -> None:
+    """Gleicher Stim-Seed -> identische logisch dekodierte Fehlerrate."""
+    kw = dict(d=3, rounds=4, p_data=0.01, p_meas=0.01, shots=2000, seed=17)
+    a = sd.surface_phenomenological_logical_error_rate(**kw)
+    b = sd.surface_phenomenological_logical_error_rate(**kw)
+    assert a.p_logical == b.p_logical
+    assert a.std_err == b.std_err
+
+
+@requires_surface
+def test_phenomenological_diagnostics_are_explicitly_non_threshold() -> None:
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.005, p_meas=0.005, shots=500, seed=3
+    )
+    assert payload["rows"][0]["rounds"] == 3
+    assert "no literature-threshold claim" in payload["claim_ceiling"]
+
+
+@requires_surface
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(d=2, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=0, p_data=0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=-0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.5, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.01, shots=0, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=-1),
+    ],
+)
+def test_phenomenological_invalid_inputs_fail_closed(kwargs: dict) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        sd.surface_phenomenological_logical_error_rate(**kwargs)
+
+
+@requires_surface
+def test_phenomenological_rejects_unknown_memory_basis() -> None:
+    with pytest.raises(ValueError, match="memory_basis"):
+        sd.surface_phenomenological_logical_error_rate(
+            3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0, memory_basis="y"
+        )
