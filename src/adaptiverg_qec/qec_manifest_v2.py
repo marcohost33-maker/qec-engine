@@ -167,9 +167,9 @@ class QECExperimentManifestV2:
             "decoder": self.decoder,
             "noise": self.noise.to_dict(),
         }
-        blob = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode("utf-8")
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+            "utf-8"
+        )
         digest = hashlib.sha256(blob).digest()
         return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
 
