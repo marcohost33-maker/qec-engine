@@ -1574,7 +1574,8 @@ def run_phase5(
     )
     print(
         f"  R-hat={result.rhat:.4f} (bulk={result.bulk_rhat:.4f}, "
-        f"folded={result.folded_rhat:.4f}) converged={result.rhat_converged}"
+        f"folded={result.folded_rhat:.4f}) state={result.diagnostic_state} "
+        f"defined={result.rhat_defined} converged={result.rhat_converged}"
     )
     print(f"  ESS bulk={result.ess_bulk:.0f} tail={result.ess_tail:.0f}")
     print(f"  sigma2_g(H): Gamma={result.sigma2_g_gamma:.3f} OBM={result.sigma2_g_obm:.3f}")
@@ -1608,6 +1609,8 @@ def run_phase5(
                 "folded_rhat": result.folded_rhat,
                 "ess_bulk": result.ess_bulk,
                 "ess_tail": result.ess_tail,
+                "diagnostic_state": result.diagnostic_state,
+                "rhat_defined": result.rhat_defined,
                 "converged": result.rhat_converged,
                 "rhat_below_threshold": result.rhat_below_threshold,
                 "ess_sufficient": result.ess_sufficient,
