@@ -273,6 +273,9 @@ def test_manifest_v2_executes_the_declared_noise_contract() -> None:
     assert payload["rows"][0]["rounds"] == 3
     assert payload["rows"][0]["seed"] == manifest.cell_seed(3)
     assert payload["rows"][0]["p_logical"] == 0.0
+    assert payload["reproducibility"]["tier"] == manifest.reproducibility_tier
+    assert payload["runtime_environment"]["machine"]
+    assert payload["stim_version"]
 
 
 @requires_surface
