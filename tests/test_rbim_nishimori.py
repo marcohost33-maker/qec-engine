@@ -26,6 +26,7 @@ from adaptiverg_qec.ising2d import energy_per_spin
 from adaptiverg_qec.rbim_nishimori import (
     DisorderResult,
     RBIMBonds,
+    _disorder_stream_seeds,
     locate_transition,
     nishimori_beta,
     nishimori_p,
@@ -216,3 +217,25 @@ def test_reproducibility() -> None:
     assert r1.abs_m == r2.abs_m
     assert r1.binder == r2.binder
     assert isinstance(r1, DisorderResult)
+
+
+def test_disorder_streams_are_reproducible_and_role_separated() -> None:
+    """Regression: die fruehere +10000-Offset-Strategie kollidierte ab d=10000."""
+    seen: set[int] = set()
+    for d in range(10_050):
+        bond_seed, thermal_seed = _disorder_stream_seeds(1000, d)
+        assert bond_seed != thermal_seed
+        assert bond_seed not in seen
+        seen.add(bond_seed)
+        assert thermal_seed not in seen
+        seen.add(thermal_seed)
+        assert (bond_seed, thermal_seed) == _disorder_stream_seeds(1000, d)
+
+
+def test_disorder_stream_seed_inputs_fail_closed() -> None:
+    with pytest.raises(ValueError):
+        _disorder_stream_seeds(-1, 0)
+    with pytest.raises(ValueError):
+        _disorder_stream_seeds(1, -1)
+    with pytest.raises(ValueError):
+        nishimori_scan(0.1, 4, n_disorder=1, n_records=2, burn_in=1, base_seed=-1)
