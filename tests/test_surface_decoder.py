@@ -259,7 +259,6 @@ def test_phenomenological_rejects_unknown_memory_basis() -> None:
         )
 
 
-
 @requires_surface
 def test_manifest_v2_executes_the_declared_noise_contract() -> None:
     manifest = QECExperimentManifestV2(
