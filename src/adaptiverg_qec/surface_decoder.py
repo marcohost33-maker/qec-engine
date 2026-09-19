@@ -271,6 +271,155 @@ def surface_logical_error_rate(d: int, p: float, shots: int, seed: int) -> float
     return float(np.any(predicted != observables, axis=1).mean())
 
 
+# =============================================================================
+# Inkrement 3.1: Multi-Round-Phenomenological-Baseline (Stim DEM -> PyMatching)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class PhenomenologicalEstimate:
+    """Ein klar spezifizierter Multi-Round-Surface-Code-MWPM-Lauf.
+
+    Das Modell entspricht exakt den Stim-Generatorparametern:
+    - DEPOLARIZE1(p_data) auf jedem Datenqubit zu Beginn jeder Messrunde,
+    - Mess-Bitflip mit p_meas vor jeder Messung,
+    - ansonsten ideale Gates/Resets.
+    Es ist eine phenomenological-noise BASELINE, kein Anspruch auf Identitaet
+    mit jeder publizierten Phenomenological-Konvention oder deren Threshold.
+    """
+
+    d: int
+    rounds: int
+    p_data: float
+    p_meas: float
+    shots: int
+    seed: int
+    memory_basis: str
+    p_logical: float
+    std_err: float
+
+
+def surface_phenomenological_logical_error_rate(
+    d: int,
+    *,
+    rounds: int,
+    p_data: float,
+    p_meas: float,
+    shots: int,
+    seed: int,
+    memory_basis: str = "z",
+) -> PhenomenologicalEstimate:
+    """Dekodiere einen Multi-Round-Rotated-Surface-Code unter klarer Stim-Noise-Policy.
+
+    Anders als der code-capacity-Pfad injiziert diese Funktion Fehler in JEDE
+    Stabilisatorrunde und erlaubt fehlerhafte Messungen. Stim erzeugt DETECTOR-
+    Annotationen und den DetectorErrorModel; PyMatching dekodiert dessen graphlike
+    Zerlegung. Damit entsteht die fuer Messfehler notwendige Raum-Zeit-Diagnostik,
+    ohne einen eigenen Spacetime-Matcher zu erfinden.
+
+    WICHTIG: p_data ist Stim's single-qubit DEPOLARIZE1-Wahrscheinlichkeit und
+    p_meas der Vor-Messungs-Flip. Deshalb wird hier bewusst kein historischer
+    Literatur-Threshold als numerisches Orakel hardcodiert.
+    """
+    _require_surface()
+    if not isinstance(d, (int, np.integer)):
+        raise TypeError(f"d must be an integer, got {type(d).__name__}")
+    if int(d) < 3 or int(d) % 2 == 0:
+        raise ValueError(f"d must be odd and >= 3, got {d}")
+    if not isinstance(rounds, (int, np.integer)) or int(rounds) < 1:
+        raise ValueError(f"rounds must be an integer >= 1, got {rounds}")
+    for name, p in (("p_data", p_data), ("p_meas", p_meas)):
+        if not math.isfinite(p) or p < 0.0 or p >= 0.5:
+            raise ValueError(f"{name} must be in [0, 0.5), got {p}")
+    if not isinstance(shots, (int, np.integer)) or int(shots) < 1:
+        raise ValueError(f"shots must be an integer >= 1, got {shots}")
+    if not isinstance(seed, (int, np.integer)) or int(seed) < 0:
+        raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
+    if memory_basis not in {"x", "z"}:
+        raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
+
+    task = f"surface_code:rotated_memory_{memory_basis}"
+    circuit = stim.Circuit.generated(
+        task,
+        distance=int(d),
+        rounds=int(rounds),
+        before_round_data_depolarization=float(p_data),
+        before_measure_flip_probability=float(p_meas),
+    )
+    dem = circuit.detector_error_model(decompose_errors=True)
+    matching = pymatching.Matching.from_detector_error_model(dem)
+    sampler = circuit.compile_detector_sampler(seed=int(seed))
+    detectors, observables = sampler.sample(int(shots), separate_observables=True)
+    predicted = matching.decode_batch(detectors)
+    failures = np.any(predicted != observables, axis=1)
+
+    k = int(failures.sum())
+    p_logical = float(failures.mean())
+    p_tilde = (k + 0.5) / (int(shots) + 1.0)
+    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / int(shots))
+    return PhenomenologicalEstimate(
+        d=int(d),
+        rounds=int(rounds),
+        p_data=float(p_data),
+        p_meas=float(p_meas),
+        shots=int(shots),
+        seed=int(seed),
+        memory_basis=memory_basis,
+        p_logical=p_logical,
+        std_err=std_err,
+    )
+
+
+def run_phenomenological_diagnostics(
+    distances: tuple[int, ...] = (3, 5, 7),
+    *,
+    p_data: float = 0.005,
+    p_meas: float = 0.005,
+    shots: int = 20_000,
+    seed: int = 20260919,
+    memory_basis: str = "z",
+) -> dict:
+    """Bounded Multi-Round-Baseline: rounds=d fuer jede Distanz.
+
+    Das Resultat ist absichtlich eine Messmatrix und KEIN Threshold-Fit.
+    Ein spaeterer FSS/Sinter-Schritt soll p-Gitter, Konfidenzintervalle,
+    Abbruchregeln und Decodervergleiche explizit festlegen.
+    """
+    _require_surface()
+    rows = []
+    for d in distances:
+        est = surface_phenomenological_logical_error_rate(
+            d,
+            rounds=d,
+            p_data=p_data,
+            p_meas=p_meas,
+            shots=shots,
+            seed=cell_seed(seed, d, p_data + p_meas),
+            memory_basis=memory_basis,
+        )
+        rows.append(
+            {
+                "d": est.d,
+                "rounds": est.rounds,
+                "p_data": est.p_data,
+                "p_meas": est.p_meas,
+                "shots": est.shots,
+                "p_logical": est.p_logical,
+                "std_err": est.std_err,
+            }
+        )
+    return {
+        "model": (
+            "Stim rotated surface-code memory; before_round_data_depolarization=p_data; "
+            "before_measure_flip_probability=p_meas; otherwise ideal operations"
+        ),
+        "decoder": "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)",
+        "memory_basis": memory_basis,
+        "rows": rows,
+        "claim_ceiling": "bounded multi-round baseline; no literature-threshold claim",
+    }
+
+
 @dataclass(frozen=True)
 class ThresholdEstimate:
     """MWPM-Threshold-Schaetzer (Kurven-Kreuzung) vs. publizierter Literatur-Wert.
