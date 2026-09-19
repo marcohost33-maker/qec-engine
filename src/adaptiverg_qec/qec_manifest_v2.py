@@ -95,6 +95,8 @@ class QECExperimentManifestV2:
     shots_per_cell: int = 20_000
     base_seed: int = 20260919
     seed_policy: str = "manifest-sha256-v1"
+    sampling_backend: str = "direct-stim-detector-sampler"
+    reproducibility_tier: str = "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE"
     decoder: str = "pymatching-mwpm-dem"
     noise: StimNoiseProfile = field(default_factory=StimNoiseProfile)
     environment: dict[str, str] = field(default_factory=dict)
@@ -139,6 +141,10 @@ class QECExperimentManifestV2:
             raise ValueError(f"base_seed must be a non-negative int, got {self.base_seed!r}")
         if self.seed_policy != "manifest-sha256-v1":
             raise ValueError(f"unsupported seed_policy {self.seed_policy!r}")
+        if self.sampling_backend != "direct-stim-detector-sampler":
+            raise ValueError(f"unsupported sampling_backend {self.sampling_backend!r}")
+        if self.reproducibility_tier != "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE":
+            raise ValueError(f"unsupported reproducibility_tier {self.reproducibility_tier!r}")
         if self.decoder != "pymatching-mwpm-dem":
             raise ValueError(f"unsupported decoder {self.decoder!r}")
         if not isinstance(self.noise, StimNoiseProfile):
@@ -164,6 +170,7 @@ class QECExperimentManifestV2:
             "distance": distance,
             "rounds": rounds,
             "memory_basis": self.memory_basis,
+            "sampling_backend": self.sampling_backend,
             "decoder": self.decoder,
             "noise": self.noise.to_dict(),
         }
