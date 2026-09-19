@@ -113,6 +113,20 @@ Luecke, additiv und ohne Bestehendes anzufassen.
   Intervallen, FSS-Kreuzungsmodell und apples-to-apples Literaturmodell; danach circuit-level
   noise + correlated matching als separate Decoder-Linse.
 
+## Inkrement 3.2 — NoiseProfile + ExperimentManifest v2  [DONE 2026-09-19]
+
+- `StimNoiseProfile` serialisiert die vier von Stim `Circuit.generated` verwendeten
+  Noise-Achsen (data depolarization, measurement flip, Clifford depolarization, reset flip)
+  mit Schema-Version, strikter Validierung und SHA-256-Fingerprint.
+- `QECExperimentManifestV2` bindet Code-Familie, X/Z-Memory, Distanzen, Runden-Policy,
+  Shot-Budget, Decoder, NoiseProfile und Seed-Policy in einen reproduzierbaren Vertrag.
+- Zell-Seeds werden aus dem vollstaendigen Run-Vertrag per SHA-256 abgeleitet; eine
+  Aenderung des Noise-Kanals ist damit sichtbar auch eine neue RNG-Zellidentitaet.
+- `run_experiment_manifest` fuehrt diesen Vertrag direkt ueber Stim DEM -> PyMatching aus
+  und schreibt Manifest-Fingerprint sowie Dependency-Versionen in das Ergebnis.
+- **Claim ceiling bleibt bounded simulation.** FSS, Sinter, sequential stopping und
+  Literatur-Promotion sind der naechste Schritt.
+
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 
 - Statistical-mechanics mapping: der Surface-Code-Threshold == Phasenuebergang des

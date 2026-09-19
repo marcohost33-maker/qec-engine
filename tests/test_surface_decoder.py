@@ -19,6 +19,7 @@ import math
 import pytest
 
 from adaptiverg_qec import surface_decoder as sd
+from adaptiverg_qec.qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
 requires_surface = pytest.mark.skipif(
     not sd.HAVE_SURFACE,
@@ -256,3 +257,42 @@ def test_phenomenological_rejects_unknown_memory_basis() -> None:
         sd.surface_phenomenological_logical_error_rate(
             3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0, memory_basis="y"
         )
+
+
+@requires_surface
+def test_manifest_v2_executes_the_declared_noise_contract() -> None:
+    manifest = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(),
+    )
+    payload = sd.run_experiment_manifest(manifest)
+    assert payload["manifest_fingerprint"] == manifest.fingerprint()
+    assert payload["rows"][0]["d"] == 3
+    assert payload["rows"][0]["rounds"] == 3
+    assert payload["rows"][0]["seed"] == manifest.cell_seed(3)
+    assert payload["rows"][0]["p_logical"] == 0.0
+    assert payload["reproducibility"]["tier"] == manifest.reproducibility_tier
+    assert payload["runtime_environment"]["machine"]
+    assert payload["stim_version"]
+
+
+@requires_surface
+def test_manifest_v2_noise_change_changes_cell_identity_and_evidence() -> None:
+    a = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(before_measure_flip_probability=0.0),
+    )
+    b = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(before_measure_flip_probability=0.01),
+    )
+    assert a.cell_seed(3) != b.cell_seed(3)
+    pa = sd.run_experiment_manifest(a)
+    pb = sd.run_experiment_manifest(b)
+    assert pa["manifest_fingerprint"] != pb["manifest_fingerprint"]
