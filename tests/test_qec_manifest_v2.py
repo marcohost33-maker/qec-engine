@@ -62,23 +62,15 @@ def test_manifest_fixed_rounds_policy() -> None:
 
 
 def test_manifest_fingerprint_tracks_run_driving_noise() -> None:
-    a = QECExperimentManifestV2(
-        noise=StimNoiseProfile(before_measure_flip_probability=0.01)
-    )
-    b = QECExperimentManifestV2(
-        noise=StimNoiseProfile(before_measure_flip_probability=0.02)
-    )
+    a = QECExperimentManifestV2(noise=StimNoiseProfile(before_measure_flip_probability=0.01))
+    b = QECExperimentManifestV2(noise=StimNoiseProfile(before_measure_flip_probability=0.02))
     assert a.fingerprint() != b.fingerprint()
 
 
 def test_manifest_cell_seed_is_stable_and_tracks_noise_contract() -> None:
-    a = QECExperimentManifestV2(
-        noise=StimNoiseProfile(before_measure_flip_probability=0.01)
-    )
+    a = QECExperimentManifestV2(noise=StimNoiseProfile(before_measure_flip_probability=0.01))
     a2 = QECExperimentManifestV2.from_dict(a.to_dict())
-    b = QECExperimentManifestV2(
-        noise=StimNoiseProfile(before_measure_flip_probability=0.02)
-    )
+    b = QECExperimentManifestV2(noise=StimNoiseProfile(before_measure_flip_probability=0.02))
     assert a.cell_seed(3) == a2.cell_seed(3)
     assert a.cell_seed(3) != a.cell_seed(5)
     assert a.cell_seed(3) != b.cell_seed(3)
