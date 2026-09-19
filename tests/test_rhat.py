@@ -21,6 +21,8 @@ def test_well_mixed_chains_converge() -> None:
     chains = np.vstack([np.random.default_rng(s).standard_normal(3000) for s in range(8)])
     r = rhat.split_rhat(chains)
     assert r.rhat < rhat.RHAT_THRESHOLD, r.rhat
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
     assert r.converged
     # ESS plausibel: bei iid ~ M*n; >= halbe Gesamtzahl ist eine sichere Schranke.
     assert r.ess_bulk > 0.5 * chains.size
@@ -112,7 +114,11 @@ def test_identical_chains_rhat_one() -> None:
     chains = np.ones((4, 100))
     r = rhat.split_rhat(chains)
     assert np.isfinite(r.rhat)
-    assert r.rhat == pytest.approx(1.0, abs=1e-9)
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)  # numeric convention only
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_CONSTANT
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert not r.converged
 
 
 def _ar1_chains(m: int, n: int, phi: float, seed: int) -> np.ndarray:
@@ -131,9 +137,9 @@ def test_frozen_chains_have_zero_ess() -> None:
 
     REGRESSION. _ess_on gab im Zweig w<=0 AND b<=0 frueher 2M*N zurueck, also die
     MAXIMAL moegliche wirksame Stichprobe fuer eine Kette, die sich nie bewegt hat.
-    Eine Kette mit Varianz null hat die Zielverteilung nicht abgetastet und traegt
-    null Information; jede positive ESS waere eine Aussage ueber eine Stichprobe,
-    die es nicht gibt.
+    Fuer identische Draws wird deshalb fail-closed der Sentinel ESS=0 gemeldet.
+    Das ist bewusst keine Behauptung, die mathematische ESS einer extern bekannten
+    strukturell konstanten Observable sei allgemein null.
     """
     chains = np.full((4, 2000), 7.0)
     r = rhat.split_rhat(chains)
@@ -209,11 +215,13 @@ def test_rhat_alone_does_not_catch_frozen_chains() -> None:
     Das ist der Fehlschlag, den dieser Test jetzt festnagelt.
     """
     r = rhat.split_rhat(np.full((4, 2000), 7.0))
-    assert r.rhat == pytest.approx(1.0, abs=1e-9)
-    assert r.rhat_below_threshold  # <- R-hat allein ist hier NICHT diskriminierend ...
-    assert r.ess_bulk == 0.0  # <- ... die ESS ist es ...
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)  # nur Konventionswert
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_CONSTANT
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert r.ess_bulk == 0.0  # fail-closed Sentinel
     assert not r.ess_sufficient
-    assert not r.converged  # <- ... und das Verdikt folgt jetzt der ESS.
+    assert not r.converged
 
 
 def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
@@ -237,3 +245,20 @@ def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
     # Der Abstand waechst, je kuerzer die Kette ist -- fuer die kuerzeste
     # zulaessige Split-Laenge N = 2 betraegt der exakte Wert rund 0.707.
     assert float(np.sqrt((2 - 1) / 2)) == pytest.approx(0.7071067811865476, abs=1e-12)
+
+
+def test_structural_constant_requires_explicit_caller_knowledge() -> None:
+    """Domaenenwissen wird sichtbar, aber niemals in CONVERGED umetikettiert."""
+    chains = np.full((4, 2000), 7.0)
+    r = rhat.split_rhat(chains, expected_constant=True)
+    assert r.diagnostic_state is rhat.DiagnosticState.STRUCTURAL_CONSTANT
+    assert not r.rhat_defined
+    assert r.ess_bulk == 0.0
+    assert not r.converged
+
+
+def test_expected_constant_mismatch_fails_closed() -> None:
+    """Ein falscher Caller-Override darf eine variable Reihe nicht adeln."""
+    chains = np.vstack([np.arange(20.0) for _ in range(4)])
+    with pytest.raises(ValueError, match="not exactly constant"):
+        rhat.split_rhat(chains, expected_constant=True)
