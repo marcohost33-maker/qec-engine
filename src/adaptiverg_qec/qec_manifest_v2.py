@@ -94,7 +94,7 @@ class QECExperimentManifestV2:
     rounds: int | None = None
     shots_per_cell: int = 20_000
     base_seed: int = 20260919
-    seed_policy: str = "cell_seed-v1"
+    seed_policy: str = "manifest-sha256-v1"
     decoder: str = "pymatching-mwpm-dem"
     noise: StimNoiseProfile = field(default_factory=StimNoiseProfile)
     environment: dict[str, str] = field(default_factory=dict)
@@ -133,7 +133,7 @@ class QECExperimentManifestV2:
             raise ValueError(f"shots_per_cell must be an int >=1, got {self.shots_per_cell}")
         if isinstance(self.base_seed, bool) or not isinstance(self.base_seed, int) or self.base_seed < 0:
             raise ValueError(f"base_seed must be a non-negative int, got {self.base_seed!r}")
-        if self.seed_policy != "cell_seed-v1":
+        if self.seed_policy != "manifest-sha256-v1":
             raise ValueError(f"unsupported seed_policy {self.seed_policy!r}")
         if self.decoder != "pymatching-mwpm-dem":
             raise ValueError(f"unsupported decoder {self.decoder!r}")
@@ -151,6 +151,23 @@ class QECExperimentManifestV2:
         if distance not in self.distances:
             raise ValueError(f"distance {distance} not declared in manifest")
         return distance if self.rounds_policy == "distance" else int(self.rounds)
+
+    def cell_seed(self, distance: int) -> int:
+        """Deterministische Zellidentitaet aus dem vollstaendigen Run-Vertrag."""
+        rounds = self.resolved_rounds(distance)
+        payload = {
+            "base_seed": self.base_seed,
+            "distance": distance,
+            "rounds": rounds,
+            "memory_basis": self.memory_basis,
+            "decoder": self.decoder,
+            "noise": self.noise.to_dict(),
+        }
+        blob = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        digest = hashlib.sha256(blob).digest()
+        return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
