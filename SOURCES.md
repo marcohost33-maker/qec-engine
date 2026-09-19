@@ -345,3 +345,24 @@ rg_map-dtype-Fix, G3-Gate non-vakuoes. Betroffene regenerierte Artefakte:
 - **Stim**: `Circuit.generated` dokumentiert `before_round_data_depolarization` als Datenqubit-`DEPOLARIZE1(p)` zu Beginn jeder Stabilisatorrunde und `before_measure_flip_probability` als Mess-Bitflip vor Messungen.
 - **PyMatching 2**: `Matching.from_detector_error_model` + `decode_batch` ist der etablierte DEM->MWPM-Pfad; kein eigener Spacetime-Matcher.
 - Implementiert in `surface_decoder.surface_phenomenological_logical_error_rate`; Claim-Tier bewusst `bounded baseline`, keine FSS-/Threshold-Promotion.
+
+
+---
+
+## Lineage-Append — 2026-09-19: RBIM p_c Evidence-Tier korrigiert
+
+Nach Umstellung der historischen `rbim_nishimori`-Baseline von additiven Seeds auf
+hierarchisch getrennte `SeedSequence`-Streams zeigte der kleine CI-Scan
+(L=8, n_disorder=10, n_records=80) `p*=0.155` statt des zuvor erwarteten ~0.11.
+Das ist als **Statistik-/Finite-Size-Befund** behandelt worden, nicht durch Seed-Reuse
+oder ein breiteres Toleranzband "repariert".
+
+Die historischen `results/inkr4-rbim-nishimori*.json` bleiben als Provenienz erhalten,
+gelten aber als **pre-RNG-fix / historical** und nicht als aktueller eigener p_c-Nachweis.
+Default-CI prüft stattdessen exakte L=4-Orakel, Gauge-Invarianz, FM/PM-Sektor, RNG-Policy
+und die `locate_transition`-Logik deterministisch. Research-Gate: GitHub Issue #43
+(Multi-L FSS, mehr Disorder-Realisierungen, Binder/dimensionless crossings, Bootstrap-CI).
+
+Literaturanker bleibt Honecker/Picco/Pujol PRL 87, 047201 (2001), p_c=0.1094(2),
+bestimmt per Transfermatrix/domain-wall free energy; der Literaturwert ist kein Unit-Test
+für einen kleinen einzelnen Monte-Carlo-Scan.
