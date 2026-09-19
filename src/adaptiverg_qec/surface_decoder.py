@@ -45,6 +45,8 @@ KORREKTHEITS-DISZIPLIN (Codie, ehrlich):
 from __future__ import annotations
 
 import math
+import platform
+import sys
 from dataclasses import dataclass
 
 import numpy as np
@@ -446,6 +448,18 @@ def run_experiment_manifest(manifest: QECExperimentManifestV2) -> dict:
         "manifest_fingerprint": manifest.fingerprint(),
         "stim_version": stim.__version__,
         "pymatching_version": pymatching.__version__,
+        "runtime_environment": {
+            "python": sys.version.split()[0],
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+        },
+        "reproducibility": {
+            "tier": manifest.reproducibility_tier,
+            "note": (
+                "Seeded Stim sampling is exact only for the same Stim version, machine "
+                "architecture, and sampling call pattern; it is not cross-version bitwise."
+            ),
+        },
         "rows": rows,
         "claim_ceiling": "bounded multi-round simulation; no FSS/literature-threshold claim",
     }
