@@ -66,7 +66,7 @@ class StimNoiseProfile:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "StimNoiseProfile":
+    def from_dict(cls, data: dict[str, Any]) -> StimNoiseProfile:
         if not isinstance(data, dict):
             raise TypeError("noise profile must be a JSON object")
         known = set(cls.__dataclass_fields__)
@@ -131,7 +131,11 @@ class QECExperimentManifestV2:
             or self.shots_per_cell < 1
         ):
             raise ValueError(f"shots_per_cell must be an int >=1, got {self.shots_per_cell}")
-        if isinstance(self.base_seed, bool) or not isinstance(self.base_seed, int) or self.base_seed < 0:
+        if (
+            isinstance(self.base_seed, bool)
+            or not isinstance(self.base_seed, int)
+            or self.base_seed < 0
+        ):
             raise ValueError(f"base_seed must be a non-negative int, got {self.base_seed!r}")
         if self.seed_policy != "manifest-sha256-v1":
             raise ValueError(f"unsupported seed_policy {self.seed_policy!r}")
@@ -175,7 +179,7 @@ class QECExperimentManifestV2:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "QECExperimentManifestV2":
+    def from_dict(cls, data: dict[str, Any]) -> QECExperimentManifestV2:
         if not isinstance(data, dict):
             raise TypeError("experiment manifest must be a JSON object")
         known = set(cls.__dataclass_fields__)
