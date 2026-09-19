@@ -50,6 +50,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .qec_diagnostics import cell_seed, logical_error_rate_exact
+from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
 # --- optional-dependency-Gate -------------------------------------------------
 # Ohne das [surface]-Extra bleibt HAVE_SURFACE False; die Funktionen werfen einen
@@ -299,6 +300,53 @@ class PhenomenologicalEstimate:
     std_err: float
 
 
+def _generated_memory_decode(
+    d: int,
+    *,
+    rounds: int,
+    noise: StimNoiseProfile,
+    shots: int,
+    seed: int,
+    memory_basis: str,
+) -> tuple[float, float]:
+    """Gemeinsamer Stim-DEM->PyMatching-Pfad fuer versionierte Noise-Profile."""
+    _require_surface()
+    if not isinstance(d, (int, np.integer)):
+        raise TypeError(f"d must be an integer, got {type(d).__name__}")
+    if int(d) < 3 or int(d) % 2 == 0:
+        raise ValueError(f"d must be odd and >= 3, got {d}")
+    if not isinstance(rounds, (int, np.integer)) or int(rounds) < 1:
+        raise ValueError(f"rounds must be an integer >= 1, got {rounds}")
+    if not isinstance(noise, StimNoiseProfile):
+        raise TypeError("noise must be a StimNoiseProfile")
+    if not isinstance(shots, (int, np.integer)) or int(shots) < 1:
+        raise ValueError(f"shots must be an integer >= 1, got {shots}")
+    if not isinstance(seed, (int, np.integer)) or int(seed) < 0:
+        raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
+    if memory_basis not in {"x", "z"}:
+        raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
+
+    task = f"surface_code:rotated_memory_{memory_basis}"
+    circuit = stim.Circuit.generated(
+        task,
+        distance=int(d),
+        rounds=int(rounds),
+        **noise.to_stim_kwargs(),
+    )
+    dem = circuit.detector_error_model(decompose_errors=True)
+    matching = pymatching.Matching.from_detector_error_model(dem)
+    sampler = circuit.compile_detector_sampler(seed=int(seed))
+    detectors, observables = sampler.sample(int(shots), separate_observables=True)
+    predicted = matching.decode_batch(detectors)
+    failures = np.any(predicted != observables, axis=1)
+
+    k = int(failures.sum())
+    p_logical = float(failures.mean())
+    p_tilde = (k + 0.5) / (int(shots) + 1.0)
+    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / int(shots))
+    return p_logical, std_err
+
+
 def surface_phenomenological_logical_error_rate(
     d: int,
     *,
@@ -338,25 +386,18 @@ def surface_phenomenological_logical_error_rate(
     if memory_basis not in {"x", "z"}:
         raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
 
-    task = f"surface_code:rotated_memory_{memory_basis}"
-    circuit = stim.Circuit.generated(
-        task,
-        distance=int(d),
-        rounds=int(rounds),
+    noise = StimNoiseProfile(
         before_round_data_depolarization=float(p_data),
         before_measure_flip_probability=float(p_meas),
     )
-    dem = circuit.detector_error_model(decompose_errors=True)
-    matching = pymatching.Matching.from_detector_error_model(dem)
-    sampler = circuit.compile_detector_sampler(seed=int(seed))
-    detectors, observables = sampler.sample(int(shots), separate_observables=True)
-    predicted = matching.decode_batch(detectors)
-    failures = np.any(predicted != observables, axis=1)
-
-    k = int(failures.sum())
-    p_logical = float(failures.mean())
-    p_tilde = (k + 0.5) / (int(shots) + 1.0)
-    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / int(shots))
+    p_logical, std_err = _generated_memory_decode(
+        int(d),
+        rounds=int(rounds),
+        noise=noise,
+        shots=int(shots),
+        seed=int(seed),
+        memory_basis=memory_basis,
+    )
     return PhenomenologicalEstimate(
         d=int(d),
         rounds=int(rounds),
@@ -368,6 +409,46 @@ def surface_phenomenological_logical_error_rate(
         p_logical=p_logical,
         std_err=std_err,
     )
+
+
+def run_experiment_manifest(manifest: QECExperimentManifestV2) -> dict:
+    """Fuehre einen versionierten Surface-Code-MWPM-Vertrag aus."""
+    _require_surface()
+    if not isinstance(manifest, QECExperimentManifestV2):
+        raise TypeError("manifest must be QECExperimentManifestV2")
+
+    rows = []
+    for d in manifest.distances:
+        rounds = manifest.resolved_rounds(d)
+        seed = manifest.cell_seed(d)
+        p_logical, std_err = _generated_memory_decode(
+            d,
+            rounds=rounds,
+            noise=manifest.noise,
+            shots=manifest.shots_per_cell,
+            seed=seed,
+            memory_basis=manifest.memory_basis,
+        )
+        rows.append(
+            {
+                "d": d,
+                "rounds": rounds,
+                "shots": manifest.shots_per_cell,
+                "seed": seed,
+                "p_logical": p_logical,
+                "std_err": std_err,
+            }
+        )
+
+    return {
+        "tool": "adaptiverg_qec.surface_decoder.run_experiment_manifest",
+        "manifest": manifest.to_dict(),
+        "manifest_fingerprint": manifest.fingerprint(),
+        "stim_version": stim.__version__,
+        "pymatching_version": pymatching.__version__,
+        "rows": rows,
+        "claim_ceiling": "bounded multi-round simulation; no FSS/literature-threshold claim",
+    }
 
 
 def run_phenomenological_diagnostics(
@@ -385,39 +466,25 @@ def run_phenomenological_diagnostics(
     Ein spaeterer FSS/Sinter-Schritt soll p-Gitter, Konfidenzintervalle,
     Abbruchregeln und Decodervergleiche explizit festlegen.
     """
-    _require_surface()
-    rows = []
-    for d in distances:
-        est = surface_phenomenological_logical_error_rate(
-            d,
-            rounds=d,
-            p_data=p_data,
-            p_meas=p_meas,
-            shots=shots,
-            seed=cell_seed(seed, d, p_data + p_meas),
-            memory_basis=memory_basis,
-        )
-        rows.append(
-            {
-                "d": est.d,
-                "rounds": est.rounds,
-                "p_data": est.p_data,
-                "p_meas": est.p_meas,
-                "shots": est.shots,
-                "p_logical": est.p_logical,
-                "std_err": est.std_err,
-            }
-        )
-    return {
-        "model": (
-            "Stim rotated surface-code memory; before_round_data_depolarization=p_data; "
-            "before_measure_flip_probability=p_meas; otherwise ideal operations"
+    manifest = QECExperimentManifestV2(
+        memory_basis=memory_basis,
+        distances=tuple(distances),
+        shots_per_cell=shots,
+        base_seed=seed,
+        noise=StimNoiseProfile(
+            before_round_data_depolarization=p_data,
+            before_measure_flip_probability=p_meas,
         ),
-        "decoder": "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)",
-        "memory_basis": memory_basis,
-        "rows": rows,
-        "claim_ceiling": "bounded multi-round baseline; no literature-threshold claim",
-    }
+    )
+    payload = run_experiment_manifest(manifest)
+    payload["model"] = (
+        "Stim rotated surface-code memory; versioned StimNoiseProfile; "
+        "rounds=distance for this bounded baseline"
+    )
+    payload["decoder"] = "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)"
+    payload["memory_basis"] = memory_basis
+    payload["claim_ceiling"] = "bounded multi-round baseline; no literature-threshold claim"
+    return payload
 
 
 @dataclass(frozen=True)
