@@ -252,6 +252,25 @@ Jeffreys-regularisierte Standardfehler (Null-Ereignis-Zellen sind jetzt falsifiz
 konstante Ketten mit verschiedenen Mitteln als nicht-konvergiert, Manifest-Validierung an der
 Vertrauensgrenze, `rg_map`-dtype-Härtung.
 
+## Issue #43: Nishimori-`p_c` mit Multi-L-FSS — Research-Gate (NEU, Inkr.5)
+
+Der frühere Einzel-L-`|m|`-Scan (Inkr.4) war statistisch unterdimensioniert. Der eigene
+`p_c`-Claim ruht jetzt auf **zwei methodisch unabhängigen Wegen**, jeweils mit exakten Orakeln,
+Bootstrap-CIs und regenerierbarem Evidenz-Pack:
+
+| Weg | Methode | Orakel / Zertifikat | Ergebnis |
+|---|---|---|---|
+| MC (`rbim_fss.py`) | Zwei-Replika-Metropolis, vektorisiert über 1000 Realisierungen/Zelle, L=6–12; Crossings + Collapse von `U4`, `xi/L` | Nishimori-Energie `-2(1-2p)` + `[m^2]=[q^2]` je Zelle (alle \|z\|<2.8); Bracket hot/aligned + Verdopplung bei L=12 (\|z\|≤0.87) | `xi/L`: **`p_c = 0.1096 [0.1073, 0.1120]`**, `nu = 1.43 [1.12, 1.91]` |
+| exakt (`planar_ml.py`) | ML-Decoder des planaren Surface-Codes = exakte RBIM-Zustandssummen per Transfer-Matrix, d=5–13, gepaart gegen MWPM | log Z == Brute-Force-Coset-Enumeration (\|Δ\|<1e-10); exakte d=3-ML-Rate aus allen 2^13 Fehlern | ML: **`p_c = 0.1084 [0.1078, 0.1089]`**, **`nu = 1.55 [1.46, 1.65]`**; d=13-Crossings enthalten 0.1092 im CI; MWPM gepaart: `p_c = 0.1028 [0.1023, 0.1034]`, ML besser in 35/35 Zellen (z≥11.8) |
+
+Literaturanker: `p_c = 0.10919(7)`, `nu = 1.53(4)` (Hasenbusch et al., PRE 77, 051115, 2008);
+MWPM `≈ 0.103`. **Claim-Tier:** FSS-gestützte Simulation bei kleinem L/d, keine
+Korrektur-zum-Scaling-Kontrolle (der ML-Collapse führender Ordnung liegt ~0.0008 unter dem
+Literaturwert und schließt ihn knapp aus), kein Frontier-Wert. **Dokumentiertes Negativ-Resultat:**
+Single-Spin-Metropolis zertifiziert für L≥16 kein Gleichgewicht im Budget; der RBIM-Wolff-Cluster
+degeneriert am Nishimori-Punkt zum globalen Flip (99.4 % des Gitters). Details:
+`docs/ROADMAP.md` (Inkr.5).
+
 ## Schnellstart
 
 ```bash
@@ -268,6 +287,8 @@ pip install ".[surface]"                       # optionales MWPM-Extra (stim + p
 python -m adaptiverg_qec.surface_decoder      # results/qec-surface-mwpm.json (Inkr.3, braucht [surface])
 python -m adaptiverg_qec.mcrg_matrix    # schreibt results/phase3b-swendsen-matrix.json
 python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.json (Wolff+Multi-RG+y_h)
+python -m adaptiverg_qec.rbim_fss       # results/rbim-nishimori-fss-mc.json (Issue #43, MC-FSS, ~6 min/4 Kerne)
+python -m adaptiverg_qec.planar_ml      # results/planar-ml-threshold.json (Issue #43, exakter ML vs MWPM, [surface])
 ```
 
 ## Inhalt

@@ -204,5 +204,60 @@ gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über
   `p* ≈ p_c` → die MCRG-Exponenten-Maschinerie misst (im Rahmen der Auflösung) **dasselbe Objekt** wie der
   QEC-Threshold → der **„nicht-splitten"-Architektur-Entscheid ist empirisch gestützt**.
 
+
+## ROADMAP-Inkr.5 — Nishimori-`p_c` Research-Gate (Issue #43)  [DONE 2026-09-25, Branch `claude/qec-engines-next-steps-1b3hne`]
+
+Antwort auf Issue #43: den eigenen numerischen Nishimori-`p_c` nicht aus einem einzelnen kleinen
+`|m|`-Scan, sondern mit **Multi-L-Finite-Size-Scaling, Bootstrap-CIs und exakten Orakeln** belegen.
+Zwei methodisch unabhängige Wege, beide additiv (keine neuen Kern-Dependencies):
+
+1. **Monte-Carlo-FSS (`rbim_fss.py`).** Über Disorder-Realisierungen vektorisierter
+   Checkerboard-Metropolis mit zwei thermischen Replikas je Realisierung; Observablen
+   `U4=[<m^4>]/[<m^2>]^2` und Second-Moment-`xi/L` auf einem dichten p-Gitter
+   (0.095–0.125); lokale Crossing-Fits je L-Paar und Collapse-Fit
+   `f((p-p_c) L^{1/nu})`; Bootstrap über Realisierungen (Zellen unabhängig geseedet).
+   **Exakte Orakel je Zelle:** Nishimori-Energie `[<E>]/N = -2(1-2p)` und Identität
+   `[<m^2>]=[<q^2>]`. **Thermalisierungs-Zertifikate:** Bracket hot-vs-aligned auf
+   identischen Bonds (der aligned Start ist das Gauge-Bild der *planted* Konfiguration →
+   `m^2` relaxiert von oben, hot vergröbert von unten) plus Verdopplungstest (Burn-in b vs b/4).
+   **Gemessen (`results/rbim-nishimori-fss-mc.json`, L=6/8/10/12, 1000 Realisierungen je Zelle,
+   28 Zellen):** alle Orakel |z|<2.8; Bracket L=12: |z|≤0.87, Verdopplung |z|≤0.41.
+   Collapse `xi/L`: **`p_c = 0.1096 [0.1073, 0.1120]`, `nu = 1.43 [1.12, 1.91]`**
+   (χ²/dof 0.70); `U4`: `p_c = 0.1105 [0.1076, 0.1132]`, `nu = 1.43 [1.07, 2.14]`
+   (χ²/dof 0.85) — konsistent mit Hasenbusch et al. 2008 (`0.10919(7)`, `nu = 1.53(4)`).
+   Paarweise Crossings sind bei diesen L breit (10–12: fast parallele Kurven, 31–37 %
+   Bootstrap-Ausfälle) und werden so ausgewiesen.
+   **Negativ-Resultat (dokumentiert, nicht kaschiert):** für L≥16 konnte Single-Spin-Metropolis
+   innerhalb des Budgets KEIN Gleichgewicht zertifizieren — der aligned Start driftet zwischen
+   4000/16000 Sweeps (L=16) bzw. 10000/40000 (L=24) noch systematisch (U4 +0.02 je 4x),
+   der hot Start liegt bei L=24 nach 10000 Sweeps noch 7.7σ darunter. Der RBIM-Wolff-Cluster
+   hilft am Nishimori-Punkt nicht (Cluster = 99.4 % des Gitters, d.h. globaler Flip).
+2. **Exakter ML-Decoder per Transfer-Matrix (`planar_ml.py`).** Coset-Wahrscheinlichkeit des
+   planaren Surface-Codes = RBIM-Zustandssumme auf der Nishimori-Linie; der ML-Decoder vergleicht
+   `Z(E)` und `Z(E Xbar)` EXAKT (Zeilen-Transfer-Matrix, `2^(d-1)` Zustände) — jedes thermische
+   Mittel ist exakt, es gibt **kein Thermalisierungsproblem**, nur Disorder-Sampling.
+   Gepaart auf identischen Samples gegen PyMatching-MWPM. Orakel: log Z == Brute-Force-
+   Coset-Enumeration (d=2..4, |Δ|<1e-10), exakte d=3-ML-Rate aus allen 2^13 Fehlern.
+   **Gemessen (`results/planar-ml-threshold.json`, d=5/7/9/11/13, p=0.095–0.125,
+   200k/200k/100k/50k/25k Samples je Zelle, 0 Gleichstände):** ML-Collapse
+   **`p_c = 0.1084 [0.1078, 0.1089]`, `nu = 1.55 [1.46, 1.65]`** (χ²/dof 1.30); die paarweisen
+   Crossings mit d=13 enthalten den Literaturwert in ihren 95 %-CIs (5–13: 0.1093 [0.1079, 0.1103],
+   7–13: 0.1091 [0.1075, 0.1106], 9–13: 0.1101 [0.1077, 0.1122]). **Ehrlich:** der Collapse in
+   führender Ordnung (ohne Korrektur-zum-Scaling-Term) liegt ~0.0008 unter `0.10919(7)` und
+   schließt ihn knapp aus — bei d≤13 mit offenen Rändern erwartbar; `nu` trifft `1.53(4)`.
+   Gepaarter Baseline-Vergleich: MWPM-Collapse `p_c = 0.1028 [0.1023, 0.1034]` (Literatur ≈0.103),
+   `nu = 1.50`; ML ist in **allen 35 Zellen** gepaart besser (z ≥ 11.8), die Threshold-Lücke
+   ML−MWPM = 0.0056 ist vergleichbar mit der Literaturlücke 0.1092−0.103 ≈ 0.006.
+
+- **Claim-Tier:** „FSS-supported simulation, small L/d" — keine Kontrolle von
+  Korrekturen-zum-Scaling, kein Frontier-Wert; Literaturwerte sind Anker, keine Unit-Tests.
+- **Regen:** `python -m adaptiverg_qec.rbim_fss --Ls 6 8 10 12 --n-disorder 1000 --n-records 1000
+  --n-skip 2 --burn-in 6:2000 8:4000 10:8000 12:16000 --bracket-ps 0.095 0.110 --json
+  results/rbim-nishimori-fss-mc.json` (≈6 min, 4 Kerne) und `python -m adaptiverg_qec.planar_ml`
+  (braucht `[surface]` für die MWPM-Paarung; `--no-mwpm` sonst).
+- **Offen:** größere L im MC nur mit besserem Sampler (Parallel Tempering oder exaktes planares
+  Sampling); größere d im ML-Pfad nur approximativ (MPS, Bravyi/Suchara/Vargo 2014);
+  Korrekturen-zum-Scaling-Fit.
+
 ---
 *Coworker Research | aus AdaptiveRG-QEC Spec v1.0 hardened | Inkr.4 (Brücke) DONE 2026-06-19*

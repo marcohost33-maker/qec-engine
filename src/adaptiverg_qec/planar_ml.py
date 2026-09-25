@@ -527,7 +527,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--shots",
         nargs="+",
-        default=["5:100000", "7:100000", "9:60000", "11:40000", "13:20000"],
+        default=["5:200000", "7:200000", "9:100000", "11:50000", "13:25000"],
         help="d:shots pairs",
     )
     ap.add_argument("--no-mwpm", action="store_true")

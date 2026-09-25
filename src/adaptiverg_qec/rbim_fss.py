@@ -891,27 +891,27 @@ def _parse_burn_in(items: Sequence[str]) -> dict[int, int]:
 
 def _main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--Ls", type=int, nargs="+", default=[8, 12, 16, 24])
+    ap.add_argument("--Ls", type=int, nargs="+", default=[6, 8, 10, 12])
     ap.add_argument(
         "--ps",
         type=float,
         nargs="+",
         default=[0.095, 0.100, 0.105, 0.110, 0.115, 0.120, 0.125],
     )
-    ap.add_argument("--n-disorder", type=int, default=400)
+    ap.add_argument("--n-disorder", type=int, default=1000)
     ap.add_argument("--n-records", type=int, default=1000)
     ap.add_argument("--n-skip", type=int, default=2)
     ap.add_argument(
         "--burn-in",
         nargs="+",
-        default=["8:1000", "12:2000", "16:4000", "24:10000", "32:20000"],
+        default=["6:2000", "8:4000", "10:8000", "12:16000"],
         help="L:sweeps pairs",
     )
-    ap.add_argument("--bracket-ps", type=float, nargs="*", default=[0.110])
+    ap.add_argument("--bracket-ps", type=float, nargs="*", default=[0.095, 0.110])
     ap.add_argument("--n-boot", type=int, default=400)
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--seed", type=int, default=20260925)
-    ap.add_argument("--json", type=Path, default=Path("results/rbim-nishimori-fss.json"))
+    ap.add_argument("--json", type=Path, default=Path("results/rbim-nishimori-fss-mc.json"))
     raw = list(argv) if argv is not None else sys.argv[1:]
     a = ap.parse_args(raw)
     t0 = time.perf_counter()

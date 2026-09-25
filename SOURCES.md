@@ -336,3 +336,31 @@ rg_map-dtype-Fix, G3-Gate non-vakuoes. Betroffene regenerierte Artefakte:
 `results/qec-fit-diagnostics-rep-code.json`, `results/qec-surface-mwpm.json`, `results/selftest.json`.
 
 *Claude Code | 2026-08-09 | Phase-6-Append | Reality-Anchor: dev/Prototyp, bounded orakel-validiert, nicht selbst-zertifiziert*
+
+
+---
+
+## Lineage-Append — 2026-09-25: Issue #43 Nishimori-`p_c` Research-Gate (Inkr.5)
+
+- **Literaturanker (V1, peer-reviewed):** Hasenbusch, Parisen Toldin, Pelissetto, Vicari,
+  *Multicritical Nishimori point in the phase diagram of the ±J Ising model on a square lattice*,
+  Phys. Rev. E 77, 051115 (2008), doi:10.1103/PhysRevE.77.051115 — `p* = 0.89081(7)` in der
+  +J-Konvention, also `p_c = 1 − p* = 0.10919(7)`; `y_1 = 0.655(15)` → `nu = 1/y_1 ≈ 1.53(4)`.
+  Honecker, Picco, Pujol, PRL 87, 047201 (2001): `p_c = 0.1094(2)` (Transfermatrix,
+  Domain-Wall-Freie-Energie). Beide als **Anker**, nicht als Unit-Test.
+- **Exakte Nishimori-Identitäten:** H. Nishimori, Prog. Theor. Phys. 66, 1169 (1981):
+  `[<H>] = −N_B tanh(beta_N)` und `[<s_i s_j>] = [<s_i s_j>^2]` auf der Nishimori-Linie →
+  Orakel `[<E>]/N = −2(1−2p)` und `[<m^2>] = [<q^2>]` in `rbim_fss.py`.
+- **Planted/aligned Start:** Gauge-Argument (Nishimori-Linie = planted Ensemble); „quiet
+  planting": Krzakala & Zdeborová, PRL 102, 238701 (2009). Genutzt als Startbedingung, deren
+  `m^2` von oben relaxiert (Bracket gegen den hot Start von unten).
+- **Coset ↔ RBIM-Mapping:** Dennis, Kitaev, Landahl, Preskill, J. Math. Phys. 43, 4452 (2002).
+  Exakte ML-Dekodierung per Transfer-Matrix (`planar_ml.py`); für größere d approximiert die
+  Literatur per MPS: Bravyi, Suchara, Vargo, PRA 90, 032326 (2014) (NICHT implementiert).
+- **Web-Recherche 2026-09-25** (Anker bestätigt): APS-Abstract PRE 77, 051115; arXiv
+  cond-mat/0010143 (Honecker et al.). arXiv/archive.org waren vom Egress-Proxy blockiert —
+  Volltexte daher nicht eingesehen; nur Abstract-Werte verwendet.
+- **Eigene, reproduzierbare Evidenz:** `results/rbim-nishimori-fss-mc.json`,
+  `results/planar-ml-threshold.json` (Kommandos im jeweiligen `command`-Feld).
+
+*Claude Code | 2026-09-25 | Inkr.5-Append | Claim-Tier: FSS-supported simulation, small L/d*
