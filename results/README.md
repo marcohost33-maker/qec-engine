@@ -50,6 +50,30 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json
   ```
 
+- `rbim-nishimori-fss-mc.json` — **Issue #43, Weg 1 (Monte Carlo):** Multi-L-FSS des 2D-±J-RBIM
+  auf der Nishimori-Linie (L=6/8/10/12, 7 p-Werte, 1000 Realisierungen je Zelle). Je Zelle
+  `U4`, `xi/L`, exakte Nishimori-Orakel (Energie, `[m^2]=[q^2]`) mit z-Scores, τ_int;
+  Bracket hot/aligned + Verdopplungstest bei L=12; paarweise Crossings + Collapse `(p_c, nu)`
+  mit Bootstrap-CIs; Umgebung/Seeds/Claim-Tier. Reproduzierbar via:
+
+  ```bash
+  python -m adaptiverg_qec.rbim_fss --Ls 6 8 10 12 --n-disorder 1000 --n-records 1000 --n-skip 2 \
+      --burn-in 6:2000 8:4000 10:8000 12:16000 --bracket-ps 0.095 0.110 \
+      --json results/rbim-nishimori-fss-mc.json
+  ```
+
+- `planar-ml-threshold.json` — **Issue #43, Weg 2 (exakt):** ML-Decoder des planaren
+  Surface-Codes per Transfer-Matrix (exakte RBIM-Zustandssummen) gepaart gegen PyMatching-MWPM
+  auf identischen Samples, d=5..13; Fehlerraten mit Jeffreys-Fehlern, gepaarte Differenz
+  MWPM−ML, Crossings + Collapse für beide Decoder. Reproduzierbar via (braucht `[surface]`):
+
+  ```bash
+  python -m adaptiverg_qec.planar_ml --json results/planar-ml-threshold.json
+  ```
+
+- `inkr4-rbim-nishimori*.json` — **historisch** (Einzel-L-`|m|`-Scan vor der RNG-Härtung);
+  kein aktueller `p_c`-Nachweis, s. Issue #43 und die beiden Artefakte oben.
+
 Die SHA-256 dieser Logs ist lauf-spezifisch (Zeitstempel/Elapsed) und wird daher nicht
 in SOURCES.md gepinnt — die Reproduktion erfolgt durch erneuten Lauf. CI lädt zusätzlich
 `results/selftest-ci.json` als Artefakt hoch.
