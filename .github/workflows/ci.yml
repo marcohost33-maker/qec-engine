@@ -85,5 +85,5 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,surface]"
 
-      - name: Pytest (surface decoder MWPM tests)
-        run: pytest tests/test_surface_decoder.py -v
+      - name: Pytest (surface decoder + paired ML-vs-MWPM tests)
+        run: pytest tests/test_surface_decoder.py tests/test_planar_ml.py -v
