@@ -101,7 +101,9 @@ Luecke, additiv und ohne Bestehendes anzufassen.
 - `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`). Tests
   `tests/test_surface_decoder.py` (Orakel A/B + Threshold-Verhalten + Silent-Failure-Gate
   + optional-dep-Gate-Verhalten).
-- **Inkrement 3.1 [DONE 2026-09-19]: Multi-Round-Phenomenological-Baseline.**
+- **Inkrement 3.1 [CODE+TESTS 2026-09-19; Gate-Log in `results/` OFFEN]:
+  Multi-Round-Phenomenological-Baseline.** Erst mit committetem, regenerierbarem Gate-Log
+  gilt das Inkrement als erledigt (AGENTS.md Working agreement 1).
   `surface_phenomenological_logical_error_rate` nutzt Stim `rotated_memory_x/z` mit exakt
   dokumentierter Noise-Policy: `before_round_data_depolarization=p_data` plus
   `before_measure_flip_probability=p_meas`, ansonsten ideale Operationen. Der Stim-DEM

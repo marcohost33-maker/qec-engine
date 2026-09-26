@@ -226,7 +226,7 @@ Kern-Dependency; ohne das Extra SKIPPEN die Tests (verifiziert: dev-only-venv 3 
 gegen 0.103 (MWPM), NICHT gegen 0.1094 (optimal/ML) — ein Schaetzer, der 0.109 „erreicht",
 waere verdaechtig. Endliche Distanzen → KEINE L→∞-FSS; der Kreuzungs-Schaetzer driftet von
 unten zum Threshold (sichtbar: (7,9)<(9,11)). Phenomenological Multi-Round-Sampling ist seit 2026-09-19 als klar spezifizierte Stim-Baseline
-implementiert (Daten-DEPOLARIZE1 je Runde + Mess-Flip; PyMatching aus DEM). Ein numerischer
+als Code + Tests vorhanden, Gate-Log in `results/` noch offen (Daten-DEPOLARIZE1 je Runde + Mess-Flip; PyMatching aus DEM). Ein numerischer
 ~2.9%-Literatur-Threshold wird bewusst NICHT als Orakel verwendet, bis Noise-Konvention und FSS
 apples-to-apples festgelegt sind. Jede genannte Zahl ist aus
 `python -m adaptiverg_qec.surface_decoder` → `results/qec-surface-mwpm.json` regenerierbar
