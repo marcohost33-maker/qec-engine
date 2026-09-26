@@ -197,8 +197,11 @@ def confidence_interval(
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
     if n < 1:
         raise ValueError(f"n must be >= 1, got {n}")
-    if sigma2_g < 0.0:
-        raise ValueError(f"sigma2_g must be >= 0, got {sigma2_g}")
+    # Issue #46: positiv formuliert und endlich -- ``sigma2_g < 0.0`` liess NaN durch.
+    if not (np.isfinite(sigma2_g) and sigma2_g >= 0.0):
+        raise ValueError(f"sigma2_g must be finite and >= 0, got {sigma2_g}")
+    if not np.isfinite(mean):
+        raise ValueError(f"mean must be finite, got {mean}")
     z = float(stats.norm.ppf(1.0 - alpha / 2.0))
     half = z * np.sqrt(sigma2_g / n)
     return (mean - half, mean + half)

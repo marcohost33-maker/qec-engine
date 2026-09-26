@@ -74,9 +74,13 @@ def autocorr_function_fft(x: np.ndarray) -> np.ndarray:
     n = x.size
     if n < 2:
         raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
+    if not np.all(np.isfinite(x)):
+        # Issue #46: NaN/inf machen ``var0`` nicht-endlich; ``var0 <= 0.0`` waere
+        # dann False und die Reihe liefe als "gueltig" in ein NaN-Ergebnis.
+        raise ValueError("samples must be finite (NaN/inf found)")
     xc = x - x.mean()
     var0 = float(np.dot(xc, xc) / n)  # = Var(x) (biased, = gamma(0))
-    if var0 <= 0.0:
+    if not (var0 > 0.0):  # positiv formuliert: jeder nicht-positive Fall faellt hier
         raise ValueError("constant series: Var(x)=0, autocorrelation undefined")
     # Null-Padding auf >= 2N-1 (verhindert zyklische Faltung); naechste 2er-Potenz.
     nfft = 1 << (2 * n - 1).bit_length()
@@ -143,7 +147,7 @@ def integrated_autocorr_time(
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if c_window <= 0:
+    if not (c_window > 0):  # NaN-sicher (Issue #46)
         raise ValueError(f"c_window must be > 0, got {c_window}")
     if rho is None:
         rho = autocorr_function_fft(x)
