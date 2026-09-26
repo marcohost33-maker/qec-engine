@@ -269,8 +269,10 @@ def test_phenomenological_payload_records_base_and_cell_seeds() -> None:
     payload = sd.run_phenomenological_diagnostics(
         distances=(3,), p_data=0.005, p_meas=0.005, shots=200, seed=12345
     )
-    assert payload["seed"] == 12345
+    # .get/in statt [..]: fehlende Provenienz soll als Assertion scheitern, nicht als KeyError.
+    assert payload.get("seed") == 12345
     row = payload["rows"][0]
+    assert "seed" in row, sorted(row)
     replay = sd.surface_phenomenological_logical_error_rate(
         3, rounds=row["rounds"], p_data=0.005, p_meas=0.005, shots=200, seed=row["seed"]
     )
