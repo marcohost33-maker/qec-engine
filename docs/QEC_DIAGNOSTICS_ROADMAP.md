@@ -115,7 +115,12 @@ Luecke, additiv und ohne Bestehendes anzufassen.
   Intervallen, FSS-Kreuzungsmodell und apples-to-apples Literaturmodell; danach circuit-level
   noise + correlated matching als separate Decoder-Linse.
 
-## Inkrement 3.2 — NoiseProfile + ExperimentManifest v2  [DONE 2026-09-19]
+## Inkrement 3.2 — NoiseProfile + ExperimentManifest v2  [CODE+TESTS 2026-09-19; Gate-Log OFFEN]
+
+Erst mit einem committeten Gate-Log in `results/`, das den Manifest-Ausfuehrungspfad
+(`run_experiment_manifest`) tatsaechlich faehrt, gilt das Inkrement als erledigt
+(AGENTS.md Working agreement 1); `results/qec-surface-mwpm.json` ist aelter und faehrt
+diesen Pfad nicht.
 
 - `StimNoiseProfile` serialisiert die vier von Stim `Circuit.generated` verwendeten
   Noise-Achsen (data depolarization, measurement flip, Clifford depolarization, reset flip)

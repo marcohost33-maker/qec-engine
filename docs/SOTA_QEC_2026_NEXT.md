@@ -133,7 +133,7 @@ Optionaler Forschungszweig:
 
 1. PR #39 gruener machen und integrieren: R-hat-Semantik + RBIM-Streams.
 2. PR #40 gruener machen und integrieren: bounded Multi-Round-Phenomenological-Baseline.
-3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren. **Umgesetzt in PR #41.**
+3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren. **Code + Tests in PR #41; Gate-Log in `results/` offen.**
 4. Sinter-Reproduzierbarkeitsgate aus Issue #42 klaeren; danach Sweep-Engine mit sequential stopping.
 5. Wilson/Beta-Intervalle + Bootstrap-FSS.
 6. correlated-MWPM A/B-Linse.
