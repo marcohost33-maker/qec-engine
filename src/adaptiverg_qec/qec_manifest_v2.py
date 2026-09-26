@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field, fields
+from types import MappingProxyType
 from typing import Any
 
 NOISE_PROFILE_SCHEMA = "adaptiverg_qec.stim_noise_profile/v1"
@@ -28,6 +30,21 @@ def _probability(name: str, value: float) -> float:
     if not (0.0 <= value <= 1.0):
         raise ValueError(f"{name} must be in [0, 1], got {value}")
     return value
+
+
+def _require_exact_keys(kind: str, data: dict[str, Any], known: set[str]) -> None:
+    """Deserialisierung ist fail-closed: jedes Vertragsfeld muss explizit vorliegen.
+
+    Fehlende Felder duerfen NICHT still durch Dataclass-Defaults ersetzt werden --
+    sonst liefe aus ``{}`` oder einem abgeschnittenen JSON ein anderes Experiment
+    unter scheinbar gueltigem v2-Vertrag.
+    """
+    unknown = set(data) - known
+    if unknown:
+        raise ValueError(f"{kind} has unknown keys: {sorted(unknown)}")
+    missing = known - set(data)
+    if missing:
+        raise ValueError(f"{kind} has missing keys: {sorted(missing)}")
 
 
 @dataclass(frozen=True)
@@ -69,10 +86,7 @@ class StimNoiseProfile:
     def from_dict(cls, data: dict[str, Any]) -> StimNoiseProfile:
         if not isinstance(data, dict):
             raise TypeError("noise profile must be a JSON object")
-        known = set(cls.__dataclass_fields__)
-        unknown = set(data) - known
-        if unknown:
-            raise ValueError(f"noise profile has unknown keys: {sorted(unknown)}")
+        _require_exact_keys("noise profile", data, set(cls.__dataclass_fields__))
         return cls(**data)
 
     def fingerprint(self) -> str:
@@ -99,7 +113,9 @@ class QECExperimentManifestV2:
     reproducibility_tier: str = "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE"
     decoder: str = "pymatching-mwpm-dem"
     noise: StimNoiseProfile = field(default_factory=StimNoiseProfile)
-    environment: dict[str, str] = field(default_factory=dict)
+    environment: Mapping[str, str] = field(default_factory=dict)
+    """Provenienz (z.B. Hardware-Fingerprint). Wird bei der Konstruktion kopiert und
+    read-only eingefroren; geht in fingerprint(), aber bewusst NICHT in cell_seed()."""
 
     def __post_init__(self) -> None:
         if self.schema != EXPERIMENT_MANIFEST_SCHEMA:
@@ -152,10 +168,13 @@ class QECExperimentManifestV2:
                 object.__setattr__(self, "noise", StimNoiseProfile.from_dict(self.noise))
             else:
                 raise TypeError("noise must be StimNoiseProfile or a compatible dict")
-        if not isinstance(self.environment, dict) or not all(
+        if not isinstance(self.environment, Mapping) or not all(
             isinstance(k, str) and isinstance(v, str) for k, v in self.environment.items()
         ):
             raise TypeError("environment must be dict[str, str]")
+        # Defensive Kopie + read-only: sonst aendern sich Inhalt und Fingerprint des
+        # "frozen" Manifests, wenn der Aufrufer sein dict nachtraeglich mutiert.
+        object.__setattr__(self, "environment", MappingProxyType(dict(self.environment)))
 
     def resolved_rounds(self, distance: int) -> int:
         if distance not in self.distances:
@@ -163,17 +182,17 @@ class QECExperimentManifestV2:
         return distance if self.rounds_policy == "distance" else int(self.rounds)
 
     def cell_seed(self, distance: int) -> int:
-        """Deterministische Zellidentitaet aus dem vollstaendigen Run-Vertrag."""
+        """Deterministische Zellidentitaet aus dem vollstaendigen Run-Vertrag.
+
+        Eingang ist das kanonische Manifest (jedes laufbestimmende Feld, inkl.
+        Shot-Budget, Distanz-Sweep und Runden-Policy) plus der Zell-Selektor.
+        Ausgenommen ist nur ``environment``: reine Provenienz, damit derselbe
+        Vertrag auf anderer Hardware denselben Zufallsstrom anfordert.
+        """
         rounds = self.resolved_rounds(distance)
-        payload = {
-            "base_seed": self.base_seed,
-            "distance": distance,
-            "rounds": rounds,
-            "memory_basis": self.memory_basis,
-            "sampling_backend": self.sampling_backend,
-            "decoder": self.decoder,
-            "noise": self.noise.to_dict(),
-        }
+        contract = self.to_dict()
+        del contract["environment"]
+        payload = {"contract": contract, "distance": distance, "rounds": rounds}
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
             "utf-8"
         )
@@ -181,18 +200,17 @@ class QECExperimentManifestV2:
         return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
 
     def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
+        d: dict[str, Any] = {f.name: getattr(self, f.name) for f in fields(self)}
         d["distances"] = list(self.distances)
+        d["noise"] = self.noise.to_dict()
+        d["environment"] = dict(self.environment)
         return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QECExperimentManifestV2:
         if not isinstance(data, dict):
             raise TypeError("experiment manifest must be a JSON object")
-        known = set(cls.__dataclass_fields__)
-        unknown = set(data) - known
-        if unknown:
-            raise ValueError(f"experiment manifest has unknown keys: {sorted(unknown)}")
+        _require_exact_keys("experiment manifest", data, set(cls.__dataclass_fields__))
         clean = dict(data)
         if "distances" in clean:
             clean["distances"] = tuple(clean["distances"])

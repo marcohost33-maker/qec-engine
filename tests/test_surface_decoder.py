@@ -391,3 +391,14 @@ def test_manifest_v2_noise_change_changes_cell_identity_and_evidence() -> None:
     pa = sd.run_experiment_manifest(a)
     pb = sd.run_experiment_manifest(b)
     assert pa["manifest_fingerprint"] != pb["manifest_fingerprint"]
+
+
+@requires_surface
+def test_phenomenological_rows_keep_p_data_and_p_meas() -> None:
+    """Codex #41: das Zeilenschema des oeffentlichen Wrappers bleibt kompatibel."""
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.004, p_meas=0.006, shots=20, seed=5
+    )
+    row = payload["rows"][0]
+    assert row["p_data"] == 0.004
+    assert row["p_meas"] == 0.006

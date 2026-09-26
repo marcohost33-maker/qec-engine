@@ -102,3 +102,78 @@ def test_manifest_invalid_contracts_fail_closed(kwargs: dict) -> None:
 def test_manifest_rejects_unknown_json_keys() -> None:
     with pytest.raises(ValueError, match="unknown keys"):
         QECExperimentManifestV2.from_dict({"surprise": True})
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41: Seed aus dem ganzen Vertrag, strikte Deserialisierung,
+# eingefrorenes environment.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"shots_per_cell": 40_000},
+        {"distances": (3, 5)},
+        {"rounds_policy": "fixed", "rounds": 3},
+    ],
+)
+def test_manifest_cell_seed_tracks_every_run_driving_field(change: dict) -> None:
+    """Verschiedene Run-Vertraege duerfen fuer dieselbe Distanz keinen Stream teilen."""
+    base = QECExperimentManifestV2(distances=(3, 5, 7))
+    other = QECExperimentManifestV2(**{"distances": (3, 5, 7), **change})
+    assert other.fingerprint() != base.fingerprint()
+    assert other.cell_seed(3) != base.cell_seed(3)
+
+
+def test_manifest_cell_seed_ignores_environment_provenance() -> None:
+    """environment ist Provenienz (Hardware-Fingerprint), kein Zufallsstrom-Treiber."""
+    a = QECExperimentManifestV2(environment={"host": "a"})
+    b = QECExperimentManifestV2(environment={"host": "b"})
+    assert a.fingerprint() != b.fingerprint()
+    assert a.cell_seed(3) == b.cell_seed(3)
+
+
+def test_manifest_from_dict_rejects_empty_object() -> None:
+    with pytest.raises(ValueError, match="missing keys"):
+        QECExperimentManifestV2.from_dict({})
+
+
+@pytest.mark.parametrize(
+    "drop", ["schema", "noise", "shots_per_cell", "decoder", "seed_policy", "base_seed"]
+)
+def test_manifest_from_dict_rejects_truncated_contract(drop: str) -> None:
+    data = QECExperimentManifestV2().to_dict()
+    del data[drop]
+    with pytest.raises(ValueError, match="missing keys"):
+        QECExperimentManifestV2.from_dict(data)
+
+
+def test_noise_profile_from_dict_rejects_truncated_profile() -> None:
+    data = StimNoiseProfile(before_measure_flip_probability=0.01).to_dict()
+    del data["schema"]
+    with pytest.raises(ValueError, match="missing keys"):
+        StimNoiseProfile.from_dict(data)
+    with pytest.raises(ValueError, match="missing keys"):
+        StimNoiseProfile.from_dict({})
+
+
+def test_manifest_nested_truncated_noise_fails_closed() -> None:
+    data = QECExperimentManifestV2().to_dict()
+    data["noise"] = {"before_measure_flip_probability": 0.2}
+    with pytest.raises(ValueError, match="missing keys"):
+        QECExperimentManifestV2.from_dict(data)
+
+
+def test_manifest_environment_is_frozen_against_caller_mutation() -> None:
+    env = {"host": "a"}
+    m = QECExperimentManifestV2(environment=env)
+    before = m.fingerprint()
+    env["host"] = "b"
+    env["extra"] = "x"
+    assert m.fingerprint() == before
+    with pytest.raises(TypeError):
+        m.environment["host"] = "c"  # type: ignore[index]
+    assert m.fingerprint() == before
+    assert m.to_dict()["environment"] == {"host": "a"}
+    assert QECExperimentManifestV2.from_dict(m.to_dict()) == m

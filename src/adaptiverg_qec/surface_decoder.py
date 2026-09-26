@@ -497,6 +497,10 @@ def run_phenomenological_diagnostics(
     )
     payload["decoder"] = "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)"
     payload["memory_basis"] = memory_basis
+    # Zeilenschema des oeffentlichen Wrappers bleibt kompatibel (Codex #41).
+    for row in payload["rows"]:
+        row["p_data"] = manifest.noise.before_round_data_depolarization
+        row["p_meas"] = manifest.noise.before_measure_flip_probability
     # Seed-Provenienz (Codex #40): Basis-Seed + Policy explizit; Zell-Seeds je Zeile.
     payload["seed"] = manifest.base_seed
     payload["seed_policy"] = manifest.seed_policy
