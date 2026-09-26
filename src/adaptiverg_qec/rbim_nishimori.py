@@ -432,6 +432,23 @@ def rbim_wolff_sample(
     return configs, mean_cf
 
 
+def _disorder_stream_seeds(base_seed: int, disorder_index: int) -> tuple[int, int]:
+    """Reproduzierbare, getrennte Bond-/Thermal-Streams fuer eine Realisierung.
+
+    NumPy SeedSequence.spawn ist fuer hierarchisch unabhaengige Streams gedacht.
+    Damit gibt es keine deterministische Kollision wie bei arithmetischen Offsets.
+    """
+    if not isinstance(base_seed, (int, np.integer)) or int(base_seed) < 0:
+        raise ValueError(f"base_seed must be a non-negative integer, got {base_seed!r}")
+    if not isinstance(disorder_index, (int, np.integer)) or int(disorder_index) < 0:
+        raise ValueError(f"disorder_index must be a non-negative integer, got {disorder_index!r}")
+    root = np.random.SeedSequence([int(base_seed), int(disorder_index)])
+    bond_ss, thermal_ss = root.spawn(2)
+    bond_seed = int(bond_ss.generate_state(1, dtype=np.uint64)[0])
+    thermal_seed = int(thermal_ss.generate_state(1, dtype=np.uint64)[0])
+    return bond_seed, thermal_seed
+
+
 def nishimori_scan(
     p: float,
     L: int,
@@ -455,8 +472,9 @@ def nishimori_scan(
         n_disorder: Anzahl quenched Realisierungen (Disorder-Average).
         n_records: aufgezeichnete Konfigurationen je Realisierung.
         burn_in: Wolff-Updates Equilibrierung je Realisierung.
-        base_seed: Seed-Basis; Realisierung d nutzt base_seed + d (Bonds) und
-            base_seed + 10000 + d (MCMC) -> reproduzierbar, entkoppelt.
+        base_seed: Nicht-negative Seed-Basis. Je Realisierung werden mit
+            SeedSequence([base_seed, d]).spawn(2) getrennte Bond- und
+            Thermal-Streams erzeugt; keine arithmetischen Offset-Kollisionen.
         n_skip: Wolff-Updates zwischen Records.
 
     Returns:
@@ -464,6 +482,8 @@ def nishimori_scan(
     """
     if n_disorder < 1:
         raise ValueError(f"n_disorder must be >= 1, got {n_disorder}")
+    if not isinstance(base_seed, (int, np.integer)) or int(base_seed) < 0:
+        raise ValueError(f"base_seed must be a non-negative integer, got {base_seed!r}")
     beta = nishimori_beta(p)
     per_real_absm: list[float] = []
     per_real_m2: list[float] = []
@@ -471,13 +491,14 @@ def nishimori_scan(
     cfracs: list[float] = []
     n = L * L
     for d in range(n_disorder):
-        bonds = sample_bonds(p, L, seed=base_seed + d)
+        bond_seed, thermal_seed = _disorder_stream_seeds(int(base_seed), d)
+        bonds = sample_bonds(p, L, seed=bond_seed)
         configs, cf = rbim_wolff_sample(
             bonds,
             beta,
             n_records=n_records,
             burn_in=burn_in,
-            seed=base_seed + 10_000 + d,
+            seed=thermal_seed,
             n_skip=n_skip,
             sweeps_per_step=sweeps_per_step,
             aligned_start=aligned_start,

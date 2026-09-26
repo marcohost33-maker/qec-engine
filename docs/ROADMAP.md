@@ -155,14 +155,11 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
   Nur diese drei sind betroffen: `majority_block_b2` wird ausschliesslich von `mcrg_matrix` und
   `mcrg_multirg` aufgerufen. Ein Gate-Log, der eine Transformation beschreibt, die es in diesem
   Commit nicht mehr gibt, wäre irreführend — auch wenn ihn kein Test liest.
-- `rbim_nishimori`-Scan (historische Baseline, bewusst unverändert) nutzt weiterhin
-  arithmetische Seeds `base_seed + d` / `base_seed + 10000 + d` — also implizite common random
-  numbers über p. Der neue Pfad `rbim_scan.py` macht die Wahl explizit: Default
-  `seed_policy="independent"` mischt `p`/`L`/Replikat über `SeedSequence` und trennt Bond- und
-  Thermal-Strom per `spawn(2)`; CRN ist nur noch als ausdrückliche Option erreichbar.
-  **Offen an der Baseline:** die additive Ableitung lässt Bond- und MCMC-Seeds ab
-  `n_disorder >= 10001` exakt überlappen (`base_seed + 10000` tritt in beiden Familien auf);
-  `n_disorder` ist nur gegen `< 1` geprüft.
+- ~~`rbim_nishimori`-Baseline nutzte arithmetische Seeds mit einer deterministischen
+  Bond/MCMC-Kollision ab grossem `n_disorder`.~~ **Erledigt 2026-09-19:** auch die historische
+  Baseline erzeugt je Disorder-Realisierung jetzt zwei hierarchisch getrennte Streams via
+  `SeedSequence([base_seed, d]).spawn(2)`, analog zur bereits gehärteten `rbim_scan.py`.
+  Regressionstests decken explizit `d > 10000` ab; negative Seed-Eingaben failen an der Grenze.
 - `autocorr.integrated_autocorr_time` klemmt τ_int ≥ 0.5 (für anti-korrelierte Reihen bewusst
   konservativ; jetzt im Code dokumentiert).
 - G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht
@@ -191,18 +188,19 @@ gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über
   ⟨|m|⟩ auch im FRUSTRIERTEN Fall (p>0; dieser Test fing einen Bond-Richtungs-Bug in der Cluster-BFS, der
   bei p=0 unsichtbar war); (d) Stationaritäts-Sektor (G-N5): aligned-Start landet im korrekten FM-Sektor
   (p<p_c, hohes ⟨|m|⟩) bzw. PM-Sektor (p>p_c, relaxiert) — kein Bias.
-- **Gemessen — regenerierbares Artefakt `results/inkr4-rbim-nishimori.json` (L=8, 24 Realisierungen,
-  `python -m adaptiverg_qec.rbim_nishimori`):** `[<|m|>]` fällt monoton `0.98 → 0.36` über `p=0.04 → 0.20`;
-  **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — Artefakt
-  `results/inkr4-rbim-nishimori-L12.json` (L=12, 30 Realisierungen, via `--L 12 --n-disorder 30`):**
-  `[<|m|>] 0.99 → 0.22`, `p* = 0.120` (|err| = 0.011) — erwarteter
-  Finite-Size-Shift zu kleinerem `p*` mit wachsendem L; beide konsistent mit `p_c ≈ 0.109`.
-  Gates: `tests/test_rbim_nishimori.py` (10/10).
-- **Ehrliche Scope-Grenze:** kleines L + endliches Disorder-Sampling → **grobe Lokalisierung auf
-  Plausibilitäts-Niveau**, KEINE `L→∞`-FSS, KEIN Frontier-Wert. Konsistent mit der Repo-Positionierung.
-- **Brücken-Ergebnis:** das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG-Maschinerie) lokalisiert
-  `p* ≈ p_c` → die MCRG-Exponenten-Maschinerie misst (im Rahmen der Auflösung) **dasselbe Objekt** wie der
-  QEC-Threshold → der **„nicht-splitten"-Architektur-Entscheid ist empirisch gestützt**.
+- **Historische Evidence (pre RNG-fix):** `results/inkr4-rbim-nishimori*.json` enthält
+  kleine L=8/12-Scans mit `p*=0.145` bzw. `0.120`. Seit 2026-09-19 werden Disorder- und
+  Thermal-Streams korrekt hierarchisch getrennt; ein unterdimensionierter L=8-CI-Scan
+  (10 Disorder-Realisierungen, 80 Records) sprang dabei auf `p*=0.155`. Die frühere
+  Band-Prüfung gegen `p_c≈0.1094` wurde daher als **statistisch unzureichendes CI-Gate**
+  entfernt, nicht durch ein breiteres Toleranzband kaschiert.
+- **Aktueller CI-Beleg:** exakte L=4-Boltzmann-Orakel, Gauge-Invarianz, FM-vs-PM-Sektor,
+  explizite RNG-Stream-Policy und eine deterministische Prüfung von `locate_transition`.
+- **Research-Gate Issue #43:** eigener numerischer Nishimori-`p_c` erst wieder promoten nach
+  Multi-L finite-size scaling, deutlich mehr unabhängigen Disorder-Realisierungen,
+  dimensionless/Binder-Crossings und Bootstrap-/Disorder-Konfidenzintervallen.
+- **Brückenstatus:** das RBIM↔QEC-Mapping ist theoretisch exakt und hält die gemeinsame
+  Repo-Architektur fachlich kohärent; ein eigener hochstatistischer p_c-Nachweis ist offen.
 
 ---
 *Coworker Research | aus AdaptiveRG-QEC Spec v1.0 hardened | Inkr.4 (Brücke) DONE 2026-06-19*

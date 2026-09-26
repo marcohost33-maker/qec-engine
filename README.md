@@ -70,16 +70,17 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
   + aligned-Start-Ordnungsparameter-Protokoll). Das ist **kein Folklore, sondern ein exaktes Mapping**:
   der 2D-±J-RBIM-**Nishimori-Multikritische-Punkt** = Code-Capacity-**Toric/Surface-Threshold**
   `p_c ≈ 0.1094` (Dennis/Kitaev/Landahl/Preskill, *J. Math. Phys.* 43, 2002; Honecker/Picco/Pujol PRL 87,
-  2001: `0.1094(2)`; Merz/Chalker PRB 65, 2002: `0.1093(2)`). **Gemessen — regenerierbares Artefakt
-  `results/inkr4-rbim-nishimori.json` (L=8, 24 Disorder-Realisierungen):** disorder-gemittelte `[<|m|>]`
-  fällt monoton von `0.98` (FM, p=0.04) auf `0.36` (PM, p=0.20); steilster Abfall lokalisiert bei
-  `p* ≈ 0.145` (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — regenerierbares Artefakt `results/inkr4-rbim-nishimori-L12.json` (L=12, 30 Realisierungen, via `python -m adaptiverg_qec.rbim_nishimori --L 12 --n-disorder 30`):**
-  `[<|m|>] 0.99 → 0.22`, `p* = 0.120` (|err| = 0.011) — der erwartete Finite-Size-Shift zu kleinerem `p*` mit
-  wachsendem L. Beide **konsistent mit `p_c ≈ 0.109`** auf der groben Auflösung. **Ehrlich:** kleines L +
-  endliches Disorder-Sampling → **Plausibilitäts-Niveau**, KEINE `L→∞`-FSS, KEIN Frontier-Wert.
-  **Bedeutung:** misst das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG) `p* ≈ p_c`, dann misst die
-  MCRG-Exponenten-Maschinerie GENAU dasselbe Objekt wie der QEC-Threshold → der **„nicht-splitten"-
-  Architektur-Entscheid (MCRG + QEC in EINEM Repo) ist empirisch gestützt** (im Rahmen dieser Auflösung).
+  2001: `0.1094(2)`; Merz/Chalker PRB 65, 2002: `0.1093(2)`). **Historische
+  Pre-RNG-Fix-Artefakte:** `results/inkr4-rbim-nishimori*.json` dokumentieren kleine L=8/12-Scans,
+  darunter `p*=0.145` bzw. `0.120`. Diese Werte bleiben als Lineage erhalten, sind aber seit der
+  2026-09-19-Härtung der unabhängigen Disorder-/Thermal-RNG-Streams **kein aktueller p_c-Nachweis**.
+  Ein kleiner L=8-CI-Scan mit nur 10 Disorder-Realisierungen verschob sich unter der korrekten
+  Seed-Policy auf `p*=0.155`; damit ist die frühere Einzel-Lokalisierung als statistisch
+  unterbestimmt erkannt. **Aktueller Claim:** Mapping und RBIM-Implementierung sind durch exakte
+  L=4-Orakel, Gauge-Invarianz und FM/PM-Sektorprüfungen gestützt; ein eigener numerischer
+  Nishimori-`p_c`-Claim bleibt bis Multi-L-FSS + Bootstrap/Disorder-CI in Issue #43 offen.
+  Die gemeinsame Repo-Architektur bleibt durch das **exakte RBIM↔QEC-Mapping** fachlich kohärent,
+  wird aber nicht mehr aus dem kleinen `p*`-Scan als „empirisch bestätigt" bezeichnet.
 - **Phase-6 (NEU) schließt die drei dokumentierten Phase-4/5-Lücken:** SNIS mit geschlossenem
   χ²-Orakel (`snis.py`), Surrogate-Beschleunigung als Delayed-Acceptance (`surrogate.py`,
   Christen & Fox 2005) und Checkpoint/Restart mit Lockfile (`checkpoint.py`) — alle in **bounded,

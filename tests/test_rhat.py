@@ -21,6 +21,8 @@ def test_well_mixed_chains_converge() -> None:
     chains = np.vstack([np.random.default_rng(s).standard_normal(3000) for s in range(8)])
     r = rhat.split_rhat(chains)
     assert r.rhat < rhat.RHAT_THRESHOLD, r.rhat
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
     assert r.converged
     # ESS plausibel: bei iid ~ M*n; >= halbe Gesamtzahl ist eine sichere Schranke.
     assert r.ess_bulk > 0.5 * chains.size
@@ -112,7 +114,11 @@ def test_identical_chains_rhat_one() -> None:
     chains = np.ones((4, 100))
     r = rhat.split_rhat(chains)
     assert np.isfinite(r.rhat)
-    assert r.rhat == pytest.approx(1.0, abs=1e-9)
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)  # numeric convention only
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_CONSTANT
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert not r.converged
 
 
 def _ar1_chains(m: int, n: int, phi: float, seed: int) -> np.ndarray:
@@ -131,9 +137,9 @@ def test_frozen_chains_have_zero_ess() -> None:
 
     REGRESSION. _ess_on gab im Zweig w<=0 AND b<=0 frueher 2M*N zurueck, also die
     MAXIMAL moegliche wirksame Stichprobe fuer eine Kette, die sich nie bewegt hat.
-    Eine Kette mit Varianz null hat die Zielverteilung nicht abgetastet und traegt
-    null Information; jede positive ESS waere eine Aussage ueber eine Stichprobe,
-    die es nicht gibt.
+    Fuer identische Draws wird deshalb fail-closed der Sentinel ESS=0 gemeldet.
+    Das ist bewusst keine Behauptung, die mathematische ESS einer extern bekannten
+    strukturell konstanten Observable sei allgemein null.
     """
     chains = np.full((4, 2000), 7.0)
     r = rhat.split_rhat(chains)
@@ -209,11 +215,13 @@ def test_rhat_alone_does_not_catch_frozen_chains() -> None:
     Das ist der Fehlschlag, den dieser Test jetzt festnagelt.
     """
     r = rhat.split_rhat(np.full((4, 2000), 7.0))
-    assert r.rhat == pytest.approx(1.0, abs=1e-9)
-    assert r.rhat_below_threshold  # <- R-hat allein ist hier NICHT diskriminierend ...
-    assert r.ess_bulk == 0.0  # <- ... die ESS ist es ...
+    assert r.rhat == pytest.approx(1.0, abs=1e-9)  # nur Konventionswert
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_CONSTANT
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert r.ess_bulk == 0.0  # fail-closed Sentinel
     assert not r.ess_sufficient
-    assert not r.converged  # <- ... und das Verdikt folgt jetzt der ESS.
+    assert not r.converged
 
 
 def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
@@ -237,3 +245,88 @@ def test_degenerate_rhat_is_a_convention_not_the_finite_sample_value() -> None:
     # Der Abstand waechst, je kuerzer die Kette ist -- fuer die kuerzeste
     # zulaessige Split-Laenge N = 2 betraegt der exakte Wert rund 0.707.
     assert float(np.sqrt((2 - 1) / 2)) == pytest.approx(0.7071067811865476, abs=1e-12)
+
+
+def test_structural_constant_requires_explicit_caller_knowledge() -> None:
+    """Domaenenwissen wird sichtbar, aber niemals in CONVERGED umetikettiert."""
+    chains = np.full((4, 2000), 7.0)
+    r = rhat.split_rhat(chains, expected_constant=True)
+    assert r.diagnostic_state is rhat.DiagnosticState.STRUCTURAL_CONSTANT
+    assert not r.rhat_defined
+    assert r.ess_bulk == 0.0
+    assert not r.converged
+
+
+def test_expected_constant_mismatch_fails_closed() -> None:
+    """Ein falscher Caller-Override darf eine variable Reihe nicht adeln."""
+    chains = np.vstack([np.arange(20.0) for _ in range(4)])
+    with pytest.raises(ValueError, match="not exactly constant"):
+        rhat.split_rhat(chains, expected_constant=True)
+
+
+def _balanced_two_point_chains(low: float, high: float, seed: int) -> np.ndarray:
+    """4 iid Ketten, deren Draws EXAKT zur Haelfte ``low`` und ``high`` sind.
+
+    Der Median liegt dann mittig zwischen beiden Werten, und ``|theta - median|``
+    ist konstant: die folded-Transformation hat W = B = 0.
+    """
+    values = np.repeat([low, high], 2000)
+    return np.random.default_rng(seed).permutation(values).reshape(4, 1000)
+
+
+@pytest.mark.parametrize(("low", "high"), [(0.0, 1.0), (0.1, 0.3), (-7.0, 7.0)])
+def test_folded_degeneracy_is_not_a_defined_rhat(low: float, high: float) -> None:
+    """Codex-P2 zu PR #39: folded-R-hat entartet, obwohl die Draws variieren.
+
+    Vorher: ``rhat_defined=True`` und ``converged=True``, obwohl eine der beiden
+    Komponenten von ``max(bulk, folded)`` nur der Konventionswert 1.0 war.
+    (0.1, 0.3) prueft den Rundungsfall: ``|0.1-0.2| != |0.3-0.2|`` in binary64.
+    """
+    r = rhat.split_rhat(_balanced_two_point_chains(low, high, seed=3))
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_FOLDED
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert not r.converged
+
+
+def test_unbalanced_two_point_chains_keep_a_defined_folded_rhat() -> None:
+    """Kontrolle: binaere Observablen sind nicht pauschal undefiniert.
+
+    Bei 60/40 liegt der Median auf einem der beiden Werte, die folded-Draws sind
+    ein nicht-konstanter Indikator -- die Diagnostik bleibt definiert.
+    """
+    values = np.repeat([0.0, 1.0], [2400, 1600])
+    chains = np.random.default_rng(5).permutation(values).reshape(4, 1000)
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
+    assert r.converged
+
+
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [(10.1, 10.3), (1e6 + 0.1, 1e6 + 0.3), (-1e3 - 0.25, -1e3 + 0.5), (1e308, 1.5e308)],
+)
+def test_folded_degeneracy_is_detected_at_any_location(low: float, high: float) -> None:
+    """Delta-Review zu f0d36e8: die Toleranz war nur relativ zu max|theta - median|.
+
+    Der Rundungsfehler von ``theta - median`` waechst aber mit |median|; um +10 oder
+    +1e6 verschobene Zweipunkt-Ketten wurden deshalb wieder als OK/converged gemeldet
+    (gemessen: 983 von 2000 zufaellig verschobenen Faellen). (1e308, 1.5e308) laesst
+    den Median ueberlaufen -- ptp wird NaN, und das Urteil muss trotzdem fail-closed sein.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        r = rhat.split_rhat(_balanced_two_point_chains(low, high, seed=11))
+    assert r.diagnostic_state is not rhat.DiagnosticState.OK
+    assert not r.rhat_defined
+    assert not r.converged
+
+
+def test_folded_tolerance_does_not_swallow_real_scale_differences() -> None:
+    """Obere Grenze der Toleranz: ein echter Unterschied von 1e-13 bei Skala 1 ist
+    rund 30 eps und muss als messbar gelten (vorher war ein 1000x lockerer Wert blind)."""
+    values = np.concatenate([np.full(2000, -1.0), np.full(1000, 1.0), np.full(1000, 1.0 + 1e-13)])
+    chains = np.random.default_rng(13).permutation(values).reshape(4, 1000)
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
