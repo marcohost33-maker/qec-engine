@@ -120,6 +120,9 @@ BEZUGSGROESSE (korrigiert nach Delta-Review): der Rundungsfehler von
 Ketten um +10 verschoben wieder als konvergiert gemeldet. Die Pruefung ist als
 ``not (ptp > tol)`` formuliert, damit ein NaN (Ueberlauf des Medians bei ~1e308)
 fail-closed als entartet zaehlt.
+Absoluter Boden ``16 * np.spacing(scale)``: im Subnormal-Bereich unterlaeuft
+``eps * scale`` auf 0, die Rundung betraegt dort aber 1 ulp (5e-324). Fuer normale
+Zahlen ist ``spacing(scale)`` ~ ``eps * scale`` und aendert nichts.
 """
 
 
@@ -152,8 +155,10 @@ class RhatResult:
     """False bei konstanten Draws oder entarteter folded-Komponente.
 
     Dann ist rhat KEIN definiertes R-hat im Vehtari-Sinn: bei konstanten Draws ein
-    Konventionswert, bei DEGENERATE_FOLDED das bulk-R-hat ohne messbare Skalen-
-    komponente.
+    Konventionswert; bei DEGENERATE_FOLDED weiterhin ``max(bulk_rhat, folded_rhat)``,
+    wobei ``folded_rhat`` nicht aussagekraeftig ist (Konventionswert 1.0 oder auf
+    Rundungsrauschen gerechnet) -- rhat ist dann oft 1.0 und NICHT das bulk-R-hat
+    (Delta-Review: 234 von 400 Faellen).
     """
 
     @property
@@ -412,7 +417,8 @@ def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatRes
     folded = np.abs(chains - median)
     folded_scale = max(float(np.max(folded)), abs(median))
     folded_degenerate = not constant_draws and not (
-        float(np.ptp(folded)) > _FOLDED_DEGENERACY_RTOL * folded_scale
+        float(np.ptp(folded))
+        > max(_FOLDED_DEGENERACY_RTOL * folded_scale, 16.0 * float(np.spacing(folded_scale)))
     )
     if folded_degenerate:
         diagnostic_state = DiagnosticState.DEGENERATE_FOLDED
