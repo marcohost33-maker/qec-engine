@@ -119,3 +119,19 @@ def test_clt_edge_inputs_raise() -> None:
         clt.ar1_clt_variance(1.0)  # |phi|>=1
     with pytest.raises(ValueError):
         clt.ar1_clt_variance(0.5, sigma_eps=0.0)  # sigma_eps<=0
+
+
+# --- Issue #46: NaN must not pass the sigma2_g guard -------------------------
+@pytest.mark.parametrize(
+    ("mean", "sigma2_g"),
+    [(0.0, float("nan")), (0.0, -1.0), (float("nan"), 1.0), (0.0, float("inf"))],
+)
+def test_confidence_interval_rejects_non_finite_or_negative_inputs(
+    mean: float, sigma2_g: float
+) -> None:
+    with pytest.raises(ValueError):
+        clt.confidence_interval(mean, sigma2_g, 10)
+
+
+def test_confidence_interval_accepts_zero_variance() -> None:
+    assert clt.confidence_interval(1.5, 0.0, 10) == (1.5, 1.5)

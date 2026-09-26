@@ -170,3 +170,24 @@ def test_record_configs_default_off() -> None:
 def test_invalid_inputs_raise(bad) -> None:
     with pytest.raises((ValueError, TypeError)):
         bad()
+
+
+# --- Issue #46: non-finite samples must fail closed ---------------------------
+# ``if var0 <= 0.0: raise`` rejected a constant series but let NaN through
+# (nan <= 0.0 is False); integrated_autocorr_time then returned all-NaN results.
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("position", [0, -1])
+def test_autocorr_rejects_non_finite_samples(bad: float, position: int) -> None:
+    x = np.random.default_rng(46).standard_normal(64)
+    x[position] = bad
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.autocorr_function_fft(x)
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.integrated_autocorr_time(x)
+
+
+@pytest.mark.parametrize("c_window", [float("nan"), 0.0, -1.0])
+def test_integrated_autocorr_time_rejects_invalid_window(c_window: float) -> None:
+    x = np.random.default_rng(46).standard_normal(64)
+    with pytest.raises(ValueError, match="c_window"):
+        autocorr.integrated_autocorr_time(x, c_window=c_window)
