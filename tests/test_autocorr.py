@@ -191,3 +191,46 @@ def test_integrated_autocorr_time_rejects_invalid_window(c_window: float) -> Non
     x = np.random.default_rng(46).standard_normal(64)
     with pytest.raises(ValueError, match="c_window"):
         autocorr.integrated_autocorr_time(x, c_window=c_window)
+
+
+# --- #46/#47 review: every public entry, not only autocorr_function_fft -------
+def _series_with(bad: float, n: int = 256) -> np.ndarray:
+    x = np.random.default_rng(47).standard_normal(n)
+    x[n // 2] = bad
+    return x
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_binning_error_rejects_non_finite_samples(bad: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.binning_error(_series_with(bad))
+
+
+def test_integrated_autocorr_time_checks_x_even_with_precomputed_rho() -> None:
+    good = np.random.default_rng(47).standard_normal(256)
+    rho = autocorr.autocorr_function_fft(good)
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.integrated_autocorr_time(_series_with(float("nan")), rho=rho)
+
+
+def test_integrated_autocorr_time_rejects_non_finite_rho() -> None:
+    x = np.random.default_rng(47).standard_normal(256)
+    rho = autocorr.autocorr_function_fft(x)
+    rho[5] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.integrated_autocorr_time(x, rho=rho)
+
+
+def test_jackknife_ratio_rejects_non_finite_terms() -> None:
+    num = np.random.default_rng(47).standard_normal((64, 1))
+    den = np.ones((64, 1))
+    num[10, 0] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.jackknife_ratio(num, den, block_size=4, combine=lambda a, b: a[0] / b[0])
+
+
+def test_autocorr_overflowing_series_is_not_reported_as_constant() -> None:
+    x = np.array([1e308, -1e308] * 32)
+    with pytest.raises(ValueError) as exc:
+        autocorr.autocorr_function_fft(x)
+    assert "constant" not in str(exc.value)
