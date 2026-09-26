@@ -44,6 +44,8 @@ KORREKTHEITS-DISZIPLIN (Codie, ehrlich):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
 
@@ -370,6 +372,39 @@ def surface_phenomenological_logical_error_rate(
     )
 
 
+PHENOMENOLOGICAL_SEED_POLICY = "phenom-cell-sha256-v1"
+"""Zell-Seed = SHA-256 ueber (base_seed, d, rounds, p_data, p_meas, memory_basis)."""
+
+
+def phenomenological_cell_seed(
+    base_seed: int,
+    *,
+    d: int,
+    rounds: int,
+    p_data: float,
+    p_meas: float,
+    memory_basis: str,
+) -> int:
+    """Zell-eigener Stim-Seed aus JEDER laufbestimmenden Zellkoordinate.
+
+    Der fruehere Schluessel ``cell_seed(seed, d, p_data + p_meas)`` bildete
+    verschiedene Zellen wie (0.01, 0) und (0, 0.01) sowie beide Memory-Basen auf
+    denselben Seed ab -- gemeinsame Zufallszahlen zwischen Zellen, die als
+    unabhaengig behandelt werden. Hier geht das volle Tupel kanonisch in SHA-256.
+    """
+    payload = {
+        "base_seed": int(base_seed),
+        "d": int(d),
+        "rounds": int(rounds),
+        "p_data": float(p_data),
+        "p_meas": float(p_meas),
+        "memory_basis": memory_basis,
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    digest = hashlib.sha256(blob.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
+
+
 def run_phenomenological_diagnostics(
     distances: tuple[int, ...] = (3, 5, 7),
     *,
@@ -386,6 +421,13 @@ def run_phenomenological_diagnostics(
     Abbruchregeln und Decodervergleiche explizit festlegen.
     """
     _require_surface()
+    distances = tuple(distances)
+    if not distances:
+        # Ohne Distanz liefe keine Messung und keine der verschachtelten
+        # Validierungen; ein leerer, "erfolgreicher" Payload waere ein Silent Failure.
+        raise ValueError("distances must contain at least one distance")
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or int(seed) < 0:
+        raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
     rows = []
     for d in distances:
         est = surface_phenomenological_logical_error_rate(
@@ -394,7 +436,14 @@ def run_phenomenological_diagnostics(
             p_data=p_data,
             p_meas=p_meas,
             shots=shots,
-            seed=cell_seed(seed, d, p_data + p_meas),
+            seed=phenomenological_cell_seed(
+                int(seed),
+                d=d,
+                rounds=d,
+                p_data=p_data,
+                p_meas=p_meas,
+                memory_basis=memory_basis,
+            ),
             memory_basis=memory_basis,
         )
         rows.append(
@@ -404,11 +453,14 @@ def run_phenomenological_diagnostics(
                 "p_data": est.p_data,
                 "p_meas": est.p_meas,
                 "shots": est.shots,
+                "seed": est.seed,
                 "p_logical": est.p_logical,
                 "std_err": est.std_err,
             }
         )
     return {
+        "seed": int(seed),
+        "seed_policy": PHENOMENOLOGICAL_SEED_POLICY,
         "model": (
             "Stim rotated surface-code memory; before_round_data_depolarization=p_data; "
             "before_measure_flip_probability=p_meas; otherwise ideal operations"

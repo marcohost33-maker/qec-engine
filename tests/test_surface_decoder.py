@@ -256,3 +256,51 @@ def test_phenomenological_rejects_unknown_memory_basis() -> None:
         sd.surface_phenomenological_logical_error_rate(
             3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0, memory_basis="y"
         )
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #40: Seed-Provenienz, leere Distanzen, Zell-Seed-Identitaet.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+def test_phenomenological_payload_records_base_and_cell_seeds() -> None:
+    """Der Artefakt-Payload muss den Lauf rekonstruierbar machen (Basis- + Zell-Seed)."""
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.005, p_meas=0.005, shots=200, seed=12345
+    )
+    assert payload["seed"] == 12345
+    row = payload["rows"][0]
+    replay = sd.surface_phenomenological_logical_error_rate(
+        3, rounds=row["rounds"], p_data=0.005, p_meas=0.005, shots=200, seed=row["seed"]
+    )
+    assert replay.p_logical == row["p_logical"]
+
+
+@requires_surface
+def test_phenomenological_rejects_empty_distances() -> None:
+    """Keine Distanz = keine Messung; darf kein erfolgreich aussehender Payload werden."""
+    with pytest.raises(ValueError, match="distances"):
+        sd.run_phenomenological_diagnostics(distances=(), shots=10, seed=0)
+
+
+@requires_surface
+def test_phenomenological_empty_distances_do_not_hide_invalid_settings() -> None:
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(), p_data=-1.0, shots=0, seed=-5)
+
+
+@requires_surface
+def test_phenomenological_cell_seed_uses_every_noise_coordinate() -> None:
+    """(p_data, p_meas) = (0.01, 0) und (0, 0.01) sind verschiedene Zellen -> verschiedene Seeds."""
+    a = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.01, p_meas=0.0, shots=10, seed=7
+    )
+    b = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.0, p_meas=0.01, shots=10, seed=7
+    )
+    c = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.01, p_meas=0.0, shots=10, seed=7, memory_basis="x"
+    )
+    seeds = {a["rows"][0]["seed"], b["rows"][0]["seed"], c["rows"][0]["seed"]}
+    assert len(seeds) == 3
