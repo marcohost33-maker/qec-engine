@@ -301,3 +301,32 @@ def test_unbalanced_two_point_chains_keep_a_defined_folded_rhat() -> None:
     assert r.diagnostic_state is rhat.DiagnosticState.OK
     assert r.rhat_defined
     assert r.converged
+
+
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [(10.1, 10.3), (1e6 + 0.1, 1e6 + 0.3), (-1e3 - 0.25, -1e3 + 0.5), (1e308, 1.5e308)],
+)
+def test_folded_degeneracy_is_detected_at_any_location(low: float, high: float) -> None:
+    """Delta-Review zu f0d36e8: die Toleranz war nur relativ zu max|theta - median|.
+
+    Der Rundungsfehler von ``theta - median`` waechst aber mit |median|; um +10 oder
+    +1e6 verschobene Zweipunkt-Ketten wurden deshalb wieder als OK/converged gemeldet
+    (gemessen: 983 von 2000 zufaellig verschobenen Faellen). (1e308, 1.5e308) laesst
+    den Median ueberlaufen -- ptp wird NaN, und das Urteil muss trotzdem fail-closed sein.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        r = rhat.split_rhat(_balanced_two_point_chains(low, high, seed=11))
+    assert r.diagnostic_state is not rhat.DiagnosticState.OK
+    assert not r.rhat_defined
+    assert not r.converged
+
+
+def test_folded_tolerance_does_not_swallow_real_scale_differences() -> None:
+    """Obere Grenze der Toleranz: ein echter Unterschied von 1e-13 bei Skala 1 ist
+    rund 30 eps und muss als messbar gelten (vorher war ein 1000x lockerer Wert blind)."""
+    values = np.concatenate([np.full(2000, -1.0), np.full(1000, 1.0), np.full(1000, 1.0 + 1e-13)])
+    chains = np.random.default_rng(13).permutation(values).reshape(4, 1000)
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
