@@ -158,7 +158,7 @@ class RunResult:
     diagnostic_state: str
     """R-hat/ESS-Semantikzustand (z.B. OK oder DEGENERATE_CONSTANT)."""
     rhat_defined: bool
-    """Ob die R-hat-Formel regulaer definiert war (W > 0)."""
+    """Ob ein definiertes R-hat vorliegt (nicht konstant, folded nicht entartet)."""
     rhat_converged: bool
     """Ausgewiesenes Konvergenz-Verdikt: R-hat-Kriterium UND ESS > 0 (fail-closed).
 

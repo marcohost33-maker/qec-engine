@@ -89,6 +89,14 @@ class DiagnosticState(StrEnum):
     deren Median mittig liegt. Die folded-Komponente (Skala/Schwanz) ist dann
     nicht messbar, ``folded_rhat`` waere nur der Konventionswert; das reportierte
     ``max(bulk, folded)`` ist darum KEIN definiertes R-hat.
+
+    Bewusst fail-closed, mit einer bekannten Nebenwirkung: auch GUT gemischte
+    symmetrische Binaer-Ketten (0/1, +-1) landen hier, sobald die Gesamtzahl exakt
+    ausbalanciert ist -- laut Delta-Review 2026-09-26: 37/1500 Laeufe bei N=1000,
+    16/1500 bei N=4000
+    (~ sqrt(2/(pi*N))). Bei jeder anderen Zweipunkt-Verteilung ist folded_rhat
+    ohnehin identisch mit bulk_rhat; ob hier das bulk-Urteil genuegen darf, ist
+    eine offene Designfrage (Cross-Family), keine stillschweigende Lockerung.
     """
 
     OK = "OK"
@@ -100,11 +108,18 @@ class DiagnosticState(StrEnum):
 _FOLDED_DEGENERACY_RTOL: float = 16.0 * float(np.finfo(np.float64).eps)
 """Relative Spannweite, unter der ``|theta - median|`` als konstant gilt.
 
-Skaleninvariant (relativ zum groessten gefalteten Wert), weil schon die exakte
-Mitte zweier binary64-Werte nicht exakt faltet: ``|0.1 - 0.2| = 0.1`` gegen
-``|0.3 - 0.2| = 0.09999999999999998``. Ohne Toleranz sortierte die
-Rang-Normalisierung dieses Rundungsrauschen und meldete ein scheinbar
-gemessenes folded-R-hat, das nur das bulk-R-hat wiederholt.
+Noetig, weil schon die exakte Mitte zweier binary64-Werte nicht exakt faltet:
+``|0.1 - 0.2| = 0.1`` gegen ``|0.3 - 0.2| = 0.09999999999999998``. Ohne Toleranz
+sortierte die Rang-Normalisierung dieses Rundungsrauschen und meldete ein
+scheinbar gemessenes folded-R-hat, das nur das bulk-R-hat wiederholt.
+
+BEZUGSGROESSE (korrigiert nach Delta-Review): der Rundungsfehler von
+``theta - median`` skaliert mit der LAGE ``|median|``, nicht mit dem Abstand
+``max|theta - median|``. Die Toleranz bezieht sich deshalb auf
+``max(max|theta - median|, |median|)``; mit dem Abstand allein wurden dieselben
+Ketten um +10 verschoben wieder als konvergiert gemeldet. Die Pruefung ist als
+``not (ptp > tol)`` formuliert, damit ein NaN (Ueberlauf des Medians bei ~1e308)
+fail-closed als entartet zaehlt.
 """
 
 
@@ -134,7 +149,12 @@ class RhatResult:
     diagnostic_state: DiagnosticState
     """Semantischer Diagnostikzustand; trennt numerischen Sentinel von Aussage."""
     rhat_defined: bool
-    """False bei W=B=0 in bulk ODER folded; rhat ist dann nur ein Konventionswert."""
+    """False bei konstanten Draws oder entarteter folded-Komponente.
+
+    Dann ist rhat KEIN definiertes R-hat im Vehtari-Sinn: bei konstanten Draws ein
+    Konventionswert, bei DEGENERATE_FOLDED das bulk-R-hat ohne messbare Skalen-
+    komponente.
+    """
 
     @property
     def rhat_below_threshold(self) -> bool:
@@ -390,9 +410,9 @@ def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatRes
     # --- folded: |theta - median|, dann rank-normalize, split, R-hat.
     median = float(np.median(chains))
     folded = np.abs(chains - median)
-    folded_scale = float(np.max(folded))
-    folded_degenerate = not constant_draws and (
-        float(np.ptp(folded)) <= _FOLDED_DEGENERACY_RTOL * folded_scale
+    folded_scale = max(float(np.max(folded)), abs(median))
+    folded_degenerate = not constant_draws and not (
+        float(np.ptp(folded)) > _FOLDED_DEGENERACY_RTOL * folded_scale
     )
     if folded_degenerate:
         diagnostic_state = DiagnosticState.DEGENERATE_FOLDED
