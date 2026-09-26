@@ -74,7 +74,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
-from .autocorr import integrated_autocorr_time
+from .autocorr import _require_finite, integrated_autocorr_time
 
 __all__ = [
     "CLTResult",
@@ -133,6 +133,7 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     n = x.size
     if n < 4:
         raise ValueError(f"need >=4 samples for OBM, got {n}")
+    _require_finite(x, "samples")
     if batch_size is None:
         batch_size = max(1, int(np.floor(np.sqrt(n))))
     b = int(batch_size)
@@ -195,10 +196,13 @@ def confidence_interval(
     """
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
-    if n < 1:
+    if not (n >= 1):  # NaN-sicher (#46)
         raise ValueError(f"n must be >= 1, got {n}")
-    if sigma2_g < 0.0:
-        raise ValueError(f"sigma2_g must be >= 0, got {sigma2_g}")
+    # Issue #46: positiv formuliert und endlich -- ``sigma2_g < 0.0`` liess NaN durch.
+    if not (np.isfinite(sigma2_g) and sigma2_g >= 0.0):
+        raise ValueError(f"sigma2_g must be finite and >= 0, got {sigma2_g}")
+    if not np.isfinite(mean):
+        raise ValueError(f"mean must be finite, got {mean}")
     z = float(stats.norm.ppf(1.0 - alpha / 2.0))
     half = z * np.sqrt(sigma2_g / n)
     return (mean - half, mean + half)
@@ -221,8 +225,8 @@ def ar1_clt_variance(phi: float, sigma_eps: float = 1.0) -> dict[str, float]:
     """
     if not (-1.0 < phi < 1.0):
         raise ValueError(f"AR(1) requires |phi| < 1, got {phi}")
-    if sigma_eps <= 0.0:
-        raise ValueError(f"sigma_eps must be > 0, got {sigma_eps}")
+    if not (np.isfinite(sigma_eps) and sigma_eps > 0.0):  # NaN/inf-sicher (#46)
+        raise ValueError(f"sigma_eps must be finite and > 0, got {sigma_eps}")
     var_marg = sigma_eps**2 / (1.0 - phi**2)
     sigma2_g = sigma_eps**2 / (1.0 - phi) ** 2
     tau_int = (1.0 + phi) / (2.0 * (1.0 - phi))
