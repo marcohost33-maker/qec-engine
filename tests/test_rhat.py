@@ -305,7 +305,7 @@ def test_unbalanced_two_point_chains_keep_a_defined_folded_rhat() -> None:
 
 @pytest.mark.parametrize(
     ("low", "high"),
-    [(10.1, 10.3), (1e6 + 0.1, 1e6 + 0.3), (-1e3 - 0.25, -1e3 + 0.5), (1e308, 1.5e308)],
+    [(10.1, 10.3), (1e6 + 0.1, 1e6 + 0.3), (-1000.3, -1000.1), (1e308, 1.5e308)],
 )
 def test_folded_degeneracy_is_detected_at_any_location(low: float, high: float) -> None:
     """Delta-Review zu f0d36e8: die Toleranz war nur relativ zu max|theta - median|.
@@ -323,10 +323,22 @@ def test_folded_degeneracy_is_detected_at_any_location(low: float, high: float) 
 
 
 def test_folded_tolerance_does_not_swallow_real_scale_differences() -> None:
-    """Obere Grenze der Toleranz: ein echter Unterschied von 1e-13 bei Skala 1 ist
-    rund 30 eps und muss als messbar gelten (vorher war ein 1000x lockerer Wert blind)."""
-    values = np.concatenate([np.full(2000, -1.0), np.full(1000, 1.0), np.full(1000, 1.0 + 1e-13)])
+    """Obere Grenze der Toleranz: ein echter Unterschied von 1e-14 bei Skala 1 ist
+    rund 45 eps (knapp das 3-fache der Toleranz von 16 eps) und muss als messbar gelten.
+    Gemessen: eine 4x lockerere Toleranz macht diesen Fall entartet (Test rot), eine
+    2x lockerere nicht -- die Toleranz ist damit auf Faktor 2-4 festgenagelt. (Mit dem
+    frueheren 1e-13 = 450 eps blieb sogar eine 16x lockerere Toleranz unentdeckt.)"""
+    values = np.concatenate([np.full(2000, -1.0), np.full(1000, 1.0), np.full(1000, 1.0 + 1e-14)])
     chains = np.random.default_rng(13).permutation(values).reshape(4, 1000)
     r = rhat.split_rhat(chains)
     assert r.diagnostic_state is rhat.DiagnosticState.OK
     assert r.rhat_defined
+
+
+def test_folded_degeneracy_is_detected_for_subnormal_values() -> None:
+    """Delta-Review 162e3ac: im Subnormal-Bereich unterlaeuft eps * scale auf 0, waehrend
+    die Rundung der Faltung 1 ulp (5e-324) betraegt -- ohne absoluten Boden blieb eine
+    ausbalancierte Kette OK/converged."""
+    r = rhat.split_rhat(_balanced_two_point_chains(1e-315, 2e-315 + 5e-324, seed=1))
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_FOLDED
+    assert not r.converged
