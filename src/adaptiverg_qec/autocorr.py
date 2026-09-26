@@ -55,6 +55,18 @@ __all__ = [
 ]
 
 
+def _require_finite(values: np.ndarray, name: str) -> None:
+    """Fail closed on NaN/inf at a public entry (Issue #46).
+
+    Geordnete Vergleiche mit NaN sind immer False; ein Waechter der Form
+    ``if stat <= 0: raise`` liesse eine NaN-Reihe als "gueltig" durch und das
+    Ergebnis waere still NaN. Deshalb wird die Endlichkeit an JEDEM oeffentlichen
+    Eingang geprueft, nicht nur dort, wo sie zufaellig ueber einen Hilfsaufruf laeuft.
+    """
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{name} must be finite (NaN/inf found)")
+
+
 def autocorr_function_fft(x: np.ndarray) -> np.ndarray:
     """Normierte Autokorrelationsfunktion rho(t), t=0..N-1, via FFT.
 
@@ -74,12 +86,12 @@ def autocorr_function_fft(x: np.ndarray) -> np.ndarray:
     n = x.size
     if n < 2:
         raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
-    if not np.all(np.isfinite(x)):
-        # Issue #46: NaN/inf machen ``var0`` nicht-endlich; ``var0 <= 0.0`` waere
-        # dann False und die Reihe liefe als "gueltig" in ein NaN-Ergebnis.
-        raise ValueError("samples must be finite (NaN/inf found)")
+    _require_finite(x, "samples")
     xc = x - x.mean()
     var0 = float(np.dot(xc, xc) / n)  # = Var(x) (biased, = gamma(0))
+    if not np.isfinite(var0):
+        # endliche Samples, aber |x| ~ 1e308: die Quadratsumme laeuft ueber
+        raise ValueError("variance overflows float64; rescale the series")
     if not (var0 > 0.0):  # positiv formuliert: jeder nicht-positive Fall faellt hier
         raise ValueError("constant series: Var(x)=0, autocorrelation undefined")
     # Null-Padding auf >= 2N-1 (verhindert zyklische Faltung); naechste 2er-Potenz.
@@ -147,10 +159,14 @@ def integrated_autocorr_time(
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
+    _require_finite(x, "samples")
     if not (c_window > 0):  # NaN-sicher (Issue #46)
         raise ValueError(f"c_window must be > 0, got {c_window}")
     if rho is None:
         rho = autocorr_function_fft(x)
+    else:
+        rho = np.asarray(rho, dtype=np.float64)
+        _require_finite(rho, "rho")
     # Kumulative tau_int(W) = 0.5 + cumsum(rho[1:]); tau_of_w[k] = tau_int(W=k+1).
     tau_of_w = 0.5 + np.cumsum(rho[1:])
     n_w = tau_of_w.size
@@ -235,6 +251,7 @@ def binning_error(x: np.ndarray, *, max_block: int | None = None) -> BinningResu
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
+    _require_finite(x, "samples")
     if n < 64:
         raise ValueError(f"need >=64 samples for a meaningful binning curve, got {n}")
     if max_block is None:
@@ -325,6 +342,8 @@ def jackknife_ratio(
     den_terms = np.asarray(den_terms, dtype=np.float64)
     if num_terms.ndim != 2 or den_terms.ndim != 2:
         raise ValueError("num_terms and den_terms must be 2D (N, k)")
+    _require_finite(num_terms, "num_terms")
+    _require_finite(den_terms, "den_terms")
     n = num_terms.shape[0]
     if den_terms.shape[0] != n:
         raise ValueError(f"num/den sample count mismatch: {n} vs {den_terms.shape[0]}")
