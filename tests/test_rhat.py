@@ -262,3 +262,42 @@ def test_expected_constant_mismatch_fails_closed() -> None:
     chains = np.vstack([np.arange(20.0) for _ in range(4)])
     with pytest.raises(ValueError, match="not exactly constant"):
         rhat.split_rhat(chains, expected_constant=True)
+
+
+def _balanced_two_point_chains(low: float, high: float, seed: int) -> np.ndarray:
+    """4 iid Ketten, deren Draws EXAKT zur Haelfte ``low`` und ``high`` sind.
+
+    Der Median liegt dann mittig zwischen beiden Werten, und ``|theta - median|``
+    ist konstant: die folded-Transformation hat W = B = 0.
+    """
+    values = np.repeat([low, high], 2000)
+    return np.random.default_rng(seed).permutation(values).reshape(4, 1000)
+
+
+@pytest.mark.parametrize(("low", "high"), [(0.0, 1.0), (0.1, 0.3), (-7.0, 7.0)])
+def test_folded_degeneracy_is_not_a_defined_rhat(low: float, high: float) -> None:
+    """Codex-P2 zu PR #39: folded-R-hat entartet, obwohl die Draws variieren.
+
+    Vorher: ``rhat_defined=True`` und ``converged=True``, obwohl eine der beiden
+    Komponenten von ``max(bulk, folded)`` nur der Konventionswert 1.0 war.
+    (0.1, 0.3) prueft den Rundungsfall: ``|0.1-0.2| != |0.3-0.2|`` in binary64.
+    """
+    r = rhat.split_rhat(_balanced_two_point_chains(low, high, seed=3))
+    assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_FOLDED
+    assert not r.rhat_defined
+    assert not r.rhat_below_threshold
+    assert not r.converged
+
+
+def test_unbalanced_two_point_chains_keep_a_defined_folded_rhat() -> None:
+    """Kontrolle: binaere Observablen sind nicht pauschal undefiniert.
+
+    Bei 60/40 liegt der Median auf einem der beiden Werte, die folded-Draws sind
+    ein nicht-konstanter Indikator -- die Diagnostik bleibt definiert.
+    """
+    values = np.repeat([0.0, 1.0], [2400, 1600])
+    chains = np.random.default_rng(5).permutation(values).reshape(4, 1000)
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
+    assert r.converged
