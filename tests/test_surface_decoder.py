@@ -400,5 +400,5 @@ def test_phenomenological_rows_keep_p_data_and_p_meas() -> None:
         distances=(3,), p_data=0.004, p_meas=0.006, shots=20, seed=5
     )
     row = payload["rows"][0]
-    assert row["p_data"] == 0.004
-    assert row["p_meas"] == 0.006
+    assert row.get("p_data") == 0.004
+    assert row.get("p_meas") == 0.006
