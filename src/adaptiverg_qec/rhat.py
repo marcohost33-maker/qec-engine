@@ -83,11 +83,29 @@ class DiagnosticState(StrEnum):
     konstant ist oder der Sampler feststeckt. STRUCTURAL_CONSTANT wird nur
     gesetzt, wenn der Aufrufer diese Eigenschaft explizit als Domaenenwissen
     deklariert. Keiner der beiden Zustaende ist ein Konvergenzverdikt.
+
+    DEGENERATE_FOLDED bedeutet: die Draws variieren, aber ``|theta - median|``
+    ist (bis auf Rundung) konstant -- etwa exakt ausbalancierte Zweipunkt-Ketten,
+    deren Median mittig liegt. Die folded-Komponente (Skala/Schwanz) ist dann
+    nicht messbar, ``folded_rhat`` waere nur der Konventionswert; das reportierte
+    ``max(bulk, folded)`` ist darum KEIN definiertes R-hat.
     """
 
     OK = "OK"
     DEGENERATE_CONSTANT = "DEGENERATE_CONSTANT"
     STRUCTURAL_CONSTANT = "STRUCTURAL_CONSTANT"
+    DEGENERATE_FOLDED = "DEGENERATE_FOLDED"
+
+
+_FOLDED_DEGENERACY_RTOL: float = 16.0 * float(np.finfo(np.float64).eps)
+"""Relative Spannweite, unter der ``|theta - median|`` als konstant gilt.
+
+Skaleninvariant (relativ zum groessten gefalteten Wert), weil schon die exakte
+Mitte zweier binary64-Werte nicht exakt faltet: ``|0.1 - 0.2| = 0.1`` gegen
+``|0.3 - 0.2| = 0.09999999999999998``. Ohne Toleranz sortierte die
+Rang-Normalisierung dieses Rundungsrauschen und meldete ein scheinbar
+gemessenes folded-R-hat, das nur das bulk-R-hat wiederholt.
+"""
 
 
 @dataclass(frozen=True)
@@ -116,7 +134,7 @@ class RhatResult:
     diagnostic_state: DiagnosticState
     """Semantischer Diagnostikzustand; trennt numerischen Sentinel von Aussage."""
     rhat_defined: bool
-    """False bei W=B=0; rhat ist dann nur ein numerischer Konventionswert."""
+    """False bei W=B=0 in bulk ODER folded; rhat ist dann nur ein Konventionswert."""
 
     @property
     def rhat_below_threshold(self) -> bool:
@@ -372,6 +390,12 @@ def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatRes
     # --- folded: |theta - median|, dann rank-normalize, split, R-hat.
     median = float(np.median(chains))
     folded = np.abs(chains - median)
+    folded_scale = float(np.max(folded))
+    folded_degenerate = not constant_draws and (
+        float(np.ptp(folded)) <= _FOLDED_DEGENERACY_RTOL * folded_scale
+    )
+    if folded_degenerate:
+        diagnostic_state = DiagnosticState.DEGENERATE_FOLDED
     zf = rank_normalize(folded)
     zf_split = _split(zf)
     folded_rhat = _rhat_on(zf_split)
@@ -413,7 +437,7 @@ def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatRes
         n_chains=int(chains.shape[0]),
         n_draws=int(chains.shape[1]),
         diagnostic_state=diagnostic_state,
-        rhat_defined=not constant_draws,
+        rhat_defined=not constant_draws and not folded_degenerate,
     )
 
 
