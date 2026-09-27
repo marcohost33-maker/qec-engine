@@ -238,3 +238,17 @@ def test_jackknife_block_size_moves_only_error_bars() -> None:
     assert np.all(per_iter_h.block_size_per_iter >= 1)
     assert np.all(np.isfinite(per_iter_t.y_t_err_per_iter))
     assert np.all(np.isfinite(per_iter_h.y_h_err_per_iter))
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_block_size_from_series_rejects_non_finite(bad: float) -> None:
+    """Issue #48: vorher ``tau = 0.5 if not np.var(series) > 0`` -> NaN still als
+    konstante Reihe behandelt; jetzt fail-closed."""
+    series = np.random.default_rng(48).standard_normal(256)
+    series[17] = bad
+    with pytest.raises(ValueError, match="finite"):
+        mcrg_multirg._block_size_from_series(series, n=256)
+
+
+def test_block_size_from_series_constant_series_keeps_tau_half() -> None:
+    assert mcrg_multirg._block_size_from_series(np.ones(256), n=256) == 1

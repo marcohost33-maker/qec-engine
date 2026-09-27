@@ -342,3 +342,16 @@ def test_folded_degeneracy_is_detected_for_subnormal_values() -> None:
     r = rhat.split_rhat(_balanced_two_point_chains(1e-315, 2e-315 + 5e-324, seed=1))
     assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_FOLDED
     assert not r.converged
+
+
+def test_folded_floor_does_not_overflow_at_dbl_max() -> None:
+    """Issue #48: ``np.spacing(DBL_MAX)`` ist inf -- der absolute Boden machte die
+    Toleranz unendlich und meldete gut gemischte Ketten mit einem einzigen Wert bei
+    DBL_MAX als DEGENERATE_FOLDED. Der Boden ist nur im Subnormal-Bereich wirksam
+    und muss dort konstant ``16 * 5e-324`` sein, nie ueberlaufen."""
+    chains = np.random.default_rng(48).standard_normal((4, 1000))
+    chains[2, 500] = np.finfo(np.float64).max
+    with np.errstate(over="raise"):
+        r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined

@@ -46,6 +46,7 @@ import numpy as np
 __all__ = [
     "autocorr_function_fft",
     "integrated_autocorr_time",
+    "tau_int_or_half",
     "AutocorrResult",
     "mean_with_autocorr_error",
     "binning_error",
@@ -206,6 +207,32 @@ def integrated_autocorr_time(
         sem=sem,
         sem_iid=sem_iid,
     )
+
+
+def tau_int_or_half(x: np.ndarray, *, c_window: float = 1.5) -> float:
+    """tau_int einer endlichen Reihe; 0.5 (i.i.d.-Wert) fuer eine exakt konstante.
+
+    Ersetzt den Aufrufer-Vorcheck ``tau = ... if np.var(x) > 0 else 0.5``
+    (Issue #48): ``np.var`` einer NaN-Reihe ist NaN, ``nan > 0`` ist False, und die
+    Reihe erreichte den Endlichkeits-Waechter von ``integrated_autocorr_time`` nie --
+    tau wurde still 0.5. Hier wird ZUERST die Endlichkeit geprueft; erst eine
+    endliche Reihe ohne positive Varianz gilt als konstant.
+
+    Args:
+        x: 1D-Zeitreihe.
+        c_window: Wolff-Parameter S, durchgereicht an ``integrated_autocorr_time``.
+
+    Returns:
+        tau_int (>= 0.5).
+
+    Raises:
+        ValueError: bei NaN/inf in x (oder Varianz-Ueberlauf, s. autocorr_function_fft).
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    _require_finite(x, "samples")
+    if not (float(np.var(x)) > 0.0):
+        return 0.5
+    return integrated_autocorr_time(x, c_window=c_window).tau_int
 
 
 def mean_with_autocorr_error(x: np.ndarray, *, c_window: float = 1.5) -> AutocorrResult:
