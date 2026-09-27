@@ -306,3 +306,47 @@ def test_phenomenological_cell_seed_uses_every_noise_coordinate() -> None:
     )
     seeds = {a["rows"][0]["seed"], b["rows"][0]["seed"], c["rows"][0]["seed"]}
     assert len(seeds) == 3
+
+
+# ---------------------------------------------------------------------------
+# Equalita-Runde 2026-09-27 (#40/#41): Wrapper-Vertrag am oeffentlichen Eingang.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(p_data=0.6),
+        dict(p_meas=0.7),
+        dict(p_data=-0.01),
+        dict(p_meas=0.5),
+        dict(p_data=float("nan")),
+    ],
+)
+def test_phenomenological_wrapper_rejects_out_of_range_noise(kwargs: dict) -> None:
+    """Der oeffentliche Wrapper selbst muss p ausserhalb [0, 0.5) ablehnen."""
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1, **kwargs)
+
+
+@requires_surface
+def test_phenomenological_wrapper_rejects_negative_seed() -> None:
+    with pytest.raises(ValueError, match="seed"):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=-5)
+
+
+@requires_surface
+def test_phenomenological_payload_names_seed_policy() -> None:
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    assert payload.get("seed_policy") == "phenom-cell-sha256-v1"
+
+
+@requires_surface
+def test_phenomenological_base_seed_changes_cell_seeds() -> None:
+    """Verschiedene Basis-Seeds muessen verschiedene Zell-Seeds liefern."""
+    a = sd.run_phenomenological_diagnostics(distances=(3, 5), shots=10, seed=1)
+    b = sd.run_phenomenological_diagnostics(distances=(3, 5), shots=10, seed=2)
+    seeds_a = [row["seed"] for row in a["rows"]]
+    seeds_b = [row["seed"] for row in b["rows"]]
+    assert all(x != y for x, y in zip(seeds_a, seeds_b, strict=True)), (seeds_a, seeds_b)
