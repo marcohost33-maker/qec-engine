@@ -440,3 +440,49 @@ def test_manifest_runtime_records_package_version_and_git_sha() -> None:
     env = payload["runtime_environment"]
     assert env.get("package_version") == adaptiverg_qec.__version__
     assert isinstance(env.get("git_sha"), str) and env["git_sha"]
+
+
+@requires_surface
+def test_manifest_runtime_records_installed_distribution_version() -> None:
+    """Codex #41 R2: Modul-Konstante und installierte Distribution koennen abweichen."""
+    from importlib import metadata
+
+    try:
+        expected = metadata.version("adaptiverg-qec")
+    except metadata.PackageNotFoundError:
+        expected = None
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    env = payload["runtime_environment"]
+    assert "distribution_version" in env, sorted(env)
+    assert env["distribution_version"] == expected
+
+
+@requires_surface
+def test_phenomenological_wrapper_accepts_numpy_float_noise() -> None:
+    """Codex #41 R2: np.float32 fuer p_data/p_meas war vor dem Refactor gueltig."""
+    import numpy as np
+
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(
+            distances=(3,), p_data=np.float32(0.004), p_meas=np.float64(0.006), shots=10, seed=1
+        )
+    except TypeError as exc:
+        err = exc
+    assert err is None, f"NumPy-Floats abgewiesen: {err}"
+    row = payload["rows"][0]
+    assert type(row["p_data"]) is float and type(row["p_meas"]) is float
+
+
+@requires_surface
+def test_phenomenological_wrapper_keeps_requested_distance_order() -> None:
+    """Codex #41 R2: (5, 3) lief frueher in der angefragten Reihenfolge."""
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(distances=(5, 3, 3), shots=10, seed=1)
+    except ValueError as exc:
+        err = exc
+    assert err is None, f"Reihenfolge abgewiesen: {err}"
+    assert [row["d"] for row in payload["rows"]] == [5, 3, 3]
+    assert payload["manifest"]["distances"] == [3, 5]
+    assert payload["requested_distances"] == [5, 3, 3]

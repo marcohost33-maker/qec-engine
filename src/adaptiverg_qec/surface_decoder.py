@@ -56,6 +56,17 @@ from .manifest import _git_sha
 from .qec_diagnostics import cell_seed, logical_error_rate_exact
 from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
+
+def _distribution_version() -> str | None:
+    """Version der installierten Distribution, None wenn nicht installiert."""
+    from importlib import metadata
+
+    try:
+        return metadata.version("adaptiverg-qec")
+    except metadata.PackageNotFoundError:
+        return None
+
+
 # --- optional-dependency-Gate -------------------------------------------------
 # Ohne das [surface]-Extra bleibt HAVE_SURFACE False; die Funktionen werfen einen
 # klaren ImportError, und die Tests skippen (sie failen NICHT hart).
@@ -453,7 +464,10 @@ def run_experiment_manifest(manifest: QECExperimentManifestV2) -> dict:
         "runtime_environment": {
             # Gleicher Vertrag, anderer Code-Stand -> andere Zeilen moeglich; ohne
             # Revision waeren beide Laeufe ununterscheidbar (wie Phase-5-Manifest).
+            # Modul-Konstante und installierte Distribution koennen auseinanderlaufen
+            # (Codex #41: 0.1.0.dev2 vs 0.1.0.dev0) -- beide benannt fuehren.
             "package_version": __version__,
+            "distribution_version": _distribution_version(),
             "git_sha": _git_sha(),
             "python": sys.version.split()[0],
             "platform": platform.platform(),
@@ -497,17 +511,27 @@ def run_phenomenological_diagnostics(
     def _plain_int(v):
         return int(v) if isinstance(v, np.integer) and not isinstance(v, np.bool_) else v
 
+    def _plain_float(v):
+        return float(v) if isinstance(v, np.floating) else v
+
+    # Der alte Wrapper lief die Zellen in der angefragten Reihenfolge; das Manifest
+    # verlangt eine streng steigende Menge. Also: Manifest ueber die sortierte Menge,
+    # Zeilen danach in der angefragten Reihenfolge (Duplikate wie frueher je Eintrag).
+    requested = tuple(_plain_int(d) for d in distances)
     manifest = QECExperimentManifestV2(
         memory_basis=memory_basis,
-        distances=tuple(_plain_int(d) for d in distances),
+        distances=tuple(sorted(set(requested))),
         shots_per_cell=_plain_int(shots),
         base_seed=_plain_int(seed),
         noise=StimNoiseProfile(
-            before_round_data_depolarization=p_data,
-            before_measure_flip_probability=p_meas,
+            before_round_data_depolarization=_plain_float(p_data),
+            before_measure_flip_probability=_plain_float(p_meas),
         ),
     )
     payload = run_experiment_manifest(manifest)
+    by_d = {row["d"]: row for row in payload["rows"]}
+    payload["rows"] = [dict(by_d[d]) for d in requested]
+    payload["requested_distances"] = list(requested)
     payload["model"] = (
         "Stim rotated surface-code memory; versioned StimNoiseProfile; "
         "rounds=distance for this bounded baseline"
