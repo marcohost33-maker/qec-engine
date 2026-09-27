@@ -409,9 +409,14 @@ def test_phenomenological_wrapper_accepts_numpy_integers() -> None:
     """Codex #41: np.int64 fuer shots/seed/distances war vor dem Refactor gueltig."""
     import numpy as np
 
-    payload = sd.run_phenomenological_diagnostics(
-        distances=(np.int64(3),), shots=np.int64(10), seed=np.int64(1)
-    )
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(
+            distances=(np.int64(3),), shots=np.int64(10), seed=np.int64(1)
+        )
+    except ValueError as exc:  # Absturz waere kein Beleg -> als Zusicherung melden
+        err = exc
+    assert err is None, f"NumPy-Ganzzahlen abgewiesen: {err}"
     manifest = payload["manifest"]
     assert manifest["shots_per_cell"] == 10 and type(manifest["shots_per_cell"]) is int
     assert manifest["base_seed"] == 1 and type(manifest["base_seed"]) is int
