@@ -14,6 +14,10 @@ Gates (jedes gegen ein UNABHAENGIGES Orakel, Codie-Disziplin):
   G6 Reproducibility:    gleicher Seed -> bit-identische Trajektorie.
   G7 Diminishing-Adapt:  sum_t a_t < inf (summierbarer Schedule).
   G8 Negative/Edge-Input: invalide Eingaben werfen sauber (Silent-Failure-Gate).
+  ...
+  G46-G49 (Phase 7): exakte TV-Mischung im Spektral-Sandwich, echter Sampler im
+      TV-Band des exakten Kerns, adaptive Kette exakt (inkl. eingefrorener
+      summierbarer Adaption), Containment-Profil t_rel(beta).
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from . import (
     mcrg,
     mcrg_matrix,
     mcrg_multirg,
+    mixing,
     rg_map,
     snis,
     surrogate,
@@ -1378,6 +1383,115 @@ def _g45_checkpoint_lock_and_tamper() -> tuple[bool, str]:
     )
 
 
+# --- Phase-7: exakte TV-Mischung (Phase-1/2-Akzeptanz) ------------------------
+
+_MIX_L = 6
+
+
+def _g46_tv_spectral_sandwich() -> tuple[bool, str]:
+    """Phase-1-Akzeptanz: exakte d(t) liegt im Spektral-Sandwich und faellt mit lambda_*.
+
+    lambda_*^t/2 <= d(t) <= sqrt((1-pi_min)/pi_min) lambda_*^t/2 (LPW 2017 Kap. 12);
+    die gefittete Rate der exakten TV-Kurve trifft lambda_* (<1 %). Gegenrichtung:
+    beta=0 (jeder Flip akzeptiert, L gerade -> Paritaet erhalten) wird als NICHT
+    geometrisch ergodisch geflaggt (lambda_*=1, TV bleibt >= 0.49).
+    """
+    roundoff = 1e-13
+    details = []
+    ok = True
+    for beta in (0.3, 0.8, 1.5):
+        P = mixing.sweep_kernel(_MIX_L, beta)
+        pi = mixing.stationary_distribution(_MIX_L, beta)
+        lower, d, upper, spec = mixing.tv_sandwich(P, pi, 40)
+        rate, _ = mixing.fit_geometric_rate(mixing.exact_tv_curve(P, pi, 0, 30), floor=1e-12)
+        inside = bool(np.all(lower <= d + roundoff) and np.all(d <= upper + roundoff))
+        rate_ok = abs(rate - spec.lambda_star) / spec.lambda_star < 0.01
+        ok = ok and inside and rate_ok and spec.geometrically_ergodic
+        details.append(f"b={beta}: lam*={spec.lambda_star:.4f} fit={rate:.4f}")
+    P0 = mixing.sweep_kernel(_MIX_L, 0.0)
+    pi0 = mixing.stationary_distribution(_MIX_L, 0.0)
+    spec0 = mixing.spectral_summary(P0, pi0)
+    flagged = (not spec0.geometrically_ergodic) and (
+        mixing.exact_tv_curve(P0, pi0, 0, 50)[-1] >= 0.49
+    )
+    return ok and flagged, "; ".join(details) + f"; beta=0 flagged={flagged}"
+
+
+def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
+    """Der ECHTE A-Kernel-Sampler (advance_chain) ist mit dem analysierten Kern vertraeglich.
+
+    4000 unabhaengige Ketten, Randverteilung nach t Sweeps gegen delta_x0 P^t im
+    rigorosen TV-Band (Jensen + McDiarmid, delta=1e-6). Gegenrichtung: dieselben
+    Ketten gegen den Kern bei beta=1.2 fallen aus dem Band.
+    """
+    emp = mixing.empirical_tv_curve(_MIX_L, 0.8, x0=0, n_chains=4000, n_sweeps=12, seed=7)
+    r_true = mixing.marginal_band_ratio(emp, mixing.sweep_kernel(_MIX_L, 0.8), delta=1e-6)
+    r_wrong = mixing.marginal_band_ratio(emp, mixing.sweep_kernel(_MIX_L, 1.2), delta=1e-6)
+    ok = r_true <= 1.0 and r_wrong > 2.0
+    return ok, f"band ratio true-kernel={r_true:.3f} (<=1), wrong beta=1.2 -> {r_wrong:.2f} (>2)"
+
+
+def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
+    """Phase-2: exakte Randverteilung der adaptiven Kette (mu_{t+1} = mu_t P_{beta_t}).
+
+    beta_t-Schedule bit-identisch zu run_adaptive_mcmc; Default-Schedule
+    (c=0.5, T0=100) -> TV zu pi_target < 1e-10. Gegenrichtung ([LUECKE]
+    quantifiziert): summierbarer Schedule mit T0=1 friert beta bei beta_inf != target
+    ein (geschlossene Produktformel), TV zu pi_target bleibt am Boden > 0.05.
+    """
+    cfg = MVPConfig(L=_MIX_L, beta_min=0.1, beta_max=2.0)
+    a_short = a_kernel.diminishing_step_sizes(80, 0.5, 1.0)
+    run = a_kernel.run_adaptive_mcmc(
+        cfg, beta_target=0.8, n_steps=80, burn_in=0, seed=1, adapt_c=0.5, adapt_T0=1.0
+    )
+    sched = mixing.adaptive_beta_schedule(cfg, beta_start=0.1, beta_target=0.8, a_t=a_short)
+    identical = bool(np.array_equal(run.beta_traj, sched))
+    good = mixing.adaptive_exact_tv(
+        cfg,
+        beta_start=0.1,
+        beta_target=0.8,
+        a_t=a_kernel.diminishing_step_sizes(300, 0.5, 100.0),
+        x0=0,
+    )
+    frozen = mixing.adaptive_exact_tv(
+        cfg,
+        beta_start=0.1,
+        beta_target=0.8,
+        a_t=a_kernel.diminishing_step_sizes(400, 0.5, 1.0),
+        x0=0,
+    )
+    closed = 0.8 - 0.7 * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, 0.5, 1.0)))
+    ok = (
+        identical
+        and good.tv_to_target[-1] < 1e-10
+        and abs(frozen.beta_limit - closed) < 1e-3
+        and frozen.frozen_floor > 0.05
+        and frozen.tv_to_limit[-1] < 1e-6
+    )
+    return ok, (
+        f"schedule bit-identical={identical}; default TV_end={good.tv_to_target[-1]:.1e}; "
+        f"T0=1: beta_inf={frozen.beta_limit:.4f} (closed {closed:.4f}), "
+        f"floor={frozen.frozen_floor:.4f}, TV-to-limit={frozen.tv_to_limit[-1]:.1e}"
+    )
+
+
+def _g49_containment_relaxation_time() -> tuple[bool, str]:
+    """Containment: sup_{beta in Theta} t_rel(beta) endlich; ausserhalb divergent.
+
+    Theta=[0.1, 2.0] -> max t_rel < 25 Sweeps. Gegenrichtung: Richtung kritischer
+    Punkt (beta_c = inf fuer 1D) waechst t_rel unbeschraenkt (beta=6 -> > 1e4) --
+    der Grund, warum Theta den kritischen Punkt ausschliessen muss (Spec 4.2).
+    """
+    grid = np.linspace(0.1, 2.0, 12)
+    t_rel = mixing.relaxation_time_profile(_MIX_L, grid)
+    far = mixing.relaxation_time_profile(_MIX_L, np.array([4.0, 6.0]))
+    ok = bool(np.all(np.isfinite(t_rel))) and float(np.max(t_rel)) < 25.0 and far[1] > 1e4
+    return ok, (
+        f"sup t_rel on Theta={float(np.max(t_rel)):.2f} sweeps; "
+        f"t_rel(4)={far[0]:.0f}, t_rel(6)={far[1]:.0f} (diverges toward beta_c=inf)"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -1427,6 +1541,10 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G43 DA savings + surrogate drift-guard both ways", _g43_da_savings_and_drift_guard),
     ("G44 checkpoint resume byte-identical hash", _g44_checkpoint_resume_byte_identical),
     ("G45 checkpoint lockfile + tamper fail-closed", _g45_checkpoint_lock_and_tamper),
+    ("G46 exact TV in spectral sandwich + beta=0 flagged", _g46_tv_spectral_sandwich),
+    ("G47 real sampler within TV band of exact kernel", _g47_sampler_carries_exact_kernel),
+    ("G48 adaptive chain exact TV + frozen-schedule floor", _g48_adaptive_chain_exact_tv),
+    ("G49 containment: t_rel bounded on Theta, diverges out", _g49_containment_relaxation_time),
 ]
 
 
@@ -1767,6 +1885,138 @@ def run_phase6(*, json_path: str | None = None, seed: int = 20260809) -> int:
     return 0
 
 
+def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
+    """Phase-7-Lauf: exakte TV-Mischung + adaptive Kette + Containment-Profil.
+
+    Erzeugt das regenerierbare Artefakt results/phase7-mixing-tv.json.
+    """
+    L = _MIX_L
+    kernels = []
+    for beta in (0.0, 0.3, 0.8, 1.5, 2.0):
+        P = mixing.sweep_kernel(L, beta)
+        pi = mixing.stationary_distribution(L, beta)
+        lower, d, upper, spec = mixing.tv_sandwich(P, pi, 30)
+        row = {
+            "beta": beta,
+            "lambda_star": spec.lambda_star,
+            "abs_spectral_gap": spec.abs_spectral_gap,
+            "relaxation_time_sweeps": spec.relaxation_time
+            if math.isfinite(spec.relaxation_time)
+            else None,
+            "geometrically_ergodic": spec.geometrically_ergodic,
+            "reversibility_residual": spec.reversibility_residual,
+            "d_t": [float(v) for v in d[:16]],
+            "lower_t": [float(v) for v in lower[:16]],
+            "upper_t": [float(v) for v in upper[:16]],
+        }
+        if spec.geometrically_ergodic:
+            rate, used = mixing.fit_geometric_rate(mixing.exact_tv_curve(P, pi, 0, 30), floor=1e-12)
+            row["fitted_rate_from_x0_0"] = rate
+            row["fit_points"] = used
+        kernels.append(row)
+        print(
+            f"  beta={beta:.1f}: lambda*={spec.lambda_star:.4f} "
+            f"t_rel={spec.relaxation_time:.3g} geo-ergodic={spec.geometrically_ergodic}"
+        )
+
+    beta_emp, n_chains, n_sweeps = 0.8, 4000, 12
+    emp = mixing.empirical_tv_curve(
+        L, beta_emp, x0=0, n_chains=n_chains, n_sweeps=n_sweeps, seed=seed
+    )
+    P = mixing.sweep_kernel(L, beta_emp)
+    pi = mixing.stationary_distribution(L, beta_emp)
+    band = mixing.empirical_tv_band(P, 0, n_sweeps, n_chains, 1e-6)
+    empirical = {
+        "beta": beta_emp,
+        "n_chains": n_chains,
+        "n_sweeps": n_sweeps,
+        "x0": 0,
+        "delta": 1e-6,
+        "tv_empirical": [float(v) for v in emp.tv],
+        "tv_exact": [float(v) for v in mixing.exact_tv_curve(P, pi, 0, n_sweeps)],
+        "band_halfwidth": [float(v) for v in band],
+        "marginal_band_ratio_true_kernel": mixing.marginal_band_ratio(emp, P, delta=1e-6),
+        "marginal_band_ratio_beta_1_2": mixing.marginal_band_ratio(
+            emp, mixing.sweep_kernel(L, 1.2), delta=1e-6
+        ),
+    }
+    print(
+        f"  sampler vs exact kernel: band ratio {empirical['marginal_band_ratio_true_kernel']:.3f}"
+        f" (wrong beta: {empirical['marginal_band_ratio_beta_1_2']:.2f})"
+    )
+
+    cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
+    adaptive = []
+    for c, T0, n in ((0.5, 100.0, 300), (0.5, 1.0, 400), (0.05, 1.0, 400)):
+        r = mixing.adaptive_exact_tv(
+            cfg,
+            beta_start=0.1,
+            beta_target=0.8,
+            a_t=a_kernel.diminishing_step_sizes(n, c, T0),
+            x0=0,
+        )
+        prod = float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
+        adaptive.append(
+            {
+                "adapt_c": c,
+                "adapt_T0": T0,
+                "n_sweeps": n,
+                "beta_start": 0.1,
+                "beta_target": 0.8,
+                "beta_limit_schedule_end": r.beta_limit,
+                "beta_limit_closed_form_1e6": 0.8 - 0.7 * prod,
+                "frozen_floor_tv": r.frozen_floor,
+                "tv_to_target_end": float(r.tv_to_target[-1]),
+                "tv_to_limit_end": float(r.tv_to_limit[-1]),
+                "tv_to_target_checkpoints": {
+                    str(t): float(r.tv_to_target[t]) for t in (0, 5, 10, 20, 50, 100, n)
+                },
+            }
+        )
+        print(
+            f"  adaptive c={c} T0={T0}: beta_inf={r.beta_limit:.4f} "
+            f"floor={r.frozen_floor:.4f} TV_end={r.tv_to_target[-1]:.2e}"
+        )
+
+    grid = np.round(np.linspace(0.1, 2.0, 20), 6)
+    far = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
+    containment = {
+        "theta": [0.1, 2.0],
+        "beta_grid": grid.tolist(),
+        "t_rel_sweeps": mixing.relaxation_time_profile(L, grid).tolist(),
+        "beta_beyond_theta": far.tolist(),
+        "t_rel_beyond_theta": mixing.relaxation_time_profile(L, far).tolist(),
+    }
+
+    if json_path:
+        payload = {
+            "phase": "7",
+            "title": "Exact TV mixing of the A-kernel + adaptive chain + containment",
+            "instance": f"1D repetition-code ring, L={L}, |X|=2^L={2**L}",
+            "oracles": {
+                "sandwich": "lambda_*^t/2 <= d(t) <= sqrt((1-pi_min)/pi_min) lambda_*^t/2 "
+                "(Levin/Peres/Wilmer 2017, ch. 12)",
+                "empirical_band": "|TV_emp - TV_exact| <= 1/2 sum sqrt(p(1-p)/n) "
+                "+ sqrt(ln(2/delta)/(2n)) (Jensen + McDiarmid)",
+                "stationary": "ising1d.exact_distribution / mean_energy",
+            },
+            "kernels": kernels,
+            "empirical_sampler": empirical,
+            "adaptive_chain": adaptive,
+            "containment": containment,
+            "honest_scope": "exact only for 2^L <= 4096 states (1D ring); no statement "
+            "about 2D/RBIM mixing. Summable schedules converge to pi_{beta_inf}, which "
+            "equals pi_{beta_target} only when prod(1-a_t) is negligible.",
+            "seed": seed,
+        }
+        out_path = _resolve_json_path(json_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"  artifact -> {out_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
@@ -1776,10 +2026,11 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         nargs="?",
         default="demo",
-        choices=["demo", "selftest", "phase5", "phase6"],
+        choices=["demo", "selftest", "phase5", "phase6", "phase7"],
         help=(
             "demo (default), selftest, phase5 (CLT + R-hat + manifest), "
-            "or phase6 (SNIS + surrogate-DA + checkpoint)"
+            "phase6 (SNIS + surrogate-DA + checkpoint), "
+            "or phase7 (exact TV mixing + adaptive chain + containment)"
         ),
     )
     parser.add_argument(
@@ -1807,6 +2058,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_selftest(args.json)
     if args.command == "phase6":
         return run_phase6(json_path=args.json)
+    if args.command == "phase7":
+        return run_phase7(json_path=args.json)
     if args.command == "phase5":
         return run_phase5(
             n_chains=args.n_chains,

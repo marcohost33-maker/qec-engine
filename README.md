@@ -97,7 +97,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
-| Selftest-Gates (`cli.py --selftest`, 45 Gates, JSON-Log) | **real** (45/45 [PASS], exit 0) |
+| Selftest-Gates (`cli.py --selftest`, 49 Gates, JSON-Log) | **real** (49/49 [PASS], exit 0) |
 | **SNIS mit χ²-Varianz-Bound (`snis.py`, Phase-6)** | **real** — offene 1D-Ising-Kette: χ² GESCHLOSSEN `[cosh(2K_t−K_p)cosh(K_p)/cosh²(K_t)]^{L−1}−1`; ESS/N trifft `1/(1+χ²)` (\|diff\|<0.005); gemessener Bias trifft den geschlossenen O(1/N)-Koeffizienten `(1+χ²)(tanh K_t−tanh(2K_t−K_p))` (bias·N/c ≈ 0.97 @ N=100); MSE ≤ `4(1+χ²)/N` (Agapiou et al. 2017); ESS-Kollaps-Guard beidseitig. **Offen:** Defensive Mixture, 2D/RBIM-Targets |
 | Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
@@ -110,6 +110,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
 | **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % weniger Stufe-2-Auswertungen (Accounting-Größe, kein gemessener Speedup im 1D-Toy); Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
 | **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer (über Laden+Lauf gehalten); SHA-256-Integritäts-Hash weist korrumpierte Checkpoints LAUT ab (unkeyed — Korruptions-Erkennung, keine krypt. Authentifizierung) |
+| **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt im rigorosen TV-Band des exakten Kerns (Ratio 0.56), β=1.2 fällt heraus (3.6); β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `sup_Θ t_rel = 18.9` Sweeps, außerhalb divergent (β=6: 5.4·10⁴). **Befund:** summierbarer Schedule mit kleinem T0 friert β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) |
 | MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
@@ -256,15 +257,51 @@ Jeffreys-regularisierte Standardfehler (Null-Ereignis-Zellen sind jetzt falsifiz
 konstante Ketten mit verschiedenen Mitteln als nicht-konvergiert, Manifest-Validierung an der
 Vertrauensgrenze, `rg_map`-dtype-Härtung.
 
+## Phase-7: exakte TV-Mischung + adaptive Kette (NEU)
+
+Schließt die zwei ältesten offenen Akzeptanzkriterien der ROADMAP — Phase 1 „TV-Distanz fällt
+(geometrische Ergodizität)" und Phase 2 „Mischzeiten beschränkt (Containment)" — mit **exakten**
+Orakeln statt Plots (Evidenz: `results/phase7-mixing-tv.json`, regenerierbar via
+`adaptiverg-qec phase7 --json ...`; Gates G46–G49):
+
+1. **Exakter Kern.** Der MVP-Ring hat den endlichen Zustandsraum `{0,1}^L`. Für L=6 wird die
+   Übergangsmatrix eines Sweeps (`P = P_1^L`, identisch zu `a_kernel._sweep`) vollständig
+   aufgestellt; die Zielverteilung trifft das separat geschriebene `ising1d`-Orakel auf 1e-15.
+   Reversibilität wird geprüft (Residuum ~1e-18) und ist Vorbedingung, sonst fail-closed.
+2. **Spektral-Sandwich (Levin/Peres/Wilmer 2017, Kap. 12).** Die exakte Worst-Case-Distanz
+   `d(t)` liegt für β∈{0.3, 0.8, 1.5} zwischen `λ*^t/2` und `√((1−π_min)/π_min)·λ*^t/2`; die
+   gefittete Zerfallsrate trifft λ* auf <1 %. **Gegenrichtung:** bei β=0 (jeder Flip akzeptiert,
+   L gerade) erhält ein Sweep die Parität — λ*=1, TV bleibt ≥0.49, Guard flaggt „nicht geometrisch ergodisch".
+3. **Der echte Sampler trägt diesen Kern.** 4000 unabhängige Ketten durch `advance_chain`: die
+   empirische Randverteilung nach t Sweeps liegt im rigorosen Band
+   `½Σ√(p(1−p)/n) + √(ln(2/δ)/(2n))` (Jensen + McDiarmid, δ=1e-6) um `δ_{x0}P^t`
+   (Ratio 0.56); gegen den Kern bei β=1.2 geprüft fällt sie heraus (3.6). **Ehrliche
+   Trennschärfe:** ein um 12 % falsches β oder L±1 Einzelschritte je Sweep erkennt das Band
+   bei n=4000 nicht.
+4. **Adaptive Kette exakt.** Weil der MVP β deterministisch adaptiert, ist die Randverteilung
+   `μ_{t+1} = μ_t P_{β_{t+1}}` exakt berechenbar (Schedule bit-identisch zu `run_adaptive_mcmc`).
+   Default (c=0.5, T0=100): TV zu π_target < 1e-14. **Containment:** `sup_{β∈Θ} t_rel = 18.9`
+   Sweeps; Richtung kritischer Punkt (β_c=∞) wächst t_rel ungebremst (β=4: 994, β=6: 54 252).
+5. **Befund ([LÜCKE], jetzt beziffert).** Ein summierbarer Schedule (Σa_t<∞) friert die Adaption
+   ein: `β_∞ − β_target = (β_0 − β_target)·Π(1−a_t)`. Mit T0=1 endet β bei 0.549 statt 0.8, und
+   die Kette konvergiert exakt nach π_{β_∞} — der TV-Abstand zu π_target bleibt bei 0.088.
+   Beim Default ist `Π(1−a_t) ≈ e^{−50}` und der Effekt numerisch null; wer T0 verkleinert,
+   bekommt einen anderen Zielparameter, ohne dass ein bisheriger Guard anschlägt.
+
+**Ehrlich:** exakt nur für 2^L ≤ 4096 Zustände (1D-Ring). Für große L und 2D bleiben
+R̂/ESS und τ_int die Diagnostik; Phase 7 kalibriert, dass sie auf einem Kern mit exakt
+bekanntem Mischverhalten arbeiten.
+
 ## Schnellstart
 
 ```bash
 pip install -e ".[dev]"
-adaptiverg-qec selftest          # 45 Gates, exit 0 gdw alle [PASS]
+adaptiverg-qec selftest          # 49 Gates, exit 0 gdw alle [PASS]
 adaptiverg-qec demo              # A-Kernel + C-Kernel-Demo
 adaptiverg-qec phase5 --json results/phase5-clt-rhat-manifest.json --manifest-out results/phase5-manifest.json
 adaptiverg-qec phase5 --from-manifest results/phase5-manifest.json   # byte-identische Reproduktion (CLT+R-hat, Phase-5)
 adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json  # SNIS+DA+Checkpoint (Phase-6)
+adaptiverg-qec phase7 --json results/phase7-mixing-tv.json  # exakte TV-Mischung + adaptive Kette (Phase-7)
 pytest                           # Test-Suite
 python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code.json (Inkr.1)
 python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)
