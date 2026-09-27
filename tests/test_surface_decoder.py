@@ -196,3 +196,157 @@ def test_threshold_rejects_nonascending_ps() -> None:
 def test_threshold_rejects_ps_out_of_range() -> None:
     with pytest.raises(ValueError, match=r"\(0, 0\.5\)"):
         sd.estimate_mwpm_threshold(7, 9, ps=(0.1, 0.6))
+
+
+# ---------------------------------------------------------------------------
+# Inkrement 3.1: Multi-Round-Phenomenological-Baseline.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+@pytest.mark.parametrize("basis", ["x", "z"])
+def test_phenomenological_zero_noise_is_exactly_zero(basis: str) -> None:
+    """Ohne injizierte Fehler darf der annotierte Raum-Zeit-Pfad nie logisch failen."""
+    est = sd.surface_phenomenological_logical_error_rate(
+        3, rounds=3, p_data=0.0, p_meas=0.0, shots=512, seed=11, memory_basis=basis
+    )
+    assert est.p_logical == 0.0
+    assert est.std_err > 0.0  # Jeffreys-Sentinel bleibt auch bei k=0 falsifizierbar
+
+
+@requires_surface
+def test_phenomenological_run_is_seed_reproducible() -> None:
+    """Gleicher Stim-Seed -> identische logisch dekodierte Fehlerrate."""
+    kw = dict(d=3, rounds=4, p_data=0.01, p_meas=0.01, shots=2000, seed=17)
+    a = sd.surface_phenomenological_logical_error_rate(**kw)
+    b = sd.surface_phenomenological_logical_error_rate(**kw)
+    assert a.p_logical == b.p_logical
+    assert a.std_err == b.std_err
+
+
+@requires_surface
+def test_phenomenological_diagnostics_are_explicitly_non_threshold() -> None:
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.005, p_meas=0.005, shots=500, seed=3
+    )
+    assert payload["rows"][0]["rounds"] == 3
+    assert "no literature-threshold claim" in payload["claim_ceiling"]
+
+
+@requires_surface
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(d=2, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=0, p_data=0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=-0.01, p_meas=0.01, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.5, shots=10, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.01, shots=0, seed=0),
+        dict(d=3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=-1),
+    ],
+)
+def test_phenomenological_invalid_inputs_fail_closed(kwargs: dict) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        sd.surface_phenomenological_logical_error_rate(**kwargs)
+
+
+@requires_surface
+def test_phenomenological_rejects_unknown_memory_basis() -> None:
+    with pytest.raises(ValueError, match="memory_basis"):
+        sd.surface_phenomenological_logical_error_rate(
+            3, rounds=3, p_data=0.01, p_meas=0.01, shots=10, seed=0, memory_basis="y"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #40: Seed-Provenienz, leere Distanzen, Zell-Seed-Identitaet.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+def test_phenomenological_payload_records_base_and_cell_seeds() -> None:
+    """Der Artefakt-Payload muss den Lauf rekonstruierbar machen (Basis- + Zell-Seed)."""
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.005, p_meas=0.005, shots=200, seed=12345
+    )
+    # .get/in statt [..]: fehlende Provenienz soll als Assertion scheitern, nicht als KeyError.
+    assert payload.get("seed") == 12345
+    row = payload["rows"][0]
+    assert "seed" in row, sorted(row)
+    replay = sd.surface_phenomenological_logical_error_rate(
+        3, rounds=row["rounds"], p_data=0.005, p_meas=0.005, shots=200, seed=row["seed"]
+    )
+    assert replay.p_logical == row["p_logical"]
+
+
+@requires_surface
+def test_phenomenological_rejects_empty_distances() -> None:
+    """Keine Distanz = keine Messung; darf kein erfolgreich aussehender Payload werden."""
+    with pytest.raises(ValueError, match="distances"):
+        sd.run_phenomenological_diagnostics(distances=(), shots=10, seed=0)
+
+
+@requires_surface
+def test_phenomenological_empty_distances_do_not_hide_invalid_settings() -> None:
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(), p_data=-1.0, shots=0, seed=-5)
+
+
+@requires_surface
+def test_phenomenological_cell_seed_uses_every_noise_coordinate() -> None:
+    """(p_data, p_meas) = (0.01, 0) und (0, 0.01) sind verschiedene Zellen -> verschiedene Seeds."""
+    a = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.01, p_meas=0.0, shots=10, seed=7
+    )
+    b = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.0, p_meas=0.01, shots=10, seed=7
+    )
+    c = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.01, p_meas=0.0, shots=10, seed=7, memory_basis="x"
+    )
+    seeds = {a["rows"][0]["seed"], b["rows"][0]["seed"], c["rows"][0]["seed"]}
+    assert len(seeds) == 3
+
+
+# ---------------------------------------------------------------------------
+# Equalita-Runde 2026-09-27 (#40/#41): Wrapper-Vertrag am oeffentlichen Eingang.
+# ---------------------------------------------------------------------------
+
+
+@requires_surface
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(p_data=0.6),
+        dict(p_meas=0.7),
+        dict(p_data=-0.01),
+        dict(p_meas=0.5),
+        dict(p_data=float("nan")),
+    ],
+)
+def test_phenomenological_wrapper_rejects_out_of_range_noise(kwargs: dict) -> None:
+    """Der oeffentliche Wrapper selbst muss p ausserhalb [0, 0.5) ablehnen."""
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1, **kwargs)
+
+
+@requires_surface
+def test_phenomenological_wrapper_rejects_negative_seed() -> None:
+    with pytest.raises(ValueError, match="seed"):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=-5)
+
+
+@requires_surface
+def test_phenomenological_payload_names_seed_policy() -> None:
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    assert payload.get("seed_policy") == "phenom-cell-sha256-v1"
+
+
+@requires_surface
+def test_phenomenological_base_seed_changes_cell_seeds() -> None:
+    """Verschiedene Basis-Seeds muessen verschiedene Zell-Seeds liefern."""
+    a = sd.run_phenomenological_diagnostics(distances=(3, 5), shots=10, seed=1)
+    b = sd.run_phenomenological_diagnostics(distances=(3, 5), shots=10, seed=2)
+    seeds_a = [row["seed"] for row in a["rows"]]
+    seeds_b = [row["seed"] for row in b["rows"]]
+    assert all(x != y for x, y in zip(seeds_a, seeds_b, strict=True)), (seeds_a, seeds_b)
