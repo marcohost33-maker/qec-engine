@@ -340,7 +340,8 @@ def test_phenomenological_wrapper_rejects_negative_seed() -> None:
 @requires_surface
 def test_phenomenological_payload_names_seed_policy() -> None:
     payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
-    assert payload.get("seed_policy") == "phenom-cell-sha256-v1"
+    # Ab Manifest v2 leitet der Wrapper die Zell-Seeds aus dem Vertrag ab.
+    assert payload.get("seed_policy") == "manifest-sha256-v1"
 
 
 @requires_surface
