@@ -127,7 +127,8 @@ diesen Pfad nicht.
   mit Schema-Version, strikter Validierung und SHA-256-Fingerprint.
 - `QECExperimentManifestV2` bindet Code-Familie, X/Z-Memory, Distanzen, Runden-Policy,
   Shot-Budget, Decoder, NoiseProfile und Seed-Policy in einen reproduzierbaren Vertrag.
-- Zell-Seeds werden aus dem vollstaendigen Run-Vertrag per SHA-256 abgeleitet; eine
+- Zell-Seeds werden aus dem Run-Vertrag per SHA-256 abgeleitet (ohne `environment`,
+  das reine Provenienz ist -- derselbe Vertrag zieht auf anderer Hardware denselben Strom); eine
   Aenderung des Noise-Kanals ist damit sichtbar auch eine neue RNG-Zellidentitaet.
 - `run_experiment_manifest` fuehrt diesen Vertrag direkt ueber Stim DEM -> PyMatching aus
   und schreibt Manifest-Fingerprint sowie Dependency-Versionen in das Ergebnis.

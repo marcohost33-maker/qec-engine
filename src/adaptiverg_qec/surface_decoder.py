@@ -480,6 +480,11 @@ def run_phenomenological_diagnostics(
     Ein spaeterer FSS/Sinter-Schritt soll p-Gitter, Konfidenzintervalle,
     Abbruchregeln und Decodervergleiche explizit festlegen.
     """
+    # Der Manifest-Vertrag erlaubt p in [0, 1]; dieser Wrapper ist die bounded
+    # Baseline und behaelt den Bereich [0, 0.5) aus #40 am oeffentlichen Eingang.
+    for name, p in (("p_data", p_data), ("p_meas", p_meas)):
+        if not math.isfinite(p) or p < 0.0 or p >= 0.5:
+            raise ValueError(f"{name} must be in [0, 0.5), got {p}")
     manifest = QECExperimentManifestV2(
         memory_basis=memory_basis,
         distances=tuple(distances),
