@@ -51,6 +51,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from . import __version__
+from .manifest import _git_sha
 from .qec_diagnostics import cell_seed, logical_error_rate_exact
 from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
@@ -449,6 +451,10 @@ def run_experiment_manifest(manifest: QECExperimentManifestV2) -> dict:
         "stim_version": stim.__version__,
         "pymatching_version": pymatching.__version__,
         "runtime_environment": {
+            # Gleicher Vertrag, anderer Code-Stand -> andere Zeilen moeglich; ohne
+            # Revision waeren beide Laeufe ununterscheidbar (wie Phase-5-Manifest).
+            "package_version": __version__,
+            "git_sha": _git_sha(),
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "machine": platform.machine(),
@@ -485,11 +491,17 @@ def run_phenomenological_diagnostics(
     for name, p in (("p_data", p_data), ("p_meas", p_meas)):
         if not math.isfinite(p) or p < 0.0 or p >= 0.5:
             raise ValueError(f"{name} must be in [0, 0.5), got {p}")
+
+    # Der alte Pfad nahm NumPy-Ganzzahlen an; das Manifest prueft streng auf int.
+    # Normalisiert wird nur hier am oeffentlichen Eingang, bool bleibt verboten.
+    def _plain_int(v):
+        return int(v) if isinstance(v, np.integer) and not isinstance(v, np.bool_) else v
+
     manifest = QECExperimentManifestV2(
         memory_basis=memory_basis,
-        distances=tuple(distances),
-        shots_per_cell=shots,
-        base_seed=seed,
+        distances=tuple(_plain_int(d) for d in distances),
+        shots_per_cell=_plain_int(shots),
+        base_seed=_plain_int(seed),
         noise=StimNoiseProfile(
             before_round_data_depolarization=p_data,
             before_measure_flip_probability=p_meas,

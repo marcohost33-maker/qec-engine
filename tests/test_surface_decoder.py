@@ -402,3 +402,36 @@ def test_phenomenological_rows_keep_p_data_and_p_meas() -> None:
     row = payload["rows"][0]
     assert row.get("p_data") == 0.004
     assert row.get("p_meas") == 0.006
+
+
+@requires_surface
+def test_phenomenological_wrapper_accepts_numpy_integers() -> None:
+    """Codex #41: np.int64 fuer shots/seed/distances war vor dem Refactor gueltig."""
+    import numpy as np
+
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(np.int64(3),), shots=np.int64(10), seed=np.int64(1)
+    )
+    manifest = payload["manifest"]
+    assert manifest["shots_per_cell"] == 10 and type(manifest["shots_per_cell"]) is int
+    assert manifest["base_seed"] == 1 and type(manifest["base_seed"]) is int
+    assert manifest["distances"] == [3]
+
+
+@requires_surface
+def test_phenomenological_wrapper_still_rejects_numpy_bool_shots() -> None:
+    import numpy as np
+
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=np.bool_(True), seed=1)
+
+
+@requires_surface
+def test_manifest_runtime_records_package_version_and_git_sha() -> None:
+    """Codex #41: gleiche Manifeste aus verschiedenen Revisionen muessen unterscheidbar sein."""
+    import adaptiverg_qec
+
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    env = payload["runtime_environment"]
+    assert env.get("package_version") == adaptiverg_qec.__version__
+    assert isinstance(env.get("git_sha"), str) and env["git_sha"]
