@@ -234,3 +234,29 @@ def test_autocorr_overflowing_series_is_not_reported_as_constant() -> None:
     with pytest.raises(ValueError) as exc:
         autocorr.autocorr_function_fft(x)
     assert "constant" not in str(exc.value)
+
+
+# --- Issue #48: Aufrufer duerfen NaN nicht per ``np.var(x) > 0`` am Gate vorbeischleusen.
+
+
+def test_tau_int_or_half_constant_series_is_half() -> None:
+    assert autocorr.tau_int_or_half(np.full(128, 3.0)) == 0.5
+
+
+def test_tau_int_or_half_matches_integrated_autocorr_time() -> None:
+    x = np.random.default_rng(48).standard_normal(512)
+    expected = autocorr.integrated_autocorr_time(x, c_window=2.0).tau_int
+    assert autocorr.tau_int_or_half(x, c_window=2.0) == expected
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_tau_int_or_half_rejects_non_finite(bad: float) -> None:
+    """``np.var`` einer NaN-Reihe ist NaN, ``nan > 0`` ist False -- der alte
+    Aufrufer-Vorcheck meldete dann still tau=0.5 statt fail-closed zu brechen."""
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.tau_int_or_half(_series_with(bad))
+
+
+def test_tau_int_or_half_all_nan_series_is_not_constant() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        autocorr.tau_int_or_half(np.full(64, float("nan")))
