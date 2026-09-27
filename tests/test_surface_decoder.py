@@ -354,7 +354,6 @@ def test_phenomenological_base_seed_changes_cell_seeds() -> None:
     assert all(x != y for x, y in zip(seeds_a, seeds_b, strict=True)), (seeds_a, seeds_b)
 
 
-
 @requires_surface
 def test_manifest_v2_executes_the_declared_noise_contract() -> None:
     manifest = QECExperimentManifestV2(
