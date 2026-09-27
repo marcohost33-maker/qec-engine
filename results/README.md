@@ -3,10 +3,10 @@
 AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 
 - `selftest.json` — JSON-Gate-Log des letzten lokalen `adaptiverg-qec selftest`-Laufs
-  (45 Gates, je gegen ein unabhängiges Orakel; G9–G12 = Phase-2 Swendsen-MCRG,
+  (49 Gates, je gegen ein unabhängiges Orakel; G9–G12 = Phase-2 Swendsen-MCRG,
   G13–G18 = Phase-3a autokorr-Fehler, G19–G23 = Phase-3b 2D-Ising-Swendsen-MATRIX,
   G24–G32 = Phase-4 Wolff/Multi-RG, G33–G38 = Phase-5 CLT/R̂/Manifest,
-  G39–G45 = Phase-6 SNIS/Surrogate-DA/Checkpoint).
+  G39–G45 = Phase-6 SNIS/Surrogate-DA/Checkpoint, G46–G49 = Phase-7 exakte TV-Mischung).
   Reproduzierbar via:
 
   ```bash
@@ -48,6 +48,15 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 
   ```bash
   adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json
+  ```
+
+- `phase7-mixing-tv.json` — **Phase-7:** exakte TV-Verläufe des A-Kernels (Ring L=6)
+  im Spektral-Sandwich, echter Sampler im TV-Band des exakten Kerns, exakte
+  Randverteilung der adaptiven Kette (inkl. eingefrorener summierbarer Adaption) und
+  Containment-Profil `t_rel(β)`. Reproduzierbar via:
+
+  ```bash
+  adaptiverg-qec phase7 --json results/phase7-mixing-tv.json
   ```
 
 Die SHA-256 dieser Logs ist lauf-spezifisch (Zeitstempel/Elapsed) und wird daher nicht
