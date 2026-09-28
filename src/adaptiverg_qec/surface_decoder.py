@@ -44,9 +44,12 @@ KORREKTHEITS-DISZIPLIN (Codie, ehrlich):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import platform
 import sys
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -547,6 +550,68 @@ def run_phenomenological_diagnostics(
     payload["seed_policy"] = manifest.seed_policy
     payload["claim_ceiling"] = "bounded multi-round baseline; no literature-threshold claim"
     return payload
+
+
+# --- Kompatibilitaet: altes Zell-Seed-Schema (Codex #41) ------------------------
+# run_phenomenological_diagnostics zieht seine Zell-Seeds seit Manifest v2 aus
+# QECExperimentManifestV2.cell_seed (seed_policy "manifest-sha256-v1"). Die zwei
+# oeffentlichen Namen des alten Schemas standen auf main; ersatzlos entfernt
+# braechen sie Aufrufer beim Import. Sie bleiben deshalb bitgleich erhalten, warnen
+# aber: ihre Seeds sind NICHT die Zeilen-Seeds des heutigen Wrappers.
+_LEGACY_PHENOMENOLOGICAL_SEED_POLICY = "phenom-cell-sha256-v1"
+_DEPRECATED_SEED_NOTE = (
+    "the legacy phenomenological seed scheme ('phenom-cell-sha256-v1') is deprecated: "
+    "run_phenomenological_diagnostics now derives cell seeds from "
+    "QECExperimentManifestV2.cell_seed (seed_policy 'manifest-sha256-v1'), so legacy "
+    "seeds do not match its payload rows"
+)
+
+
+def phenomenological_cell_seed(
+    base_seed: int,
+    *,
+    d: int,
+    rounds: int,
+    p_data: float,
+    p_meas: float,
+    memory_basis: str,
+) -> int:
+    """Veraltet: Zell-Seed des alten Schemas ``phenom-cell-sha256-v1``.
+
+    Bitgleich zur frueheren Fassung: SHA-256 ueber das kanonische JSON von
+    (base_seed, d, rounds, p_data, p_meas, memory_basis), die ersten 8 Byte
+    little-endian, auf 63 Bit maskiert. NaN/inf werfen wie frueher ValueError.
+    Der heutige Wrapper nutzt dieses Schema nicht mehr.
+    """
+    warnings.warn(
+        f"phenomenological_cell_seed: {_DEPRECATED_SEED_NOTE}",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    payload = {
+        "base_seed": int(base_seed),
+        "d": int(d),
+        "rounds": int(rounds),
+        "p_data": float(p_data),
+        "p_meas": float(p_meas),
+        "memory_basis": memory_basis,
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    digest = hashlib.sha256(blob.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
+
+
+def __getattr__(name: str):
+    # PEP 562: die veraltete Konstante warnt bei JEDEM Zugriff, auch bei
+    # ``from ... import PHENOMENOLOGICAL_SEED_POLICY``.
+    if name == "PHENOMENOLOGICAL_SEED_POLICY":
+        warnings.warn(
+            f"PHENOMENOLOGICAL_SEED_POLICY: {_DEPRECATED_SEED_NOTE}",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _LEGACY_PHENOMENOLOGICAL_SEED_POLICY
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass(frozen=True)

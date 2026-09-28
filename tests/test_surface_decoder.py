@@ -15,6 +15,7 @@ die Validierung vor dem Decoder-Aufruf greift -- ausser dem Import-Gate selbst).
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
@@ -486,3 +487,79 @@ def test_phenomenological_wrapper_keeps_requested_distance_order() -> None:
     assert [row["d"] for row in payload["rows"]] == [5, 3, 3]
     assert payload["manifest"]["distances"] == [3, 5]
     assert payload["requested_distances"] == [5, 3, 3]
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41 (Runde 3): oeffentliche Namen des alten Seed-Schemas.
+# Orakel: Golden-Werte aus der Fassung auf main 288f82a (nicht aus dem Shim).
+# Ohne [surface]-Extra lauffaehig: das Seed-Schema braucht weder Stim noch MWPM.
+# ---------------------------------------------------------------------------
+
+_LEGACY_GOLDEN = (
+    ((20260919, 3, 3, 0.005, 0.005, "z"), 6007515778355924656),
+    ((20260919, 5, 5, 0.005, 0.005, "x"), 2804414358119849615),
+    ((7, 3, 3, 0.01, 0.0, "z"), 651880645769600113),
+    ((7, 3, 3, 0.0, 0.01, "z"), 159691680220916230),
+)
+
+
+def _deprecations(record: list, needle: str) -> list:
+    return [
+        w for w in record if issubclass(w.category, DeprecationWarning) and needle in str(w.message)
+    ]
+
+
+# Rot NUR per Zusicherung (getattr/try statt Import-/Attribut-Absturz), damit der
+# Diskriminierungsbeweis "Test faengt den Fehler" belegt und nicht "Test stuerzt ab".
+@pytest.mark.parametrize(("args", "expected"), _LEGACY_GOLDEN)
+def test_legacy_phenomenological_cell_seed_is_importable_and_bit_identical(
+    args: tuple, expected: int
+) -> None:
+    base, d, rounds, p_data, p_meas, basis = args
+    fn = getattr(sd, "phenomenological_cell_seed", None)
+    assert fn is not None, "phenomenological_cell_seed fehlt im oeffentlichen Modul"
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        got = fn(base, d=d, rounds=rounds, p_data=p_data, p_meas=p_meas, memory_basis=basis)
+    assert got == expected
+    assert _deprecations(rec, "phenom-cell-sha256-v1"), [str(w.message) for w in rec]
+
+
+def test_legacy_seed_policy_constant_is_importable_with_deprecation() -> None:
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        try:
+            from adaptiverg_qec.surface_decoder import PHENOMENOLOGICAL_SEED_POLICY as value
+        except ImportError as exc:
+            value = f"ImportError: {exc}"
+    assert value == "phenom-cell-sha256-v1", value
+    assert _deprecations(rec, "PHENOMENOLOGICAL_SEED_POLICY"), [str(w.message) for w in rec]
+
+
+def test_legacy_phenomenological_cell_seed_still_rejects_nan() -> None:
+    fn = getattr(sd, "phenomenological_cell_seed", None)
+    assert fn is not None, "phenomenological_cell_seed fehlt im oeffentlichen Modul"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError):
+            fn(1, d=3, rounds=3, p_data=float("nan"), p_meas=0.0, memory_basis="z")
+
+
+def test_module_getattr_does_not_swallow_unknown_names() -> None:
+    try:
+        value = sd.no_such_symbol
+    except AttributeError as exc:
+        value = exc
+    assert isinstance(value, AttributeError), value
+    assert "no_such_symbol" in str(value)
+    assert not hasattr(sd, "PHENOMENOLOGICAL_SEED_POLICY_TYPO")
+
+
+@requires_surface
+def test_wrapper_does_not_route_through_legacy_seed_scheme(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """Der Shim ist nur Kompatibilitaet: der Wrapper darf ihn nicht (wieder) benutzen."""
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=7)
+    assert not _deprecations(list(recwarn), ""), [str(w.message) for w in recwarn]
+    assert payload["seed_policy"] == "manifest-sha256-v1"
