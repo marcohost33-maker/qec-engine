@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import math
+
+import numpy as np
 import pytest
 
 from adaptiverg_qec.qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
@@ -177,3 +181,61 @@ def test_manifest_environment_is_frozen_against_caller_mutation() -> None:
     assert m.fingerprint() == before
     assert m.to_dict()["environment"] == {"host": "a"}
     assert QECExperimentManifestV2.from_dict(m.to_dict()) == m
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41 (Runde 4): -0.0 ist numerisch 0.0 und derselbe Stim-Kanal,
+# serialisiert aber als "-0.0". Gleiche Vertraege brauchen EINE Identitaet
+# (Fingerprint und Zell-Seeds), gleich ueber welchen Eingang die Null kommt.
+# ---------------------------------------------------------------------------
+
+_NOISE_FIELDS = (
+    "before_round_data_depolarization",
+    "before_measure_flip_probability",
+    "after_clifford_depolarization",
+    "after_reset_flip_probability",
+)
+
+
+def _seeds(m: QECExperimentManifestV2) -> list[int]:
+    return [m.cell_seed(d) for d in m.distances]
+
+
+@pytest.mark.parametrize("name", _NOISE_FIELDS)
+def test_noise_profile_signed_zero_has_one_identity(name: str) -> None:
+    neg = StimNoiseProfile(**{name: -0.0})
+    pos = StimNoiseProfile()
+    assert neg == pos
+    assert math.copysign(1.0, getattr(neg, name)) == 1.0
+    assert neg.fingerprint() == pos.fingerprint()
+    m_neg = QECExperimentManifestV2(noise=neg)
+    m_pos = QECExperimentManifestV2(noise=pos)
+    assert m_neg.fingerprint() == m_pos.fingerprint()
+    assert _seeds(m_neg) == _seeds(m_pos)
+
+
+def test_signed_zero_is_canonical_on_every_entry_path() -> None:
+    ref = QECExperimentManifestV2()
+    noise_json = json.dumps({**StimNoiseProfile().to_dict(), **dict.fromkeys(_NOISE_FIELDS, -0.0)})
+    assert "-0.0" in noise_json
+    via_noise_json = StimNoiseProfile.from_dict(json.loads(noise_json))
+    manifest_dict = ref.to_dict()
+    manifest_dict["noise"] = json.loads(noise_json)
+    via_manifest_json = QECExperimentManifestV2.from_dict(manifest_dict)
+    via_manifest_kw = QECExperimentManifestV2(noise=json.loads(noise_json))
+    via_numpy = StimNoiseProfile(after_clifford_depolarization=np.float64(-0.0))
+    assert via_noise_json.fingerprint() == ref.noise.fingerprint()
+    assert via_numpy.fingerprint() == ref.noise.fingerprint()
+    for m in (via_manifest_json, via_manifest_kw):
+        assert m.fingerprint() == ref.fingerprint()
+        assert _seeds(m) == _seeds(ref)
+        assert "-0.0" not in json.dumps(m.to_dict())
+
+
+def test_signed_zero_canonicalisation_keeps_tiny_probabilities_distinct() -> None:
+    """Nur die Null wird kanonisiert: die kleinste positive Zahl bleibt ein eigener Kanal."""
+    tiny = StimNoiseProfile(before_round_data_depolarization=5e-324)
+    assert tiny.before_round_data_depolarization == 5e-324
+    assert tiny.fingerprint() != StimNoiseProfile().fingerprint()
+    with pytest.raises(ValueError):
+        StimNoiseProfile(before_round_data_depolarization=-5e-324)

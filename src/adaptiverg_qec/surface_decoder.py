@@ -614,6 +614,10 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | {"PHENOMENOLOGICAL_SEED_POLICY"})
+
+
 @dataclass(frozen=True)
 class ThresholdEstimate:
     """MWPM-Threshold-Schaetzer (Kurven-Kreuzung) vs. publizierter Literatur-Wert.
@@ -860,6 +864,15 @@ def _main() -> int:
     print("-" * 78)
     print(f"evidence -> {out}")
     return 0
+
+
+# Stern-Import (Codex #41): ohne __all__ sieht ``from ... import *`` nur echte
+# Modul-Bindungen, nicht die per __getattr__ gelieferte Konstante. __all__ ist
+# deshalb exakt "alle oeffentlichen Bindungen + die veraltete Konstante" -- keine
+# Verengung der bisherigen Oberflaeche. Muss die LETZTE Bindung des Moduls sein.
+__all__ = sorted(
+    {name for name in globals() if not name.startswith("_")} | {"PHENOMENOLOGICAL_SEED_POLICY"}
+)
 
 
 if __name__ == "__main__":

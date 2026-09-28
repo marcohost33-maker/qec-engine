@@ -563,3 +563,69 @@ def test_wrapper_does_not_route_through_legacy_seed_scheme(
     payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=7)
     assert not _deprecations(list(recwarn), ""), [str(w.message) for w in recwarn]
     assert payload["seed_policy"] == "manifest-sha256-v1"
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41 (Runde 4): ``from surface_decoder import *`` muss die alte
+# Konstante weiter liefern. Orakel: die oeffentlichen Top-Level-Namen der Fassung
+# auf main 288f82a (per AST extrahiert; ohne __all__ = Stern-Import-Oberflaeche),
+# ohne die drei nur mit [surface]-Extra gebundenen Namen pymatching/stim/csc_matrix.
+# ---------------------------------------------------------------------------
+
+_MAIN_288F82A_STAR_NAMES = frozenset(
+    {
+        "HAVE_SURFACE",
+        "ML_THRESHOLD_LITERATURE",
+        "MWPM_THRESHOLD_LITERATURE",
+        "PHENOMENOLOGICAL_SEED_POLICY",
+        "PhenomenologicalEstimate",
+        "RepetitionMwpmEstimate",
+        "ThresholdEstimate",
+        "annotations",
+        "cell_seed",
+        "dataclass",
+        "estimate_mwpm_threshold",
+        "hashlib",
+        "json",
+        "logical_error_rate_exact",
+        "math",
+        "np",
+        "phenomenological_cell_seed",
+        "repetition_mwpm_vs_oracle",
+        "run_phenomenological_diagnostics",
+        "run_surface_diagnostics",
+        "surface_logical_error_rate",
+        "surface_phenomenological_logical_error_rate",
+    }
+)
+
+
+def _star_import() -> tuple[dict, list]:
+    namespace: dict = {}
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        exec("from adaptiverg_qec.surface_decoder import *", namespace)
+    namespace.pop("__builtins__", None)
+    return namespace, list(rec)
+
+
+def test_wildcard_import_keeps_every_public_name_from_main() -> None:
+    namespace, rec = _star_import()
+    missing = sorted(_MAIN_288F82A_STAR_NAMES - set(namespace))
+    assert not missing, f"Stern-Import verliert Namen von main: {missing}"
+    assert namespace["PHENOMENOLOGICAL_SEED_POLICY"] == "phenom-cell-sha256-v1"
+    assert _deprecations(rec, "PHENOMENOLOGICAL_SEED_POLICY"), [str(w.message) for w in rec]
+
+
+def test_wildcard_import_is_not_narrowed_by_all() -> None:
+    """Ein __all__ darf den Stern-Import nicht auf weniger als alle oeffentlichen Namen kuerzen."""
+    namespace, _ = _star_import()
+    public = {name for name in vars(sd) if not name.startswith("_")}
+    missing = sorted(public - set(namespace))
+    assert not missing, f"Stern-Import unterschlaegt oeffentliche Namen: {missing}"
+
+
+def test_dir_lists_the_deprecated_constant() -> None:
+    names = dir(sd)
+    assert "PHENOMENOLOGICAL_SEED_POLICY" in names
+    assert "phenomenological_cell_seed" in names

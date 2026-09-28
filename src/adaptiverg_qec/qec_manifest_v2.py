@@ -29,6 +29,11 @@ def _probability(name: str, value: float) -> float:
     value = float(value)
     if not (0.0 <= value <= 1.0):
         raise ValueError(f"{name} must be in [0, 1], got {value}")
+    # -0.0 ist numerisch 0.0 und derselbe Stim-Kanal, serialisiert aber als "-0.0".
+    # Kanonisch auf +0.0, sonst erhalten gleiche Vertraege verschiedene Fingerprints
+    # und Zell-Seeds (Codex #41). Nur die Null: 5e-324 bleibt ein eigener Kanal.
+    if value == 0.0:
+        value = 0.0
     return value
 
 
