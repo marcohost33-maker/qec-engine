@@ -47,11 +47,28 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import platform
+import sys
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
 
+from . import __version__
+from .manifest import _git_sha
 from .qec_diagnostics import cell_seed, logical_error_rate_exact
+from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
+
+
+def _distribution_version() -> str | None:
+    """Version der installierten Distribution, None wenn nicht installiert."""
+    from importlib import metadata
+
+    try:
+        return metadata.version("adaptiverg-qec")
+    except metadata.PackageNotFoundError:
+        return None
+
 
 # --- optional-dependency-Gate -------------------------------------------------
 # Ohne das [surface]-Extra bleibt HAVE_SURFACE False; die Funktionen werfen einen
@@ -301,6 +318,53 @@ class PhenomenologicalEstimate:
     std_err: float
 
 
+def _generated_memory_decode(
+    d: int,
+    *,
+    rounds: int,
+    noise: StimNoiseProfile,
+    shots: int,
+    seed: int,
+    memory_basis: str,
+) -> tuple[float, float]:
+    """Gemeinsamer Stim-DEM->PyMatching-Pfad fuer versionierte Noise-Profile."""
+    _require_surface()
+    if not isinstance(d, (int, np.integer)):
+        raise TypeError(f"d must be an integer, got {type(d).__name__}")
+    if int(d) < 3 or int(d) % 2 == 0:
+        raise ValueError(f"d must be odd and >= 3, got {d}")
+    if not isinstance(rounds, (int, np.integer)) or int(rounds) < 1:
+        raise ValueError(f"rounds must be an integer >= 1, got {rounds}")
+    if not isinstance(noise, StimNoiseProfile):
+        raise TypeError("noise must be a StimNoiseProfile")
+    if not isinstance(shots, (int, np.integer)) or int(shots) < 1:
+        raise ValueError(f"shots must be an integer >= 1, got {shots}")
+    if not isinstance(seed, (int, np.integer)) or int(seed) < 0:
+        raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
+    if memory_basis not in {"x", "z"}:
+        raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
+
+    task = f"surface_code:rotated_memory_{memory_basis}"
+    circuit = stim.Circuit.generated(
+        task,
+        distance=int(d),
+        rounds=int(rounds),
+        **noise.to_stim_kwargs(),
+    )
+    dem = circuit.detector_error_model(decompose_errors=True)
+    matching = pymatching.Matching.from_detector_error_model(dem)
+    sampler = circuit.compile_detector_sampler(seed=int(seed))
+    detectors, observables = sampler.sample(int(shots), separate_observables=True)
+    predicted = matching.decode_batch(detectors)
+    failures = np.any(predicted != observables, axis=1)
+
+    k = int(failures.sum())
+    p_logical = float(failures.mean())
+    p_tilde = (k + 0.5) / (int(shots) + 1.0)
+    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / int(shots))
+    return p_logical, std_err
+
+
 def surface_phenomenological_logical_error_rate(
     d: int,
     *,
@@ -340,25 +404,18 @@ def surface_phenomenological_logical_error_rate(
     if memory_basis not in {"x", "z"}:
         raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
 
-    task = f"surface_code:rotated_memory_{memory_basis}"
-    circuit = stim.Circuit.generated(
-        task,
-        distance=int(d),
-        rounds=int(rounds),
+    noise = StimNoiseProfile(
         before_round_data_depolarization=float(p_data),
         before_measure_flip_probability=float(p_meas),
     )
-    dem = circuit.detector_error_model(decompose_errors=True)
-    matching = pymatching.Matching.from_detector_error_model(dem)
-    sampler = circuit.compile_detector_sampler(seed=int(seed))
-    detectors, observables = sampler.sample(int(shots), separate_observables=True)
-    predicted = matching.decode_batch(detectors)
-    failures = np.any(predicted != observables, axis=1)
-
-    k = int(failures.sum())
-    p_logical = float(failures.mean())
-    p_tilde = (k + 0.5) / (int(shots) + 1.0)
-    std_err = math.sqrt(p_tilde * (1.0 - p_tilde) / int(shots))
+    p_logical, std_err = _generated_memory_decode(
+        int(d),
+        rounds=int(rounds),
+        noise=noise,
+        shots=int(shots),
+        seed=int(seed),
+        memory_basis=memory_basis,
+    )
     return PhenomenologicalEstimate(
         d=int(d),
         rounds=int(rounds),
@@ -372,37 +429,63 @@ def surface_phenomenological_logical_error_rate(
     )
 
 
-PHENOMENOLOGICAL_SEED_POLICY = "phenom-cell-sha256-v1"
-"""Zell-Seed = SHA-256 ueber (base_seed, d, rounds, p_data, p_meas, memory_basis)."""
+def run_experiment_manifest(manifest: QECExperimentManifestV2) -> dict:
+    """Fuehre einen versionierten Surface-Code-MWPM-Vertrag aus."""
+    _require_surface()
+    if not isinstance(manifest, QECExperimentManifestV2):
+        raise TypeError("manifest must be QECExperimentManifestV2")
 
+    rows = []
+    for d in manifest.distances:
+        rounds = manifest.resolved_rounds(d)
+        seed = manifest.cell_seed(d)
+        p_logical, std_err = _generated_memory_decode(
+            d,
+            rounds=rounds,
+            noise=manifest.noise,
+            shots=manifest.shots_per_cell,
+            seed=seed,
+            memory_basis=manifest.memory_basis,
+        )
+        rows.append(
+            {
+                "d": d,
+                "rounds": rounds,
+                "shots": manifest.shots_per_cell,
+                "seed": seed,
+                "p_logical": p_logical,
+                "std_err": std_err,
+            }
+        )
 
-def phenomenological_cell_seed(
-    base_seed: int,
-    *,
-    d: int,
-    rounds: int,
-    p_data: float,
-    p_meas: float,
-    memory_basis: str,
-) -> int:
-    """Zell-eigener Stim-Seed aus JEDER laufbestimmenden Zellkoordinate.
-
-    Der fruehere Schluessel ``cell_seed(seed, d, p_data + p_meas)`` bildete
-    verschiedene Zellen wie (0.01, 0) und (0, 0.01) sowie beide Memory-Basen auf
-    denselben Seed ab -- gemeinsame Zufallszahlen zwischen Zellen, die als
-    unabhaengig behandelt werden. Hier geht das volle Tupel kanonisch in SHA-256.
-    """
-    payload = {
-        "base_seed": int(base_seed),
-        "d": int(d),
-        "rounds": int(rounds),
-        "p_data": float(p_data),
-        "p_meas": float(p_meas),
-        "memory_basis": memory_basis,
+    return {
+        "tool": "adaptiverg_qec.surface_decoder.run_experiment_manifest",
+        "manifest": manifest.to_dict(),
+        "manifest_fingerprint": manifest.fingerprint(),
+        "stim_version": stim.__version__,
+        "pymatching_version": pymatching.__version__,
+        "runtime_environment": {
+            # Gleicher Vertrag, anderer Code-Stand -> andere Zeilen moeglich; ohne
+            # Revision waeren beide Laeufe ununterscheidbar (wie Phase-5-Manifest).
+            # Modul-Konstante und installierte Distribution koennen auseinanderlaufen
+            # (Codex #41: 0.1.0.dev2 vs 0.1.0.dev0) -- beide benannt fuehren.
+            "package_version": __version__,
+            "distribution_version": _distribution_version(),
+            "git_sha": _git_sha(),
+            "python": sys.version.split()[0],
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+        },
+        "reproducibility": {
+            "tier": manifest.reproducibility_tier,
+            "note": (
+                "Seeded Stim sampling is exact only for the same Stim version, machine "
+                "architecture, and sampling call pattern; it is not cross-version bitwise."
+            ),
+        },
+        "rows": rows,
+        "claim_ceiling": "bounded multi-round simulation; no FSS/literature-threshold claim",
     }
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    digest = hashlib.sha256(blob.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
 
 
 def run_phenomenological_diagnostics(
@@ -420,56 +503,119 @@ def run_phenomenological_diagnostics(
     Ein spaeterer FSS/Sinter-Schritt soll p-Gitter, Konfidenzintervalle,
     Abbruchregeln und Decodervergleiche explizit festlegen.
     """
-    _require_surface()
-    distances = tuple(distances)
-    if not distances:
-        # Ohne Distanz liefe keine Messung und keine der verschachtelten
-        # Validierungen; ein leerer, "erfolgreicher" Payload waere ein Silent Failure.
-        raise ValueError("distances must contain at least one distance")
-    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or int(seed) < 0:
-        raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
-    rows = []
-    for d in distances:
-        est = surface_phenomenological_logical_error_rate(
-            d,
-            rounds=d,
-            p_data=p_data,
-            p_meas=p_meas,
-            shots=shots,
-            seed=phenomenological_cell_seed(
-                int(seed),
-                d=d,
-                rounds=d,
-                p_data=p_data,
-                p_meas=p_meas,
-                memory_basis=memory_basis,
-            ),
-            memory_basis=memory_basis,
-        )
-        rows.append(
-            {
-                "d": est.d,
-                "rounds": est.rounds,
-                "p_data": est.p_data,
-                "p_meas": est.p_meas,
-                "shots": est.shots,
-                "seed": est.seed,
-                "p_logical": est.p_logical,
-                "std_err": est.std_err,
-            }
-        )
-    return {
-        "seed": int(seed),
-        "seed_policy": PHENOMENOLOGICAL_SEED_POLICY,
-        "model": (
-            "Stim rotated surface-code memory; before_round_data_depolarization=p_data; "
-            "before_measure_flip_probability=p_meas; otherwise ideal operations"
+    # Der Manifest-Vertrag erlaubt p in [0, 1]; dieser Wrapper ist die bounded
+    # Baseline und behaelt den Bereich [0, 0.5) aus #40 am oeffentlichen Eingang.
+    for name, p in (("p_data", p_data), ("p_meas", p_meas)):
+        if not math.isfinite(p) or p < 0.0 or p >= 0.5:
+            raise ValueError(f"{name} must be in [0, 0.5), got {p}")
+
+    # Der alte Pfad nahm NumPy-Ganzzahlen an; das Manifest prueft streng auf int.
+    # Normalisiert wird nur hier am oeffentlichen Eingang, bool bleibt verboten.
+    def _plain_int(v):
+        return int(v) if isinstance(v, np.integer) and not isinstance(v, np.bool_) else v
+
+    def _plain_float(v):
+        return float(v) if isinstance(v, np.floating) else v
+
+    # Der alte Wrapper lief die Zellen in der angefragten Reihenfolge; das Manifest
+    # verlangt eine streng steigende Menge. Also: Manifest ueber die sortierte Menge,
+    # Zeilen danach in der angefragten Reihenfolge (Duplikate wie frueher je Eintrag).
+    requested = tuple(_plain_int(d) for d in distances)
+    manifest = QECExperimentManifestV2(
+        memory_basis=memory_basis,
+        distances=tuple(sorted(set(requested))),
+        shots_per_cell=_plain_int(shots),
+        base_seed=_plain_int(seed),
+        noise=StimNoiseProfile(
+            before_round_data_depolarization=_plain_float(p_data),
+            before_measure_flip_probability=_plain_float(p_meas),
         ),
-        "decoder": "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)",
+    )
+    payload = run_experiment_manifest(manifest)
+    by_d = {row["d"]: row for row in payload["rows"]}
+    payload["rows"] = [dict(by_d[d]) for d in requested]
+    payload["requested_distances"] = list(requested)
+    payload["model"] = (
+        "Stim rotated surface-code memory; versioned StimNoiseProfile; "
+        "rounds=distance for this bounded baseline"
+    )
+    payload["decoder"] = "PyMatching MWPM from Stim DetectorErrorModel(decompose_errors=True)"
+    payload["memory_basis"] = memory_basis
+    # Zeilenschema des oeffentlichen Wrappers bleibt kompatibel (Codex #41).
+    for row in payload["rows"]:
+        row["p_data"] = manifest.noise.before_round_data_depolarization
+        row["p_meas"] = manifest.noise.before_measure_flip_probability
+    # Seed-Provenienz (Codex #40): Basis-Seed + Policy explizit; Zell-Seeds je Zeile.
+    payload["seed"] = manifest.base_seed
+    payload["seed_policy"] = manifest.seed_policy
+    payload["claim_ceiling"] = "bounded multi-round baseline; no literature-threshold claim"
+    return payload
+
+
+# --- Kompatibilitaet: altes Zell-Seed-Schema (Codex #41) ------------------------
+# run_phenomenological_diagnostics zieht seine Zell-Seeds seit Manifest v2 aus
+# QECExperimentManifestV2.cell_seed (seed_policy "manifest-sha256-v1"). Die zwei
+# oeffentlichen Namen des alten Schemas standen auf main; ersatzlos entfernt
+# braechen sie Aufrufer beim Import. Sie bleiben deshalb bitgleich erhalten, warnen
+# aber: ihre Seeds sind NICHT die Zeilen-Seeds des heutigen Wrappers.
+_LEGACY_PHENOMENOLOGICAL_SEED_POLICY = "phenom-cell-sha256-v1"
+_DEPRECATED_SEED_NOTE = (
+    "the legacy phenomenological seed scheme ('phenom-cell-sha256-v1') is deprecated: "
+    "run_phenomenological_diagnostics now derives cell seeds from "
+    "QECExperimentManifestV2.cell_seed (seed_policy 'manifest-sha256-v1'), so legacy "
+    "seeds do not match its payload rows"
+)
+
+
+def phenomenological_cell_seed(
+    base_seed: int,
+    *,
+    d: int,
+    rounds: int,
+    p_data: float,
+    p_meas: float,
+    memory_basis: str,
+) -> int:
+    """Veraltet: Zell-Seed des alten Schemas ``phenom-cell-sha256-v1``.
+
+    Bitgleich zur frueheren Fassung: SHA-256 ueber das kanonische JSON von
+    (base_seed, d, rounds, p_data, p_meas, memory_basis), die ersten 8 Byte
+    little-endian, auf 63 Bit maskiert. NaN/inf werfen wie frueher ValueError.
+    Der heutige Wrapper nutzt dieses Schema nicht mehr.
+    """
+    warnings.warn(
+        f"phenomenological_cell_seed: {_DEPRECATED_SEED_NOTE}",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    payload = {
+        "base_seed": int(base_seed),
+        "d": int(d),
+        "rounds": int(rounds),
+        "p_data": float(p_data),
+        "p_meas": float(p_meas),
         "memory_basis": memory_basis,
-        "rows": rows,
-        "claim_ceiling": "bounded multi-round baseline; no literature-threshold claim",
     }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    digest = hashlib.sha256(blob.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
+
+
+def __getattr__(name: str):
+    # PEP 562: die veraltete Konstante warnt bei JEDEM Zugriff, auch bei
+    # ``from ... import PHENOMENOLOGICAL_SEED_POLICY``.
+    if name == "PHENOMENOLOGICAL_SEED_POLICY":
+        warnings.warn(
+            f"PHENOMENOLOGICAL_SEED_POLICY: {_DEPRECATED_SEED_NOTE}",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _LEGACY_PHENOMENOLOGICAL_SEED_POLICY
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | {"PHENOMENOLOGICAL_SEED_POLICY"})
 
 
 @dataclass(frozen=True)
@@ -718,6 +864,15 @@ def _main() -> int:
     print("-" * 78)
     print(f"evidence -> {out}")
     return 0
+
+
+# Stern-Import (Codex #41): ohne __all__ sieht ``from ... import *`` nur echte
+# Modul-Bindungen, nicht die per __getattr__ gelieferte Konstante. __all__ ist
+# deshalb exakt "alle oeffentlichen Bindungen + die veraltete Konstante" -- keine
+# Verengung der bisherigen Oberflaeche. Muss die LETZTE Bindung des Moduls sein.
+__all__ = sorted(
+    {name for name in globals() if not name.startswith("_")} | {"PHENOMENOLOGICAL_SEED_POLICY"}
+)
 
 
 if __name__ == "__main__":
