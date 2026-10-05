@@ -214,9 +214,11 @@ def advance_chain(
 
 
 def _bit_equal(a: float, b: float) -> bool:
-    """Bit-Gleichheit zweier float64 (unterscheidet -0.0/+0.0; NaN ist nie gleich)."""
-    if math.isnan(a) or math.isnan(b):
-        return False
+    """Bit-Gleichheit zweier float64 (unterscheidet -0.0/+0.0).
+
+    Ohne NaN-Sonderarm: advance_chain prueft beta_target vorher auf [beta_min, beta_max],
+    beta_star ist also nie NaN, und ein NaN-beta im Zustand hat andere Bits (Zensus PR #53).
+    """
     return bool(np.float64(a).view(np.uint64) == np.float64(b).view(np.uint64))
 
 

@@ -114,6 +114,7 @@ def test_without_warmup_beta_is_exact_from_the_first_sweep() -> None:
     assert np.all(r.beta_traj == 0.9)
     assert r.adaptation_sum == 0.0
     assert r.calibration is not None and r.calibration.H.size == 0
+    assert math.isnan(r.calibration.beta_end)  # kein Warm-up -> kein Kalibrations-Endwert
 
 
 # --- G7a: Kalibration nie Produktion -----------------------------------------
@@ -393,7 +394,7 @@ def test_run_rejects_invalid_freeze_parameters(kw, match) -> None:
 # --- Checkpoint: Freeze ueber Interrupt/Resume bit-identisch --------------------
 
 
-@pytest.mark.parametrize("interrupt_after", [25, 70, 330])
+@pytest.mark.parametrize("interrupt_after", [25, 50, 70, 330])
 def test_resume_across_warmup_and_freeze_is_byte_identical(tmp_path, interrupt_after) -> None:
     mf = manifest.RunManifest(
         base_seed=4711, n_chains=2, n_steps=300, burn_in=40, warmup_steps=50, beta_start=0.3, L=16
@@ -554,3 +555,15 @@ def test_resume_rejects_bad_embedded_manifest(tmp_path, mutate, match) -> None:
     _rehash_checkpoint(p, mutate)
     with pytest.raises(checkpoint.CheckpointError, match=match):
         checkpoint.resume(p, checkpoint_every=20)
+
+
+def test_selftest_gate_g7_passes_and_fails_when_negative_control_is_defeated(monkeypatch) -> None:
+    """G7 selbst diskriminiert: wird der Schaetzer-Waechter entschaerft, muss G7 FAIL melden."""
+    from adaptiverg_qec import cli
+
+    ok, msg = cli._g7_freeze_contract()
+    assert ok, msg
+    monkeypatch.setattr(a_kernel, "production_mean", lambda record: 0.0)
+    ok2, msg2 = cli._g7_freeze_contract()
+    assert not ok2
+    assert "injected pre-freeze rejected=False" in msg2
