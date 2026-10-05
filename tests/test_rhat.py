@@ -87,9 +87,15 @@ def test_akernel_multichain_converges() -> None:
     rows = []
     for c in range(4):
         res = run_adaptive_mcmc(
-            cfg, beta_target=1.0, n_steps=2500, burn_in=500, seed=1000 + c, beta_start=0.2
+            cfg,
+            beta_target=1.0,
+            n_steps=2500,
+            burn_in=250,
+            seed=1000 + c,
+            beta_start=0.2,
+            warmup_steps=250,
         )
-        rows.append(res.H_traj[500:])
+        rows.append(res.production.H)  # Issue #51: nur der eingefrorene Produktions-Record
     r = rhat.split_rhat(np.vstack(rows))
     assert r.rhat < 1.05, r.rhat  # gut gemischt nach Burn-in (etwas lockerer als 1.01)
     assert r.ess_bulk > 4 * 100  # Vehtari-Faustregel >100/Kette
