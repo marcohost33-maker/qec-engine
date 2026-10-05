@@ -19,6 +19,12 @@ Die MVP-Instanz (Code/V/g) ist explizit in `mvp_instance.py` dokumentiert und
 als MVP-WAHL gekennzeichnet, nicht als die volle Spec.
 """
 
-__version__ = "0.1.0.dev2"  # PEP 440; Phase-1/2-MVP + Phase-3a/3b (dev-Reife, NICHT release-fertig)
+# EINZIGE Versionsquelle (PEP 440). pyproject.toml liest dieses Literal statisch
+# (`[tool.setuptools.dynamic] version = { attr = ... }`), die installierte
+# Distribution traegt also dieselbe Nummer wie die Laufzeit-Evidenz
+# (cli selftest "version", manifest/runtime "package_version"). Ein reines
+# String-Literal bleiben lassen: setuptools liest es per AST, ohne zu importieren.
+# Gepinnt durch tests/test_version_ssot.py. dev-Reife, NICHT release-fertig.
+__version__ = "0.1.0.dev2"
 
 __all__ = ["__version__"]
