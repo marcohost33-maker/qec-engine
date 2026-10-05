@@ -108,7 +108,7 @@ def test_installed_distribution_reports_the_runtime_version() -> None:
     dist, reason = _checkout_install()
     if dist is None:
         if os.environ.get("CI"):
-            pytest.fail(f"CI must install this checkout (pip install -e .): {reason}")
+            raise AssertionError(f"CI must install this checkout (pip install -e .): {reason}")
         pytest.skip(reason)
     module_file = Path(adaptiverg_qec.__file__).resolve()
     assert module_file.is_relative_to(ROOT / "src"), f"imported from {module_file}"
