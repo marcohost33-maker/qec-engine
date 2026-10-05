@@ -10,6 +10,7 @@ Pipeline: WARM-UP (adaptiv, Kalibration) -> FREEZE (beta := beta_star exakt)
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 
@@ -299,12 +300,13 @@ def test_split_phases_window_is_warmup_plus_burn_in() -> None:
 @pytest.mark.parametrize(
     ("H", "beta", "w", "b", "match"),
     [
-        (np.ones(10), np.full(9, 0.8), 0, 0, "shape mismatch"),
-        (np.ones((2, 5)), np.full((2, 5), 0.8), 0, 0, "shape mismatch"),
+        (np.ones(10), np.full(9, 0.8), 0, 0, "trajectory shape mismatch"),
+        (np.ones((2, 5)), np.full((2, 5), 0.8), 0, 0, "trajectory shape mismatch"),
         (np.ones(10), np.full(10, 0.8), 5, 5, r"warmup_steps \+ burn_in < n_steps"),
         (np.ones(10), np.full(10, 0.8), -1, 0, "0 <= warmup_steps"),
         (np.ones(10), np.full(10, 0.8), 0, -1, "0 <= burn_in"),
     ],
+    ids=["len", "ndim", "window", "neg_warmup", "neg_burn_in"],
 )
 def test_split_phases_rejects_bad_shapes_and_windows(H, beta, w, b, match) -> None:
     with pytest.raises(ValueError, match=match):
@@ -333,6 +335,7 @@ def test_advance_chain_rejects_unfrozen_state_past_freeze() -> None:
 @pytest.mark.parametrize(
     ("bad", "match"),
     [(-1, "freeze_at must be >= 0"), (True, "must be an int"), (2.0, "must be an int")],
+    ids=["negative", "bool", "float"],
 )
 def test_advance_chain_rejects_bad_freeze_at(bad, match) -> None:
     # match noetig: ohne ihn faengt bei -1 der Past-Freeze-Waechter (FreezeContractError
@@ -362,6 +365,7 @@ def test_advance_chain_rejects_bad_freeze_at(bad, match) -> None:
         (dict(warmup_steps=True, beta_start=0.2), "must be an int"),
         (dict(warmup_steps=90, burn_in=10, beta_start=0.2), "need 0 <= warmup_steps and"),
     ],
+    ids=["start_without_warmup", "warmup_without_start", "negative", "bool", "window"],
 )
 def test_run_rejects_invalid_freeze_parameters(kw, match) -> None:
     # match je Fall: sonst faengt ein nachgelagerter Waechter (split_phases, advance_chain)
@@ -470,3 +474,69 @@ def test_manifest_minimum_production_draws_is_derived_and_sufficient() -> None:
     assert mf.n_production == 4
     res = manifest.run(mf)  # an der Grenze muss das Post-Processing durchlaufen
     assert len(res.chain_mean_H) == 2
+
+
+def _no_production(real):
+    def wrapped(*args, **kwargs):
+        res = real(*args, **kwargs)
+        res.production = None
+        return res
+
+    return wrapped
+
+
+def test_manifest_run_requires_a_production_record(monkeypatch) -> None:
+    monkeypatch.setattr(manifest, "run_adaptive_mcmc", _no_production(manifest.run_adaptive_mcmc))
+    mf = manifest.RunManifest(n_chains=2, L=16, n_steps=60, burn_in=10, base_seed=1)
+    with pytest.raises(RuntimeError, match="no production record"):
+        manifest.run(mf)
+
+
+def test_swendsen_wrapper_requires_production_record_and_configs(monkeypatch) -> None:
+    from adaptiverg_qec import mcrg
+
+    real = a_kernel.run_adaptive_mcmc
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", _no_production(real))
+    with pytest.raises(RuntimeError, match="no production record"):
+        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1)
+
+    def no_configs(*args, **kwargs):
+        res = real(*args, **kwargs)
+        object.__setattr__(res.production, "configs", None)
+        return res
+
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", no_configs)
+    with pytest.raises(RuntimeError, match="production configs"):
+        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1)
+
+
+def _rehash_checkpoint(path, mutate) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("integrity_sha256")
+    mutate(payload)
+    payload["integrity_sha256"] = hashlib.sha256(checkpoint._canonical_blob(payload)).hexdigest()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda d: d["manifest"].update(schema="adaptiverg_qec.phase5.run_manifest/v1"),
+            "embedded manifest schema mismatch",
+        ),
+        (lambda d: d["manifest"].update(warmup_steps=-5), "embedded manifest invalid"),
+        (lambda d: d["manifest"].update(bogus=1), "embedded manifest invalid"),
+    ],
+    ids=["schema_v1", "bad_value", "unknown_key"],
+)
+def test_resume_rejects_bad_embedded_manifest(tmp_path, mutate, match) -> None:
+    """Checkpoint mit gueltigem Hash, aber v1-/ungueltigem Manifest -> CheckpointError."""
+    mf = manifest.RunManifest(
+        base_seed=4711, n_chains=2, n_steps=120, burn_in=20, warmup_steps=20, beta_start=0.3, L=16
+    )
+    p = tmp_path / "ck.json"
+    assert checkpoint.run_resumable(mf, p, checkpoint_every=20, interrupt_after=50) is None
+    _rehash_checkpoint(p, mutate)
+    with pytest.raises(checkpoint.CheckpointError, match=match):
+        checkpoint.resume(p, checkpoint_every=20)
