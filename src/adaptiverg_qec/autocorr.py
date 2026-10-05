@@ -46,6 +46,7 @@ import numpy as np
 __all__ = [
     "autocorr_function_fft",
     "integrated_autocorr_time",
+    "tau_int_or_half",
     "AutocorrResult",
     "mean_with_autocorr_error",
     "binning_error",
@@ -53,6 +54,20 @@ __all__ = [
     "jackknife_ratio",
     "JackknifeRatioResult",
 ]
+
+
+MIN_AUTOCORR_SAMPLES: int = 2
+"""Mindestlaenge fuer eine Autokorrelation (rho(0) braucht eine Varianz)."""
+
+
+def _require_window(c_window: float) -> None:
+    """Wolff-Parameter S endlich und > 0 -- datenunabhaengig, vor jedem Shortcut.
+
+    NaN-sicher (#46) UND endlich (#48): c_window=+inf liess tau_W = inf zu, g wurde
+    sofort -inf und das Fenster stoppte bei W=1 (AR(1) phi=0.9: tau 1.40 statt 9.6).
+    """
+    if not (np.isfinite(c_window) and c_window > 0):
+        raise ValueError(f"c_window must be finite and > 0, got {c_window}")
 
 
 def _require_finite(values: np.ndarray, name: str) -> None:
@@ -84,7 +99,7 @@ def autocorr_function_fft(x: np.ndarray) -> np.ndarray:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 2:
+    if n < MIN_AUTOCORR_SAMPLES:
         raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
     _require_finite(x, "samples")
     xc = x - x.mean()
@@ -160,12 +175,17 @@ def integrated_autocorr_time(
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
     _require_finite(x, "samples")
-    if not (c_window > 0):  # NaN-sicher (Issue #46)
-        raise ValueError(f"c_window must be > 0, got {c_window}")
+    _require_window(c_window)
     if rho is None:
         rho = autocorr_function_fft(x)
     else:
+        # Issue #48: rho war ungeprueft -- leeres x mit gegebenem rho ergab tau_int
+        # aus rho, aber NaN fuer mean/sem (still). rho muss zu x passen.
+        if n < MIN_AUTOCORR_SAMPLES:
+            raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
         rho = np.asarray(rho, dtype=np.float64)
+        if rho.shape != (n,):
+            raise ValueError(f"rho must have shape ({n},) like x, got {rho.shape}")
         _require_finite(rho, "rho")
     # Kumulative tau_int(W) = 0.5 + cumsum(rho[1:]); tau_of_w[k] = tau_int(W=k+1).
     tau_of_w = 0.5 + np.cumsum(rho[1:])
@@ -193,6 +213,8 @@ def integrated_autocorr_time(
     tau_int = max(tau_int, 0.5)
 
     variance = float(np.var(x))  # = gamma(0) (biased), konsistent mit rho-Normierung
+    if not np.isfinite(variance):  # Issue #48: |x| ~ 1e308 mit vorgegebenem rho
+        raise ValueError("variance overflows float64; rescale the series")
     sem_iid = float(np.sqrt(variance / n)) if n > 0 else float("nan")
     sem = float(np.sqrt(2.0 * tau_int * variance / n)) if n > 0 else float("nan")
     n_eff = n / (2.0 * tau_int)
@@ -206,6 +228,39 @@ def integrated_autocorr_time(
         sem=sem,
         sem_iid=sem_iid,
     )
+
+
+def tau_int_or_half(x: np.ndarray, *, c_window: float = 1.5) -> float:
+    """tau_int einer endlichen Reihe; 0.5 (i.i.d.-Wert) fuer eine exakt konstante.
+
+    Ersetzt den Aufrufer-Vorcheck ``tau = ... if np.var(x) > 0 else 0.5``
+    (Issue #48): ``np.var`` einer NaN-Reihe ist NaN, ``nan > 0`` ist False, und die
+    Reihe erreichte den Endlichkeits-Waechter von ``integrated_autocorr_time`` nie --
+    tau wurde still 0.5. Hier wird ZUERST die Endlichkeit geprueft; erst eine
+    endliche Reihe ohne positive Varianz gilt als konstant.
+
+    Args:
+        x: 1D-Zeitreihe.
+        c_window: Wolff-Parameter S, durchgereicht an ``integrated_autocorr_time``.
+
+    Returns:
+        tau_int (>= 0.5).
+
+    Raises:
+        ValueError: bei NaN/inf in x (oder Varianz-Ueberlauf, s. autocorr_function_fft).
+    """
+    # PR #53 R2 (Codex P2): c_window ZUERST und unabhaengig von den Daten pruefen --
+    # vorher nahm eine konstante Reihe den 0.5-Shortcut und c_window=inf/nan/0 ging durch.
+    _require_window(c_window)
+    x = np.asarray(x, dtype=np.float64).ravel()
+    # PR #53 (Codex P2): leere Reihe -> np.var = NaN -> frueher still tau = 0.5 aus null
+    # Beobachtungen. Dieselbe Mindestlaenge wie integrated_autocorr_time.
+    if x.size < MIN_AUTOCORR_SAMPLES:
+        raise ValueError(f"need >=2 samples for an autocorrelation, got {x.size}")
+    _require_finite(x, "samples")
+    if not (float(np.var(x)) > 0.0):
+        return 0.5
+    return integrated_autocorr_time(x, c_window=c_window).tau_int
 
 
 def mean_with_autocorr_error(x: np.ndarray, *, c_window: float = 1.5) -> AutocorrResult:
@@ -280,6 +335,10 @@ def binning_error(x: np.ndarray, *, max_block: int | None = None) -> BinningResu
     # sem(b)-Kurve flach ist. Median ueber die obere Haelfte der b-Werte (robust
     # gegen das Endpunkt-Rauschen, das bei sehr grossem b / wenigen Bloecken
     # auftritt; deshalb deckelt max_block die Block-Anzahl auf >= 32).
+    # Issue #48: endliche Samples |x| ~ 1e308 lassen Block-Summen/Varianz ueberlaufen;
+    # vorher kamen sem_plateau=inf und sem_iid=nan still zurueck. Positiv formuliert.
+    if not (np.isfinite(sem_iid) and np.all(np.isfinite(sem_of_b))):
+        raise ValueError("binning sums overflow float64; rescale the series")
     upper = sem_of_b[len(sem_of_b) // 2 :]
     sem_plateau = float(np.median(upper)) if upper.size else float(sem_of_b[-1])
     tau_int_equiv = 0.5 * (sem_plateau / sem_iid) ** 2 if sem_iid > 0 else float("nan")
@@ -370,6 +429,14 @@ def jackknife_ratio(
         den_mean_j = (den_total - den_b[j]) / denom_count
         jack[j] = combine(num_mean_j, den_mean_j)
 
+    # Issue #48: ein nicht-endliches combine() (z.B. Nenner-Kovarianz 0 ->
+    # Platzhalter NaN in mcrg._T_ratio_combine) ergab still ratio/error = NaN.
+    if not (np.isfinite(full) and np.all(np.isfinite(jack))):
+        bad = int(np.sum(~np.isfinite(jack)))
+        raise ValueError(
+            f"combine() returned a non-finite value (full={full!r}, "
+            f"{bad}/{n_blocks} block deletions); ratio undefined"
+        )
     jack_mean = float(jack.mean())
     # Jackknife-Varianz: (n_blocks-1)/n_blocks * sum (jack_j - jack_mean)^2.
     error = float(np.sqrt((n_blocks - 1) / n_blocks * np.sum((jack - jack_mean) ** 2)))

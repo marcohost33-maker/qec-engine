@@ -13,14 +13,14 @@
         "K_proposal": 0.3,
         "K_target": 0.5,
         "n_samples": 20000,
-        "g_hat": 0.4598816979620972,
+        "g_hat": 0.4598816979620971,
         "oracle_tanh_Kt": 0.46211715726000974,
-        "error_deltamethod": 0.0022383517766015075,
-        "n_sigma": 0.9987077640256458,
-        "ess_rel": 0.6246881505079556,
-        "ess_rel_oracle": 0.6245463201946274,
-        "chi2_hat": 0.6007987332349196,
-        "chi2_oracle": 0.6011622639748639,
+        "error_deltamethod": 0.002238351776601508,
+        "n_sigma": 0.9987077640256952,
+        "ess_rel": 0.6246881505079558,
+        "ess_rel_oracle": 0.6245463201946264,
+        "chi2_hat": 0.600798733234919,
+        "chi2_oracle": 0.6011622639748666,
         "ess_adequate": true
       },
       {
@@ -48,7 +48,7 @@
         "ess_rel": 0.6509337059020361,
         "ess_rel_oracle": 0.6527591313849832,
         "chi2_hat": 0.5362547536453697,
-        "chi2_oracle": 0.5319586535362025,
+        "chi2_oracle": 0.5319586535362026,
         "ess_adequate": true
       }
     ],
@@ -69,18 +69,18 @@
         0.0005176157561754786,
         0.00018639292426389148
       ],
-      "bias_coefficient_oracle": -0.46744486613365877,
+      "bias_coefficient_oracle": -0.46744486613365926,
       "scaled_bias": [
-        0.9872044089621462,
-        0.924244414729364
+        0.9872044089621451,
+        0.924244414729363
       ],
       "mse_hat": [
         0.0016285833686147649,
         0.0004180397041287322
       ],
       "mse_bound": [
-        0.1043122546291594,
-        0.02607806365728985
+        0.10431225462915958,
+        0.026078063657289895
       ],
       "var_deltamethod_mean": [
         0.0014183291052629488,
@@ -132,24 +132,25 @@
   },
   "checkpoint": {
     "manifest": {
-      "schema": "adaptiverg_qec.phase5.run_manifest/v1",
+      "schema": "adaptiverg_qec.phase5.run_manifest/v2",
       "base_seed": 424242,
       "n_chains": 3,
       "L": 16,
       "beta_min": 0.1,
       "beta_max": 2.0,
       "beta_target": 1.0,
-      "beta_start": 0.2,
+      "beta_start": null,
       "n_steps": 800,
       "burn_in": 200,
+      "warmup_steps": 0,
       "adapt_c": 0.5,
       "adapt_T0": 100.0,
       "environment": {}
     },
     "interrupt_after_sweeps": 1300,
     "total_sweeps": 2400,
-    "direct_result_hash": "153b4347f54ae77c87d95079e363c3da38405dc1cbe9b9df65a6bd480b238ad7",
-    "resumed_result_hash": "153b4347f54ae77c87d95079e363c3da38405dc1cbe9b9df65a6bd480b238ad7",
+    "direct_result_hash": "a78e457606bddb37750b5465aec54d32e599469a4fb2c651829dad7d1a1a6217",
+    "resumed_result_hash": "a78e457606bddb37750b5465aec54d32e599469a4fb2c651829dad7d1a1a6217",
     "byte_identical": true,
     "interrupted_returned_none": true
   },

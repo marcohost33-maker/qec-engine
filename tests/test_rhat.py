@@ -87,9 +87,15 @@ def test_akernel_multichain_converges() -> None:
     rows = []
     for c in range(4):
         res = run_adaptive_mcmc(
-            cfg, beta_target=1.0, n_steps=2500, burn_in=500, seed=1000 + c, beta_start=0.2
+            cfg,
+            beta_target=1.0,
+            n_steps=2500,
+            burn_in=250,
+            seed=1000 + c,
+            beta_start=0.2,
+            warmup_steps=250,
         )
-        rows.append(res.H_traj[500:])
+        rows.append(res.production.H)  # Issue #51: nur der eingefrorene Produktions-Record
     r = rhat.split_rhat(np.vstack(rows))
     assert r.rhat < 1.05, r.rhat  # gut gemischt nach Burn-in (etwas lockerer als 1.01)
     assert r.ess_bulk > 4 * 100  # Vehtari-Faustregel >100/Kette
@@ -99,7 +105,7 @@ def test_rhat_edge_inputs_raise() -> None:
     """Silent-Failure-Gate: invalide Eingaben werfen sauber."""
     with pytest.raises(ValueError):
         rhat.split_rhat(np.zeros((1, 100)))  # M<2
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="draws per chain"):
         rhat.split_rhat(np.zeros((4, 3)))  # n<4
     with pytest.raises(ValueError):
         rhat.split_rhat(np.zeros(100))  # not 2D
@@ -342,3 +348,29 @@ def test_folded_degeneracy_is_detected_for_subnormal_values() -> None:
     r = rhat.split_rhat(_balanced_two_point_chains(1e-315, 2e-315 + 5e-324, seed=1))
     assert r.diagnostic_state is rhat.DiagnosticState.DEGENERATE_FOLDED
     assert not r.converged
+
+
+def test_folded_floor_does_not_overflow_at_dbl_max() -> None:
+    """Issue #48: ``np.spacing(DBL_MAX)`` ist inf -- der absolute Boden machte die
+    Toleranz unendlich und meldete gut gemischte Ketten mit einem einzigen Wert bei
+    DBL_MAX als DEGENERATE_FOLDED. Der Boden ist nur im Subnormal-Bereich wirksam
+    und muss dort konstant ``16 * 5e-324`` sein, nie ueberlaufen."""
+    chains = np.random.default_rng(48).standard_normal((4, 1000))
+    chains[2, 500] = np.finfo(np.float64).max
+    with np.errstate(over="raise"):
+        r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK
+    assert r.rhat_defined
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_folded_floor_verdict_at_dbl_max_without_fp_traps() -> None:
+    """Wie oben, aber ohne errstate-Falle: das URTEIL selbst darf bei DBL_MAX nicht kippen.
+
+    Die errstate-Variante wird bei einem ueberlaufenden Boden durch eine Ausnahme rot;
+    diese hier durch die Zusicherung (OK statt DEGENERATE_FOLDED).
+    """
+    chains = np.random.default_rng(48).standard_normal((4, 1000))
+    chains[2, 500] = np.finfo(np.float64).max
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK

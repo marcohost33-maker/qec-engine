@@ -20,6 +20,17 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 ## Phase 2 — Adaptive Steuerung (Diminishing Adaptation + Containment)
 - Lernraten-Schedule η_t = η0/(1+t/T0); Θ auf kompakte Menge (kritischen Punkt ausschliessen).
 - **Akzeptanz:** kein AdapFail; Mischzeiten stochastisch beschränkt.
+- **[KORREKTUR 2026-10-05, Issue #51]** Der Code bewegte das ZIEL β mit dem summierbaren
+  a_t = c/(1+t/T0)² über die ganze Kette, auch in der Produktion. Für 0<a_t<1 gilt
+  β_∞ − β* = (β_0 − β*)·Π(1−a_t) ≠ 0 genau dann, wenn Σa_t < ∞: bei c=0.5, T0=1, 0.1→0.8
+  bleibt β bei 0.8 − 0.7·sin(π/√2)/(π/√2) ≈ 0.549 stehen. Auch beim Default (T0=100)
+  erreicht die Gleitkomma-Iteration β* nie bit-genau (2.5 bzw. 5 ulp darunter, gemessen auf
+  fe25191). Andrieu & Thoms (2008) verlangen Σγ=∞ und Σγ^{1+λ}<∞; Roberts & Rosenthal (2007)
+  setzen ein festes Ziel voraus. Seither gilt: WARM-UP (adaptiv, nur Kalibration) → FREEZE
+  (β := β* per Zuweisung) → FIXED-TARGET BURN-IN → PRODUKTION; Run-Manifest v2 deklariert
+  `warmup_steps` und `burn_in` vor dem Lauf. Der Phase-5-Lauf reproduziert unter dem neuen
+  Vertrag denselben `result_hash` (4f058f80…) wie das alte Artefakt: β lag dort ab ~t=250
+  nur noch ulp neben β*, die Metropolis-Entscheide waren identisch.
 
 ## Phase 3 — RG-Analyse + Jacobian-Extraktion
 - Stochastische RG-Map R̂, Fixpunkt-Konsistenz (Bias O(n^−β), β>1/2), hyperbolischer Fixpunkt.

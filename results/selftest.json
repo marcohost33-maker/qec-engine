@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
-  "version": "0.1.0.dev2",
+  "version": "0.5.0.dev0",
   "n_pass": 45,
   "n_total": 45,
   "all_pass": true,
-  "elapsed_s": 411.083,
+  "elapsed_s": 1060.732,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -37,14 +37,14 @@
       "detail": "H_traj identical=True mean_H eq=True"
     },
     {
-      "gate": "G7 Diminishing-Adaptation (sum a_t<inf)",
+      "gate": "G7 Freeze contract (warm-up -> exact freeze -> production)",
       "pass": true,
-      "detail": "sum_200k=50.2258 sum_400k=50.2383 converging=True"
+      "detail": "warm-up beta_end=0.549237 vs closed form 0.549269 (|gap|=3.13e-05 <= 8.75e-05); beta[t=freeze]==0.8: True; all production beta==0.8: True; injected pre-freeze rejected=True"
     },
     {
       "gate": "G8 Negative/Edge-Input rejection",
       "pass": true,
-      "detail": "77 edge checks; all invalid inputs rejected"
+      "detail": "79 edge checks; all invalid inputs rejected"
     },
     {
       "gate": "G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)",
@@ -189,12 +189,12 @@
     {
       "gate": "G37 manifest round-trip byte-identical hash",
       "pass": true,
-      "detail": "round-trip hash match=True; hash=e9992e573ac14ab6...; R-hat=1.0007, converged=True"
+      "detail": "round-trip hash match=True; hash=744d02a81ae85b2a...; R-hat=1.0007, converged=True"
     },
     {
       "gate": "G38 manifest seed drives run (changed->diff hash)",
       "pass": true,
-      "detail": "seed100=46b9c161f977 != seed101=63ab025d1939 (True); n_steps changes hash (True)"
+      "detail": "seed100=fc4768de64a7 != seed101=c30d1ccb023c (True); n_steps changes hash (True)"
     },
     {
       "gate": "G39 SNIS g-hat + ESS vs closed chi^2 oracles",
@@ -224,7 +224,7 @@
     {
       "gate": "G44 checkpoint resume byte-identical hash",
       "pass": true,
-      "detail": "interrupt@1300/2400 sweeps -> checkpoint written=True; resume hash == direct hash=True (153b4347f54ae77c...); checkpoint cleaned up after success=True"
+      "detail": "interrupt@1300/2400 sweeps -> checkpoint written=True; resume hash == direct hash=True (a78e457606bddb37...); checkpoint cleaned up after success=True"
     },
     {
       "gate": "G45 checkpoint lockfile + tamper fail-closed",

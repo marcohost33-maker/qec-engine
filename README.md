@@ -93,7 +93,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 |---|---|
 | A-Kernel: adaptiver Single-Spin-Metropolis (`a_kernel.py`) | **real** (detailed balance, Philox-Seed) |
 | Foster-Lyapunov-Drift-Guard, conditional-mean (`drift.py`) | **real** (greift + feuert, getestet) |
-| Diminishing-Adaptation-Schedule `sum a_t < inf` + Containment-Clip | **real** |
+| Freeze-Vertrag (Issue #51): adaptives Warm-up mit Containment-Clip -> exakter Freeze `beta := beta_star` -> Fixed-Target-Burn-in -> Produktion; Schaetzer sehen nur den Produktions-Record (`require_frozen`, bit-exakt) | **real** (G7, `tests/test_freeze_contract.py`) |
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |

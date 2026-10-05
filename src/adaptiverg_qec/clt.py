@@ -115,6 +115,10 @@ class CLTResult:
         return self.sigma2_g_gamma
 
 
+MIN_CLT_SAMPLES: int = 4
+"""Mindestlaenge fuer OBM und clt_variance (Batch b = floor(sqrt(N)) < N braucht N >= 4)."""
+
+
 def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """Overlapping-Batch-Means-Schaetzer der CLT-Varianz sigma^2_g.
 
@@ -131,8 +135,8 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for OBM, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for OBM, got {n}")
     _require_finite(x, "samples")
     if batch_size is None:
         batch_size = max(1, int(np.floor(np.sqrt(n))))
@@ -146,6 +150,10 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     batch_means = (cs[b:] - cs[: n - b + 1]) / b
     ssq = float(np.sum((batch_means - grand_mean) ** 2))
     sigma2 = (n * b) / ((n - b) * (n - b + 1)) * ssq
+    # Issue #48: endliche Samples |x| ~ 1e308 -> cumsum/Quadrate laufen ueber, vorher
+    # kam NaN/inf still zurueck. Positiv formuliert: nur ein endliches sigma2 geht durch.
+    if not np.isfinite(sigma2):
+        raise ValueError("OBM sums overflow float64; rescale the series")
     return sigma2
 
 
@@ -161,8 +169,8 @@ def clt_variance(x: np.ndarray, *, c_window: float = 1.5) -> CLTResult:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for a CLT estimate, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for a CLT estimate, got {n}")
     ac = integrated_autocorr_time(x, c_window=c_window)
     var_marg = ac.variance
     sigma2_gamma = 2.0 * ac.tau_int * var_marg
@@ -196,8 +204,8 @@ def confidence_interval(
     """
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
-    if not (n >= 1):  # NaN-sicher (#46)
-        raise ValueError(f"n must be >= 1, got {n}")
+    if not (np.isfinite(n) and n >= 1):  # NaN-sicher (#46), endlich (#48)
+        raise ValueError(f"n must be finite and >= 1, got {n}")
     # Issue #46: positiv formuliert und endlich -- ``sigma2_g < 0.0`` liess NaN durch.
     if not (np.isfinite(sigma2_g) and sigma2_g >= 0.0):
         raise ValueError(f"sigma2_g must be finite and >= 0, got {sigma2_g}")

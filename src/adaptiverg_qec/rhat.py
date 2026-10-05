@@ -120,10 +120,22 @@ BEZUGSGROESSE (korrigiert nach Delta-Review): der Rundungsfehler von
 Ketten um +10 verschoben wieder als konvergiert gemeldet. Die Pruefung ist als
 ``not (ptp > tol)`` formuliert, damit ein NaN (Ueberlauf des Medians bei ~1e308)
 fail-closed als entartet zaehlt.
-Absoluter Boden ``16 * np.spacing(scale)``: im Subnormal-Bereich unterlaeuft
-``eps * scale`` auf 0, die Rundung betraegt dort aber 1 ulp (5e-324). Fuer normale
-Zahlen ist ``spacing(scale)`` ~ ``eps * scale`` und aendert nichts.
+Absoluter Boden ``_FOLDED_DEGENERACY_ATOL = 16 * 5e-324``: im Subnormal-Bereich
+unterlaeuft ``eps * scale`` auf 0, die Rundung betraegt dort aber 1 ulp (5e-324).
+Fuer normale Zahlen ist ``spacing(scale) <= eps * scale``, der Boden aendert dort
+also nichts. Frueher stand hier ``16 * np.spacing(scale)``; das ist im gesamten
+Subnormal-Bereich derselbe Wert, laeuft aber bei ``scale = DBL_MAX`` auf inf ueber
+(die naechste Zahl nach DBL_MAX ist inf) und machte die Toleranz unendlich --
+Issue #48. Die Konstante ist fuer jede endliche Skala gleichwertig und kann nicht
+ueberlaufen.
 """
+
+_FOLDED_DEGENERACY_ATOL: float = 16.0 * float(np.finfo(np.float64).smallest_subnormal)
+"""Absoluter Boden der folded-Toleranz (16 ulp im Subnormal-Bereich, s.o.)."""
+
+
+MIN_DRAWS_PER_CHAIN: int = 4
+"""Mindestens 4 Ziehungen je Kette: split-R-hat halbiert jede Kette (je >= 2)."""
 
 
 @dataclass(frozen=True)
@@ -157,8 +169,10 @@ class RhatResult:
     Dann ist rhat KEIN definiertes R-hat im Vehtari-Sinn: bei konstanten Draws ein
     Konventionswert; bei DEGENERATE_FOLDED weiterhin ``max(bulk_rhat, folded_rhat)``,
     wobei ``folded_rhat`` nicht aussagekraeftig ist (Konventionswert 1.0 oder auf
-    Rundungsrauschen gerechnet) -- rhat ist dann oft 1.0 und NICHT das bulk-R-hat
-    (Delta-Review: 234 von 400 Faellen).
+    Rundungsrauschen gerechnet) -- rhat ist dann oft 1.0 und NICHT das bulk-R-hat.
+    Wie oft, haengt von der Verteilung der Draws ab (zwei Delta-Reviews: 234 bzw.
+    165 von 400 Faellen mit verschiedenen Testverteilungen, Issue #48); die Zahl ist
+    ein Beispiel, keine Eigenschaft der Diagnostik.
     """
 
     @property
@@ -229,8 +243,8 @@ def _as_chains(draws: np.ndarray) -> np.ndarray:
     m, n = a.shape
     if m < 2:
         raise ValueError(f"need >=2 chains for R-hat, got M={m}")
-    if n < 4:
-        raise ValueError(f"need >=4 draws per chain, got n={n}")
+    if n < MIN_DRAWS_PER_CHAIN:
+        raise ValueError(f"need >={MIN_DRAWS_PER_CHAIN} draws per chain, got n={n}")
     if not np.all(np.isfinite(a)):
         raise ValueError("draws contain non-finite values (NaN/Inf)")
     return a
@@ -417,8 +431,7 @@ def split_rhat(draws: np.ndarray, *, expected_constant: bool = False) -> RhatRes
     folded = np.abs(chains - median)
     folded_scale = max(float(np.max(folded)), abs(median))
     folded_degenerate = not constant_draws and not (
-        float(np.ptp(folded))
-        > max(_FOLDED_DEGENERACY_RTOL * folded_scale, 16.0 * float(np.spacing(folded_scale)))
+        float(np.ptp(folded)) > max(_FOLDED_DEGENERACY_RTOL * folded_scale, _FOLDED_DEGENERACY_ATOL)
     )
     if folded_degenerate:
         diagnostic_state = DiagnosticState.DEGENERATE_FOLDED
