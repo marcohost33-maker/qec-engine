@@ -270,6 +270,21 @@ def test_g7d_estimator_rejects_malformed_records(bad) -> None:
         a_kernel.production_mean(bad)
 
 
+def test_advance_chain_freezes_by_assignment() -> None:
+    """Primitive ohne Record-Schicht: vor Sweep t=freeze_at ist beta exakt beta_star."""
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.2)
+    a_t = a_kernel.diminishing_step_sizes(60, 0.5, 100.0)
+    H, B = np.empty(60), np.empty(60)
+    a_kernel.advance_chain(
+        state, rng, CFG, beta_target=1.0, a_t=a_t, t_stop=60, H_out=H, beta_out=B, freeze_at=25
+    )
+    assert np.all(B[:25] < 1.0)
+    assert np.all(np.diff(B[:25]) > 0.0)
+    assert B[25] == 1.0
+    assert np.all(B[25:] == 1.0)
+    assert state.beta == 1.0
+
+
 def test_split_phases_refuses_unfrozen_production() -> None:
     """Eine Trajektorie mit wanderndem Ziel ergibt keinen Produktions-Record."""
     beta = np.linspace(0.5, 0.8, 50)
