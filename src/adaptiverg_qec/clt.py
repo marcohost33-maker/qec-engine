@@ -115,6 +115,10 @@ class CLTResult:
         return self.sigma2_g_gamma
 
 
+MIN_CLT_SAMPLES: int = 4
+"""Mindestlaenge fuer OBM und clt_variance (Batch b = floor(sqrt(N)) < N braucht N >= 4)."""
+
+
 def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """Overlapping-Batch-Means-Schaetzer der CLT-Varianz sigma^2_g.
 
@@ -131,8 +135,8 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for OBM, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for OBM, got {n}")
     _require_finite(x, "samples")
     if batch_size is None:
         batch_size = max(1, int(np.floor(np.sqrt(n))))
@@ -165,8 +169,8 @@ def clt_variance(x: np.ndarray, *, c_window: float = 1.5) -> CLTResult:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for a CLT estimate, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for a CLT estimate, got {n}")
     ac = integrated_autocorr_time(x, c_window=c_window)
     var_marg = ac.variance
     sigma2_gamma = 2.0 * ac.tau_int * var_marg

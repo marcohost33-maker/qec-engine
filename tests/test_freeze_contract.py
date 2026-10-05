@@ -365,3 +365,86 @@ def test_resume_across_warmup_and_freeze_is_byte_identical(tmp_path, interrupt_a
     r2 = checkpoint.resume(p, checkpoint_every=20)
     assert r2 is not None
     assert r2.result_hash == direct.result_hash
+
+
+# --- PR #53 Review-Runde 1 (Codex) ---------------------------------------------
+
+
+def test_swendsen_wrapper_reads_only_the_frozen_production_record(monkeypatch) -> None:
+    """P1: validate_swendsen_akernel darf keine Pre-Freeze-Konfiguration sehen.
+
+    Der Wrapper bekommt ein SampleResult, dessen Produktions-Record ein Pre-Freeze-beta
+    traegt; er muss scheitern. Ein direkter Slice res.configs[burn_in:] liefe durch.
+    """
+    from adaptiverg_qec import mcrg
+
+    real = a_kernel.run_adaptive_mcmc
+
+    def tampered(*args, **kwargs):
+        res = real(*args, **kwargs)
+        assert res.production is not None
+        res.production.beta[0] = np.nextafter(res.production.beta_star, 0.0)
+        return res
+
+    # Kontrolle: unmanipuliert laeuft der Wrapper durch.
+    ok = mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=400, burn_in=50, seed=1)
+    assert len(ok) == 1
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", tampered)
+    with pytest.raises(a_kernel.FreezeContractError):
+        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=400, burn_in=50, seed=1)
+
+
+@pytest.mark.parametrize("freeze_at", [0, 5])
+@pytest.mark.parametrize("bad", [99.0, 0.05, float("nan"), float("inf")])
+def test_advance_chain_rejects_target_outside_theta(freeze_at: int, bad: float) -> None:
+    """P2: der Freeze weist ohne Clip zu -- ein Ziel ausserhalb Theta muss vorher fallen."""
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.5)
+    a_t = a_kernel.diminishing_step_sizes(10, 0.5, 100.0)
+    H, B = np.empty(10), np.empty(10)
+    with pytest.raises(ValueError, match="outside compact Theta"):
+        a_kernel.advance_chain(
+            state,
+            rng,
+            CFG,
+            beta_target=bad,
+            a_t=a_t,
+            t_stop=10,
+            H_out=H,
+            beta_out=B,
+            freeze_at=freeze_at,
+        )
+    assert state.t == 0  # kein Sweep gelaufen
+
+
+def test_advance_chain_accepts_targets_on_the_theta_boundary() -> None:
+    """Obere Grenze festnageln: beta_min und beta_max selbst sind zulaessig."""
+    for edge in (CFG.beta_min, CFG.beta_max):
+        state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=edge)
+        a_t = a_kernel.diminishing_step_sizes(5, 0.5, 100.0)
+        B = np.empty(5)
+        a_kernel.advance_chain(
+            state, rng, CFG, beta_target=edge, a_t=a_t, t_stop=5, H_out=np.empty(5), beta_out=B
+        )
+        assert np.all(edge == B)
+
+
+@pytest.mark.parametrize("n_prod", [1, 2, 3])
+def test_manifest_rejects_too_few_production_draws(n_prod: int) -> None:
+    """P2: 1-3 Produktions-Sweeps liefen durch alle Ketten und scheiterten erst danach."""
+    with pytest.raises(ValueError, match="production draws"):
+        manifest.RunManifest(
+            n_chains=2, L=16, n_steps=100, warmup_steps=100 - n_prod, burn_in=0, beta_start=0.2
+        )
+
+
+def test_manifest_minimum_production_draws_is_derived_and_sufficient() -> None:
+    from adaptiverg_qec import clt, rhat
+
+    assert max(rhat.MIN_DRAWS_PER_CHAIN, clt.MIN_CLT_SAMPLES) == manifest.MIN_PRODUCTION_DRAWS
+    assert manifest.MIN_PRODUCTION_DRAWS == 4
+    mf = manifest.RunManifest(
+        n_chains=2, L=16, n_steps=100, warmup_steps=96, burn_in=0, beta_start=0.2, base_seed=9
+    )
+    assert mf.n_production == 4
+    res = manifest.run(mf)  # an der Grenze muss das Post-Processing durchlaufen
+    assert len(res.chain_mean_H) == 2

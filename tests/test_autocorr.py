@@ -257,6 +257,14 @@ def test_tau_int_or_half_rejects_non_finite(bad: float) -> None:
         autocorr.tau_int_or_half(_series_with(bad))
 
 
+@pytest.mark.parametrize("x", [np.array([]), np.array([3.0])])
+def test_tau_int_or_half_rejects_too_short_series(x) -> None:
+    """PR #53 (Codex P2): leere Reihe ergab still tau = 0.5 (np.var([]) = NaN)."""
+    with pytest.raises(ValueError, match="need >=2 samples"):
+        autocorr.tau_int_or_half(x)
+    assert autocorr.tau_int_or_half(np.array([3.0, 3.0])) == 0.5  # Grenze: 2 Samples
+
+
 def test_tau_int_or_half_all_nan_series_is_not_constant() -> None:
     with pytest.raises(ValueError, match="finite"):
         autocorr.tau_int_or_half(np.full(64, float("nan")))

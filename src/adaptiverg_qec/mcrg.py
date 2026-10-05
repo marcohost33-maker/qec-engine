@@ -571,7 +571,7 @@ def validate_swendsen_akernel(
     Returns:
         Liste von AKernelSwendsenEstimate, eine je K.
     """
-    from .a_kernel import run_adaptive_mcmc
+    from .a_kernel import require_frozen, run_adaptive_mcmc
     from .mvp_instance import MVPConfig
 
     cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
@@ -587,9 +587,13 @@ def validate_swendsen_akernel(
             beta_start=beta,  # bei beta_target starten -> kuerzere Equilibrierung
             record_configs=True,
         )
-        if res.configs is None:  # pragma: no cover - defensive
-            raise RuntimeError("record_configs=True did not populate configs")
-        post = res.configs[burn_in:]
+        # PR #53 (Codex P1): nur der eingefrorene Produktions-Record speist den Schaetzer
+        # (Issue #51), nie ein direkter Slice der Gesamt-Trajektorie.
+        if res.production is None:
+            raise RuntimeError("run_adaptive_mcmc returned no production record")
+        post = require_frozen(res.production).configs
+        if post is None:
+            raise RuntimeError("record_configs=True did not populate production configs")
         S, Sp = operator_timeseries_from_configs(post, periodic=True)
         out.append(swendsen_T_from_chain(S, Sp, K=K, c_window=c_window))
     return out

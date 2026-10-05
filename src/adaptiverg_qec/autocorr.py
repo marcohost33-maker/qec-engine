@@ -56,6 +56,10 @@ __all__ = [
 ]
 
 
+MIN_AUTOCORR_SAMPLES: int = 2
+"""Mindestlaenge fuer eine Autokorrelation (rho(0) braucht eine Varianz)."""
+
+
 def _require_finite(values: np.ndarray, name: str) -> None:
     """Fail closed on NaN/inf at a public entry (Issue #46).
 
@@ -85,7 +89,7 @@ def autocorr_function_fft(x: np.ndarray) -> np.ndarray:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 2:
+    if n < MIN_AUTOCORR_SAMPLES:
         raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
     _require_finite(x, "samples")
     xc = x - x.mean()
@@ -170,7 +174,7 @@ def integrated_autocorr_time(
     else:
         # Issue #48: rho war ungeprueft -- leeres x mit gegebenem rho ergab tau_int
         # aus rho, aber NaN fuer mean/sem (still). rho muss zu x passen.
-        if n < 2:
+        if n < MIN_AUTOCORR_SAMPLES:
             raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
         rho = np.asarray(rho, dtype=np.float64)
         if rho.shape != (n,):
@@ -239,6 +243,10 @@ def tau_int_or_half(x: np.ndarray, *, c_window: float = 1.5) -> float:
         ValueError: bei NaN/inf in x (oder Varianz-Ueberlauf, s. autocorr_function_fft).
     """
     x = np.asarray(x, dtype=np.float64).ravel()
+    # PR #53 (Codex P2): leere Reihe -> np.var = NaN -> frueher still tau = 0.5 aus null
+    # Beobachtungen. Dieselbe Mindestlaenge wie integrated_autocorr_time.
+    if x.size < MIN_AUTOCORR_SAMPLES:
+        raise ValueError(f"need >=2 samples for an autocorrelation, got {x.size}")
     _require_finite(x, "samples")
     if not (float(np.var(x)) > 0.0):
         return 0.5

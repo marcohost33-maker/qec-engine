@@ -51,9 +51,9 @@ import scipy
 
 from . import __version__
 from .a_kernel import require_frozen, run_adaptive_mcmc
-from .clt import clt_variance
+from .clt import MIN_CLT_SAMPLES, clt_variance
 from .mvp_instance import MVPConfig
-from .rhat import split_rhat
+from .rhat import MIN_DRAWS_PER_CHAIN, split_rhat
 
 __all__ = [
     "RunManifest",
@@ -83,6 +83,13 @@ _RUN_PARAMETER_KEYS = frozenset(
     }
 )
 """Lauf-Parameter, die ein geladenes Manifest AUSDRUECKLICH nennen muss (G7c)."""
+
+MIN_PRODUCTION_DRAWS: int = max(MIN_DRAWS_PER_CHAIN, MIN_CLT_SAMPLES)
+"""Produktions-Ziehungen je Kette, die postprocess_multichain mindestens braucht.
+
+Abgeleitet aus den Quellen (rhat.split_rhat, clt.clt_variance), nicht hier gesetzt.
+PR #53 (Codex P2): vorher lief ein Manifest mit 1-3 Produktions-Sweeps durch alle
+Ketten und scheiterte erst im Post-Processing."""
 _HASH_DECIMALS = 9  # Rundung vor dem Hash (ULP-robust ueber numpy-Builds).
 
 
@@ -156,6 +163,11 @@ class RunManifest:
             raise ValueError(
                 "need int 0 <= warmup_steps and warmup_steps + burn_in < n_steps, got "
                 f"{self.warmup_steps}/{self.burn_in}/{self.n_steps}"
+            )
+        if self.n_production < MIN_PRODUCTION_DRAWS:
+            raise ValueError(
+                f"need >= {MIN_PRODUCTION_DRAWS} production draws per chain after the freeze "
+                f"(n_steps - warmup_steps - burn_in), got {self.n_production}"
             )
         if not (0.0 < self.beta_min < self.beta_max):
             raise ValueError(f"need 0 < beta_min < beta_max, got {self.beta_min}/{self.beta_max}")

@@ -181,6 +181,13 @@ def advance_chain(
         raise ValueError(f"freeze_at must be >= 0, got {freeze_at}")
     if t_stop > a_t.size or t_stop > H_out.size:
         raise ValueError(f"t_stop {t_stop} exceeds schedule/output length")
+    # PR #53 (Codex P2): der Freeze weist beta_target ohne Containment-Clip zu. Ein Ziel
+    # ausserhalb des kompakten Theta wird deshalb VOR jedem Sweep abgelehnt (NaN-sicher),
+    # statt still zu laufen (vorher clippte das Update jeden Sweep).
+    if not (cfg.beta_min <= beta_target <= cfg.beta_max):
+        raise ValueError(
+            f"beta_target {beta_target} outside compact Theta [{cfg.beta_min}, {cfg.beta_max}]"
+        )
     beta_star = float(beta_target)
     if state.t > freeze_at and not _bit_equal(state.beta, beta_star):
         raise FreezeContractError(
