@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -594,3 +595,58 @@ def test_selftest_gate_g7_passes_and_fails_when_negative_control_is_defeated(mon
     ok2, msg2 = cli._g7_freeze_contract()
     assert not ok2
     assert "injected pre-freeze rejected=False" in msg2
+
+
+# --- PR #53 Review-Runde 2 (Codex) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [dict(beta_max=float("inf")), dict(beta_min=float("inf"), beta_max=float("inf"))],
+    ids=["max_inf", "both_inf"],
+)
+def test_mvpconfig_requires_compact_theta(kw) -> None:
+    """beta_max=inf liess beta_target=inf durch; jeder Sweep lief vor dem ersten Fehler."""
+    _expect(ValueError, "beta_max must be finite", lambda: MVPConfig(**kw))
+
+
+def test_manifest_requires_compact_theta() -> None:
+    _expect(
+        ValueError,
+        "beta_max must be finite",
+        lambda: manifest.RunManifest(beta_max=float("inf"), beta_target=1.0),
+    )
+
+
+def test_large_finite_theta_is_still_accepted() -> None:
+    """Grenze festnageln: nur Unendlichkeit faellt, nicht ein grosser endlicher Wert."""
+    assert MVPConfig(beta_max=1e300).beta_max == 1e300
+    assert manifest.RunManifest(beta_max=1e300).beta_max == 1e300
+
+
+def test_results_artifacts_embed_the_current_manifest_schema() -> None:
+    """Jedes in results/*.json eingebettete Run-Manifest traegt das aktuelle Schema und laedt.
+
+    Ein Artefakt mit Schema v1 beschreibt einen Lauf mit wanderndem Ziel, den resume()
+    und load_manifest heute ablehnen -- als Evidenz waere es veraltet (PR #53 R2).
+    """
+    root = Path(__file__).resolve().parents[1] / "results"
+    found = []
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            schema = node.get("schema")
+            if isinstance(schema, str) and schema.startswith("adaptiverg_qec.phase5.run_manifest/"):
+                found.append((where, node))
+            for k, v in node.items():
+                walk(v, f"{where}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{where}[{i}]")
+
+    for f in sorted(root.glob("*.json")):
+        walk(json.loads(f.read_text(encoding="utf-8")), f.name)
+    assert found, "no embedded run manifest found -- the scan itself is blind"
+    for where, node in found:
+        assert node["schema"] == manifest.MANIFEST_SCHEMA, where
+        manifest.RunManifest(**node)  # laedt nach den Regeln des aktuellen Vertrags
