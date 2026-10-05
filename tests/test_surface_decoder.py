@@ -15,10 +15,12 @@ die Validierung vor dem Decoder-Aufruf greift -- ausser dem Import-Gate selbst).
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
 from adaptiverg_qec import surface_decoder as sd
+from adaptiverg_qec.qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
 requires_surface = pytest.mark.skipif(
     not sd.HAVE_SURFACE,
@@ -339,7 +341,8 @@ def test_phenomenological_wrapper_rejects_negative_seed() -> None:
 @requires_surface
 def test_phenomenological_payload_names_seed_policy() -> None:
     payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
-    assert payload.get("seed_policy") == "phenom-cell-sha256-v1"
+    # Ab Manifest v2 leitet der Wrapper die Zell-Seeds aus dem Vertrag ab.
+    assert payload.get("seed_policy") == "manifest-sha256-v1"
 
 
 @requires_surface
@@ -350,3 +353,279 @@ def test_phenomenological_base_seed_changes_cell_seeds() -> None:
     seeds_a = [row["seed"] for row in a["rows"]]
     seeds_b = [row["seed"] for row in b["rows"]]
     assert all(x != y for x, y in zip(seeds_a, seeds_b, strict=True)), (seeds_a, seeds_b)
+
+
+@requires_surface
+def test_manifest_v2_executes_the_declared_noise_contract() -> None:
+    manifest = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(),
+    )
+    payload = sd.run_experiment_manifest(manifest)
+    assert payload["manifest_fingerprint"] == manifest.fingerprint()
+    assert payload["rows"][0]["d"] == 3
+    assert payload["rows"][0]["rounds"] == 3
+    assert payload["rows"][0]["seed"] == manifest.cell_seed(3)
+    assert payload["rows"][0]["p_logical"] == 0.0
+    assert payload["reproducibility"]["tier"] == manifest.reproducibility_tier
+    assert payload["runtime_environment"]["machine"]
+    assert payload["stim_version"]
+
+
+@requires_surface
+def test_manifest_v2_noise_change_changes_cell_identity_and_evidence() -> None:
+    a = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(before_measure_flip_probability=0.0),
+    )
+    b = QECExperimentManifestV2(
+        distances=(3,),
+        shots_per_cell=256,
+        base_seed=77,
+        noise=StimNoiseProfile(before_measure_flip_probability=0.01),
+    )
+    assert a.cell_seed(3) != b.cell_seed(3)
+    pa = sd.run_experiment_manifest(a)
+    pb = sd.run_experiment_manifest(b)
+    assert pa["manifest_fingerprint"] != pb["manifest_fingerprint"]
+
+
+@requires_surface
+def test_phenomenological_rows_keep_p_data_and_p_meas() -> None:
+    """Codex #41: das Zeilenschema des oeffentlichen Wrappers bleibt kompatibel."""
+    payload = sd.run_phenomenological_diagnostics(
+        distances=(3,), p_data=0.004, p_meas=0.006, shots=20, seed=5
+    )
+    row = payload["rows"][0]
+    assert row.get("p_data") == 0.004
+    assert row.get("p_meas") == 0.006
+
+
+@requires_surface
+def test_phenomenological_wrapper_accepts_numpy_integers() -> None:
+    """Codex #41: np.int64 fuer shots/seed/distances war vor dem Refactor gueltig."""
+    import numpy as np
+
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(
+            distances=(np.int64(3),), shots=np.int64(10), seed=np.int64(1)
+        )
+    except ValueError as exc:  # Absturz waere kein Beleg -> als Zusicherung melden
+        err = exc
+    assert err is None, f"NumPy-Ganzzahlen abgewiesen: {err}"
+    manifest = payload["manifest"]
+    assert manifest["shots_per_cell"] == 10 and type(manifest["shots_per_cell"]) is int
+    assert manifest["base_seed"] == 1 and type(manifest["base_seed"]) is int
+    assert manifest["distances"] == [3]
+
+
+@requires_surface
+def test_phenomenological_wrapper_still_rejects_numpy_bool_shots() -> None:
+    import numpy as np
+
+    with pytest.raises(ValueError):
+        sd.run_phenomenological_diagnostics(distances=(3,), shots=np.bool_(True), seed=1)
+
+
+@requires_surface
+def test_manifest_runtime_records_package_version_and_git_sha() -> None:
+    """Codex #41: gleiche Manifeste aus verschiedenen Revisionen muessen unterscheidbar sein."""
+    import adaptiverg_qec
+
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    env = payload["runtime_environment"]
+    assert env.get("package_version") == adaptiverg_qec.__version__
+    assert isinstance(env.get("git_sha"), str) and env["git_sha"]
+
+
+@requires_surface
+def test_manifest_runtime_records_installed_distribution_version() -> None:
+    """Codex #41 R2: Modul-Konstante und installierte Distribution koennen abweichen."""
+    from importlib import metadata
+
+    try:
+        expected = metadata.version("adaptiverg-qec")
+    except metadata.PackageNotFoundError:
+        expected = None
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=1)
+    env = payload["runtime_environment"]
+    assert "distribution_version" in env, sorted(env)
+    assert env["distribution_version"] == expected
+
+
+@requires_surface
+def test_phenomenological_wrapper_accepts_numpy_float_noise() -> None:
+    """Codex #41 R2: np.float32 fuer p_data/p_meas war vor dem Refactor gueltig."""
+    import numpy as np
+
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(
+            distances=(3,), p_data=np.float32(0.004), p_meas=np.float64(0.006), shots=10, seed=1
+        )
+    except TypeError as exc:
+        err = exc
+    assert err is None, f"NumPy-Floats abgewiesen: {err}"
+    row = payload["rows"][0]
+    assert type(row["p_data"]) is float and type(row["p_meas"]) is float
+
+
+@requires_surface
+def test_phenomenological_wrapper_keeps_requested_distance_order() -> None:
+    """Codex #41 R2: (5, 3) lief frueher in der angefragten Reihenfolge."""
+    err = None
+    try:
+        payload = sd.run_phenomenological_diagnostics(distances=(5, 3, 3), shots=10, seed=1)
+    except ValueError as exc:
+        err = exc
+    assert err is None, f"Reihenfolge abgewiesen: {err}"
+    assert [row["d"] for row in payload["rows"]] == [5, 3, 3]
+    assert payload["manifest"]["distances"] == [3, 5]
+    assert payload["requested_distances"] == [5, 3, 3]
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41 (Runde 3): oeffentliche Namen des alten Seed-Schemas.
+# Orakel: Golden-Werte aus der Fassung auf main 288f82a (nicht aus dem Shim).
+# Ohne [surface]-Extra lauffaehig: das Seed-Schema braucht weder Stim noch MWPM.
+# ---------------------------------------------------------------------------
+
+_LEGACY_GOLDEN = (
+    ((20260919, 3, 3, 0.005, 0.005, "z"), 6007515778355924656),
+    ((20260919, 5, 5, 0.005, 0.005, "x"), 2804414358119849615),
+    ((7, 3, 3, 0.01, 0.0, "z"), 651880645769600113),
+    ((7, 3, 3, 0.0, 0.01, "z"), 159691680220916230),
+)
+
+
+def _deprecations(record: list, needle: str) -> list:
+    return [
+        w for w in record if issubclass(w.category, DeprecationWarning) and needle in str(w.message)
+    ]
+
+
+# Rot NUR per Zusicherung (getattr/try statt Import-/Attribut-Absturz), damit der
+# Diskriminierungsbeweis "Test faengt den Fehler" belegt und nicht "Test stuerzt ab".
+@pytest.mark.parametrize(("args", "expected"), _LEGACY_GOLDEN)
+def test_legacy_phenomenological_cell_seed_is_importable_and_bit_identical(
+    args: tuple, expected: int
+) -> None:
+    base, d, rounds, p_data, p_meas, basis = args
+    fn = getattr(sd, "phenomenological_cell_seed", None)
+    assert fn is not None, "phenomenological_cell_seed fehlt im oeffentlichen Modul"
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        got = fn(base, d=d, rounds=rounds, p_data=p_data, p_meas=p_meas, memory_basis=basis)
+    assert got == expected
+    assert _deprecations(rec, "phenom-cell-sha256-v1"), [str(w.message) for w in rec]
+
+
+def test_legacy_seed_policy_constant_is_importable_with_deprecation() -> None:
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        try:
+            from adaptiverg_qec.surface_decoder import PHENOMENOLOGICAL_SEED_POLICY as value
+        except ImportError as exc:
+            value = f"ImportError: {exc}"
+    assert value == "phenom-cell-sha256-v1", value
+    assert _deprecations(rec, "PHENOMENOLOGICAL_SEED_POLICY"), [str(w.message) for w in rec]
+
+
+def test_legacy_phenomenological_cell_seed_still_rejects_nan() -> None:
+    fn = getattr(sd, "phenomenological_cell_seed", None)
+    assert fn is not None, "phenomenological_cell_seed fehlt im oeffentlichen Modul"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError):
+            fn(1, d=3, rounds=3, p_data=float("nan"), p_meas=0.0, memory_basis="z")
+
+
+def test_module_getattr_does_not_swallow_unknown_names() -> None:
+    try:
+        value = sd.no_such_symbol
+    except AttributeError as exc:
+        value = exc
+    assert isinstance(value, AttributeError), value
+    assert "no_such_symbol" in str(value)
+    assert not hasattr(sd, "PHENOMENOLOGICAL_SEED_POLICY_TYPO")
+
+
+@requires_surface
+def test_wrapper_does_not_route_through_legacy_seed_scheme(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """Der Shim ist nur Kompatibilitaet: der Wrapper darf ihn nicht (wieder) benutzen."""
+    payload = sd.run_phenomenological_diagnostics(distances=(3,), shots=10, seed=7)
+    assert not _deprecations(list(recwarn), ""), [str(w.message) for w in recwarn]
+    assert payload["seed_policy"] == "manifest-sha256-v1"
+
+
+# ---------------------------------------------------------------------------
+# Codex-Review PR #41 (Runde 4): ``from surface_decoder import *`` muss die alte
+# Konstante weiter liefern. Orakel: die oeffentlichen Top-Level-Namen der Fassung
+# auf main 288f82a (per AST extrahiert; ohne __all__ = Stern-Import-Oberflaeche),
+# ohne die drei nur mit [surface]-Extra gebundenen Namen pymatching/stim/csc_matrix.
+# ---------------------------------------------------------------------------
+
+_MAIN_288F82A_STAR_NAMES = frozenset(
+    {
+        "HAVE_SURFACE",
+        "ML_THRESHOLD_LITERATURE",
+        "MWPM_THRESHOLD_LITERATURE",
+        "PHENOMENOLOGICAL_SEED_POLICY",
+        "PhenomenologicalEstimate",
+        "RepetitionMwpmEstimate",
+        "ThresholdEstimate",
+        "annotations",
+        "cell_seed",
+        "dataclass",
+        "estimate_mwpm_threshold",
+        "hashlib",
+        "json",
+        "logical_error_rate_exact",
+        "math",
+        "np",
+        "phenomenological_cell_seed",
+        "repetition_mwpm_vs_oracle",
+        "run_phenomenological_diagnostics",
+        "run_surface_diagnostics",
+        "surface_logical_error_rate",
+        "surface_phenomenological_logical_error_rate",
+    }
+)
+
+
+def _star_import() -> tuple[dict, list]:
+    namespace: dict = {}
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        exec("from adaptiverg_qec.surface_decoder import *", namespace)
+    namespace.pop("__builtins__", None)
+    return namespace, list(rec)
+
+
+def test_wildcard_import_keeps_every_public_name_from_main() -> None:
+    namespace, rec = _star_import()
+    missing = sorted(_MAIN_288F82A_STAR_NAMES - set(namespace))
+    assert not missing, f"Stern-Import verliert Namen von main: {missing}"
+    assert namespace["PHENOMENOLOGICAL_SEED_POLICY"] == "phenom-cell-sha256-v1"
+    assert _deprecations(rec, "PHENOMENOLOGICAL_SEED_POLICY"), [str(w.message) for w in rec]
+
+
+def test_wildcard_import_is_not_narrowed_by_all() -> None:
+    """Ein __all__ darf den Stern-Import nicht auf weniger als alle oeffentlichen Namen kuerzen."""
+    namespace, _ = _star_import()
+    public = {name for name in vars(sd) if not name.startswith("_")}
+    missing = sorted(public - set(namespace))
+    assert not missing, f"Stern-Import unterschlaegt oeffentliche Namen: {missing}"
+
+
+def test_dir_lists_the_deprecated_constant() -> None:
+    names = dir(sd)
+    assert "PHENOMENOLOGICAL_SEED_POLICY" in names
+    assert "phenomenological_cell_seed" in names
