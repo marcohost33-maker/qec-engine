@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adaptiverg-qec"
-version = "0.1.0.dev0"
+# Single version source: the literal `__version__` in src/adaptiverg_qec/__init__.py,
+# read statically by setuptools (see [tool.setuptools.dynamic]). Pinned by
+# tests/test_version_ssot.py.
+dynamic = ["version"]
 description = "AdaptiveRG-QEC diagnostics and verification harness for MCMC, MCRG, and quantum-error-correction experiments."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,6 +43,9 @@ Issues = "https://github.com/marcohost33-maker/qec-engine/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "adaptiverg_qec.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

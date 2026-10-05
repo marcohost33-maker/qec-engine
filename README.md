@@ -5,7 +5,7 @@ integriert stochastische Dynamik, adaptive Steuerung, Sampling, RG-Analyse, Surr
 Stabilitäts-Guards. Coworker-Research Säule 3 (Physik/Methodik).
 
 > **Ehrlicher Status (2026-06-18):** Die gehärtete Theorie (`spec/`) liegt vor; ein **bounded Phase-1-MVP**
-> (`src/adaptiverg_qec/`, Version `0.1.0.dev0`) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
+> (`src/adaptiverg_qec/`, Version = `adaptiverg_qec.__version__`, einzige Quelle) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
 > einen MCRG-C-Kernel und einen Swendsen-MCRG-Schätzer (skalare sample-geschätzte R̂). Reifegrad **dev/Prototyp** — nicht release-fertig, nicht selbst-zertifiziert.
 > Was MVP-real vs. offen ist, steht unten und in `src/adaptiverg_qec/mvp_instance.py`.
 
