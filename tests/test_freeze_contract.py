@@ -296,6 +296,21 @@ def test_split_phases_window_is_warmup_plus_burn_in() -> None:
     np.testing.assert_array_equal(cal.H, H[:10])
 
 
+@pytest.mark.parametrize(
+    ("H", "beta", "w", "b", "match"),
+    [
+        (np.ones(10), np.full(9, 0.8), 0, 0, "shape mismatch"),
+        (np.ones((2, 5)), np.full((2, 5), 0.8), 0, 0, "shape mismatch"),
+        (np.ones(10), np.full(10, 0.8), 5, 5, r"warmup_steps \+ burn_in < n_steps"),
+        (np.ones(10), np.full(10, 0.8), -1, 0, "0 <= warmup_steps"),
+        (np.ones(10), np.full(10, 0.8), 0, -1, "0 <= burn_in"),
+    ],
+)
+def test_split_phases_rejects_bad_shapes_and_windows(H, beta, w, b, match) -> None:
+    with pytest.raises(ValueError, match=match):
+        a_kernel.split_phases(H, beta, warmup_steps=w, burn_in=b, beta_star=0.8)
+
+
 def test_split_phases_refuses_unfrozen_production() -> None:
     """Eine Trajektorie mit wanderndem Ziel ergibt keinen Produktions-Record."""
     beta = np.linspace(0.5, 0.8, 50)
@@ -315,11 +330,16 @@ def test_advance_chain_rejects_unfrozen_state_past_freeze() -> None:
         )
 
 
-@pytest.mark.parametrize("bad", [-1, True, 2.0])
-def test_advance_chain_rejects_bad_freeze_at(bad) -> None:
+@pytest.mark.parametrize(
+    ("bad", "match"),
+    [(-1, "freeze_at must be >= 0"), (True, "must be an int"), (2.0, "must be an int")],
+)
+def test_advance_chain_rejects_bad_freeze_at(bad, match) -> None:
+    # match noetig: ohne ihn faengt bei -1 der Past-Freeze-Waechter (FreezeContractError
+    # ist ein ValueError) und der eigentliche Waechter bliebe ohne rote Probe (Zensus).
     state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.5)
     a_t = a_kernel.diminishing_step_sizes(10, 0.5, 100.0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         a_kernel.advance_chain(
             state,
             rng,
@@ -334,19 +354,21 @@ def test_advance_chain_rejects_bad_freeze_at(bad) -> None:
 
 
 @pytest.mark.parametrize(
-    "kw",
+    ("kw", "match"),
     [
-        dict(beta_start=0.2),  # Start-beta ohne Warm-up
-        dict(warmup_steps=5),  # Warm-up ohne Start-beta
-        dict(warmup_steps=-1, beta_start=0.2),
-        dict(warmup_steps=True, beta_start=0.2),
-        dict(warmup_steps=90, burn_in=10, beta_start=0.2),  # 90 + 10 >= 100
+        (dict(beta_start=0.2), "would be ignored"),  # Start-beta ohne Warm-up
+        (dict(warmup_steps=5), "needs an explicit beta_start"),  # Warm-up ohne Start-beta
+        (dict(warmup_steps=-1, beta_start=0.2), "need 0 <= warmup_steps and"),
+        (dict(warmup_steps=True, beta_start=0.2), "must be an int"),
+        (dict(warmup_steps=90, burn_in=10, beta_start=0.2), "need 0 <= warmup_steps and"),
     ],
 )
-def test_run_rejects_invalid_freeze_parameters(kw) -> None:
+def test_run_rejects_invalid_freeze_parameters(kw, match) -> None:
+    # match je Fall: sonst faengt ein nachgelagerter Waechter (split_phases, advance_chain)
+    # und der Eingangs-Waechter bliebe ohne eigene rote Probe (Zensus PR #53).
     base = dict(beta_target=0.8, n_steps=100, burn_in=0, seed=1)
     base.update(kw)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         a_kernel.run_adaptive_mcmc(CFG, **base)
 
 
