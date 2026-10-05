@@ -384,6 +384,10 @@ def test_swendsen_constant_blocked_series_is_rejected_not_nan() -> None:
 def test_tau_int_or_half_validates_c_window_before_the_constant_shortcut(bad: float) -> None:
     """PR #53 R2: die Validierung haengt nicht von den Daten ab (konstante Reihe)."""
     const = np.full(50, 3.0)
-    assert autocorr.tau_int_or_half(const) == 0.5  # Kontrolle: gueltiges c_window
+    try:  # Kontrolle: gueltiges c_window; ein immer feuernder Waechter wird zur Zusicherung
+        control = autocorr.tau_int_or_half(const)
+    except ValueError as exc:
+        raise AssertionError(f"valid c_window rejected: {exc!r}") from exc
+    assert control == 0.5
     with pytest.raises(ValueError, match="c_window must be finite and > 0"):
         autocorr.tau_int_or_half(const, c_window=bad)

@@ -620,8 +620,9 @@ def test_manifest_requires_compact_theta() -> None:
 
 def test_large_finite_theta_is_still_accepted() -> None:
     """Grenze festnageln: nur Unendlichkeit faellt, nicht ein grosser endlicher Wert."""
-    assert MVPConfig(beta_max=1e300).beta_max == 1e300
-    assert manifest.RunManifest(beta_max=1e300).beta_max == 1e300
+    # _no_raise: ein Waechter, der IMMER feuert, wird so zur Zusicherung (Zensus R2).
+    assert _no_raise(lambda: MVPConfig(beta_max=1e300)).beta_max == 1e300
+    assert _no_raise(lambda: manifest.RunManifest(beta_max=1e300)).beta_max == 1e300
 
 
 def test_results_artifacts_embed_the_current_manifest_schema() -> None:
