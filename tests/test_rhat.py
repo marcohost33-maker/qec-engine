@@ -105,7 +105,7 @@ def test_rhat_edge_inputs_raise() -> None:
     """Silent-Failure-Gate: invalide Eingaben werfen sauber."""
     with pytest.raises(ValueError):
         rhat.split_rhat(np.zeros((1, 100)))  # M<2
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="draws per chain"):
         rhat.split_rhat(np.zeros((4, 3)))  # n<4
     with pytest.raises(ValueError):
         rhat.split_rhat(np.zeros(100))  # not 2D

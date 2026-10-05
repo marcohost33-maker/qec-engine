@@ -193,22 +193,36 @@ def test_g7c_declared_lengths_drive_the_run() -> None:
 
 
 @pytest.mark.parametrize(
-    "kw",
+    ("kw", "match"),
     [
-        dict(warmup_steps=-1, beta_start=0.2),
-        dict(warmup_steps=True, beta_start=0.2),
-        dict(warmup_steps=1.0, beta_start=0.2),
-        dict(warmup_steps=300, burn_in=100, beta_start=0.2),  # 300 + 100 >= n_steps
-        dict(warmup_steps=10),  # Warm-up ohne Start-beta
-        dict(beta_start=0.2),  # Start-beta ohne Warm-up (wuerde still ignoriert)
-        dict(beta_start=float("nan"), warmup_steps=10),
-        dict(schema="adaptiverg_qec.phase5.run_manifest/v1"),
+        (dict(warmup_steps=-1, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=True, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=1.0, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=300, burn_in=100, beta_start=0.2), "warmup_steps"),  # 400 >= n_steps
+        (dict(warmup_steps=10), "needs an explicit beta_start"),
+        (dict(beta_start=0.2), "would be ignored"),  # Start-beta ohne Warm-up
+        (dict(beta_start=float("nan"), warmup_steps=10), "beta_start nan outside"),
+        (dict(beta_target=99.0), "beta_target 99.0 outside"),
+        (dict(beta_target=float("nan")), "beta_target nan outside"),
+        (dict(schema="adaptiverg_qec.phase5.run_manifest/v1"), "schema mismatch"),
+    ],
+    ids=[
+        "neg_warmup",
+        "bool_warmup",
+        "float_warmup",
+        "window",
+        "warmup_without_start",
+        "start_without_warmup",
+        "nan_start",
+        "target_99",
+        "nan_target",
+        "schema_v1",
     ],
 )
-def test_manifest_rejects_invalid_freeze_parameters(kw) -> None:
+def test_manifest_rejects_invalid_freeze_parameters(kw, match) -> None:
     base = dict(n_chains=2, n_steps=400, burn_in=50, L=16)
     base.update(kw)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         manifest.RunManifest(**base)
 
 
