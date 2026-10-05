@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 
 import numpy as np
 import pytest
@@ -21,6 +22,31 @@ from adaptiverg_qec import a_kernel, checkpoint, ising1d, manifest
 from adaptiverg_qec.mvp_instance import MVPConfig
 
 CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
+
+
+def _expect(exc_type, match, fn) -> None:
+    """Wie pytest.raises, aber eine FALSCHE Ausnahme wird zur Zusicherung, nicht zum Absturz.
+
+    Faellt ein Waechter weg, wirft oft ein nachgelagerter Pfad etwas anderes
+    (AttributeError, TypeError, ...). pytest.raises liesse das als Absturz durch; so
+    bleibt der rote Ausgang eine Zusicherung und damit ein Diskriminierungs-Beleg.
+    """
+    try:
+        fn()
+    except BaseException as exc:  # noqa: BLE001 - gerade die falsche Art soll auffallen
+        assert isinstance(exc, exc_type), f"expected {exc_type.__name__}, got {exc!r}"
+        assert re.search(match, str(exc)), f"message {str(exc)!r} does not match {match!r}"
+        return
+    raise AssertionError(f"{exc_type.__name__} not raised")
+
+
+def _no_raise(fn):
+    """Fuehre fn aus; jede Ausnahme wird zur Zusicherung (statt Absturz)."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        raise AssertionError(f"unexpected {exc!r}") from exc
+
 
 # Issue-#51-Beispiel: c = 0.5, T0 = 1, beta_0 = 0.1, beta_star = 0.8.
 _X = math.pi / math.sqrt(2.0)
@@ -282,8 +308,7 @@ def test_g7d_one_ulp_off_is_rejected_after_construction() -> None:
     ],
 )
 def test_g7d_estimator_rejects_malformed_records(bad) -> None:
-    with pytest.raises(a_kernel.FreezeContractError):
-        a_kernel.production_mean(bad)
+    _expect(a_kernel.FreezeContractError, "", lambda: a_kernel.production_mean(bad))
 
 
 def test_advance_chain_freezes_by_assignment() -> None:
@@ -387,8 +412,7 @@ def test_run_rejects_invalid_freeze_parameters(kw, match) -> None:
     # und der Eingangs-Waechter bliebe ohne eigene rote Probe (Zensus PR #53).
     base = dict(beta_target=0.8, n_steps=100, burn_in=0, seed=1)
     base.update(kw)
-    with pytest.raises(ValueError, match=match):
-        a_kernel.run_adaptive_mcmc(CFG, **base)
+    _expect(ValueError, match, lambda: a_kernel.run_adaptive_mcmc(CFG, **base))
 
 
 # --- Checkpoint: Freeze ueber Interrupt/Resume bit-identisch --------------------
@@ -401,9 +425,13 @@ def test_resume_across_warmup_and_freeze_is_byte_identical(tmp_path, interrupt_a
     )
     direct = manifest.run(mf)
     p = tmp_path / "ck.json"
-    r1 = checkpoint.run_resumable(mf, p, checkpoint_every=20, interrupt_after=interrupt_after)
+    r1 = _no_raise(
+        lambda: checkpoint.run_resumable(
+            mf, p, checkpoint_every=20, interrupt_after=interrupt_after
+        )
+    )
     assert r1 is None
-    r2 = checkpoint.resume(p, checkpoint_every=20)
+    r2 = _no_raise(lambda: checkpoint.resume(p, checkpoint_every=20))
     assert r2 is not None
     assert r2.result_hash == direct.result_hash
 
@@ -503,8 +531,7 @@ def _no_production(real):
 def test_manifest_run_requires_a_production_record(monkeypatch) -> None:
     monkeypatch.setattr(manifest, "run_adaptive_mcmc", _no_production(manifest.run_adaptive_mcmc))
     mf = manifest.RunManifest(n_chains=2, L=16, n_steps=60, burn_in=10, base_seed=1)
-    with pytest.raises(RuntimeError, match="no production record"):
-        manifest.run(mf)
+    _expect(RuntimeError, "no production record", lambda: manifest.run(mf))
 
 
 def test_swendsen_wrapper_requires_production_record_and_configs(monkeypatch) -> None:
@@ -512,8 +539,10 @@ def test_swendsen_wrapper_requires_production_record_and_configs(monkeypatch) ->
 
     real = a_kernel.run_adaptive_mcmc
     monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", _no_production(real))
-    with pytest.raises(RuntimeError, match="no production record"):
-        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1)
+    run = lambda: mcrg.validate_swendsen_akernel(  # noqa: E731
+        K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1
+    )
+    _expect(RuntimeError, "no production record", run)
 
     def no_configs(*args, **kwargs):
         res = real(*args, **kwargs)
@@ -521,8 +550,7 @@ def test_swendsen_wrapper_requires_production_record_and_configs(monkeypatch) ->
         return res
 
     monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", no_configs)
-    with pytest.raises(RuntimeError, match="production configs"):
-        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1)
+    _expect(RuntimeError, "production configs", run)
 
 
 def _rehash_checkpoint(path, mutate) -> None:
@@ -553,8 +581,7 @@ def test_resume_rejects_bad_embedded_manifest(tmp_path, mutate, match) -> None:
     p = tmp_path / "ck.json"
     assert checkpoint.run_resumable(mf, p, checkpoint_every=20, interrupt_after=50) is None
     _rehash_checkpoint(p, mutate)
-    with pytest.raises(checkpoint.CheckpointError, match=match):
-        checkpoint.resume(p, checkpoint_every=20)
+    _expect(checkpoint.CheckpointError, match, lambda: checkpoint.resume(p, checkpoint_every=20))
 
 
 def test_selftest_gate_g7_passes_and_fails_when_negative_control_is_defeated(monkeypatch) -> None:
