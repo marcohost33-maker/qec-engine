@@ -1591,7 +1591,9 @@ def run_phase5(
     n_chains: int = 4,
     L: int = 16,
     n_steps: int = 3000,
-    burn_in: int = 500,
+    burn_in: int = 250,
+    warmup_steps: int = 250,
+    beta_start: float | None = 0.2,
     seed: int = 20260619,
     manifest_path: str | None = None,
     from_manifest: str | None = None,
@@ -1608,8 +1610,16 @@ def run_phase5(
         result = manifest_mod.run(mf)
         print(f"Reproduced from manifest {from_manifest}")
     else:
+        # Issue #51: Warm-up (adaptiv) -> Freeze -> Fixed-Target-Burn-in -> Produktion.
+        # Default 250 + 250 laesst 2500 Produktions-Sweeps je Kette (wie vorher 3000-500).
         mf = manifest_mod.RunManifest(
-            base_seed=seed, n_chains=n_chains, L=L, n_steps=n_steps, burn_in=burn_in
+            base_seed=seed,
+            n_chains=n_chains,
+            L=L,
+            n_steps=n_steps,
+            burn_in=burn_in,
+            warmup_steps=warmup_steps,
+            beta_start=beta_start if warmup_steps > 0 else None,
         )
         result = manifest_mod.run(mf)
 
@@ -1862,7 +1872,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-chains", type=int, default=4, help="phase5: number of MCMC chains M")
     parser.add_argument("--L", type=int, default=16, help="phase5: ring length L")
     parser.add_argument("--n-steps", type=int, default=3000, help="phase5: sweeps per chain")
-    parser.add_argument("--burn-in", type=int, default=500, help="phase5: burn-in sweeps")
+    parser.add_argument(
+        "--burn-in",
+        type=int,
+        default=250,
+        help="phase5: fixed-target burn-in sweeps AFTER the freeze (Issue #51)",
+    )
+    parser.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=250,
+        help="phase5: adaptive warm-up sweeps BEFORE the freeze (calibration only; 0 = none)",
+    )
+    parser.add_argument(
+        "--beta-start",
+        type=float,
+        default=0.2,
+        help="phase5: warm-up start beta (ignored and not recorded when --warmup-steps 0)",
+    )
     parser.add_argument("--seed", type=int, default=20260619, help="phase5: base seed")
     parser.add_argument(
         "--manifest-out", metavar="PATH", default=None, help="phase5: write run-manifest JSON"
@@ -1885,6 +1912,8 @@ def main(argv: list[str] | None = None) -> int:
             L=args.L,
             n_steps=args.n_steps,
             burn_in=args.burn_in,
+            warmup_steps=args.warmup_steps,
+            beta_start=args.beta_start,
             seed=args.seed,
             manifest_path=args.manifest_out,
             from_manifest=args.from_manifest,
