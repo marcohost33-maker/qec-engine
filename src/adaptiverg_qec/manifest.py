@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import platform
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -171,6 +172,9 @@ class RunManifest:
             )
         if not (0.0 < self.beta_min < self.beta_max):
             raise ValueError(f"need 0 < beta_min < beta_max, got {self.beta_min}/{self.beta_max}")
+        # PR #53 R2: kompaktes Theta -- endliche Grenzen (dann ist auch beta_target endlich).
+        if not math.isfinite(self.beta_max):
+            raise ValueError(f"beta_max must be finite (compact Theta), got {self.beta_max}")
         if not (self.beta_min <= self.beta_target <= self.beta_max):
             raise ValueError(
                 f"beta_target {self.beta_target} outside compact Theta "

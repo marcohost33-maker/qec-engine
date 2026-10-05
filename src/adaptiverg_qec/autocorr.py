@@ -60,6 +60,16 @@ MIN_AUTOCORR_SAMPLES: int = 2
 """Mindestlaenge fuer eine Autokorrelation (rho(0) braucht eine Varianz)."""
 
 
+def _require_window(c_window: float) -> None:
+    """Wolff-Parameter S endlich und > 0 -- datenunabhaengig, vor jedem Shortcut.
+
+    NaN-sicher (#46) UND endlich (#48): c_window=+inf liess tau_W = inf zu, g wurde
+    sofort -inf und das Fenster stoppte bei W=1 (AR(1) phi=0.9: tau 1.40 statt 9.6).
+    """
+    if not (np.isfinite(c_window) and c_window > 0):
+        raise ValueError(f"c_window must be finite and > 0, got {c_window}")
+
+
 def _require_finite(values: np.ndarray, name: str) -> None:
     """Fail closed on NaN/inf at a public entry (Issue #46).
 
@@ -165,10 +175,7 @@ def integrated_autocorr_time(
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
     _require_finite(x, "samples")
-    # NaN-sicher (#46) UND endlich (#48): c_window=+inf liess tau_W = inf zu, g wurde
-    # sofort -inf und das Fenster stoppte bei W=1 (AR(1) phi=0.9: tau 1.40 statt 9.6).
-    if not (np.isfinite(c_window) and c_window > 0):
-        raise ValueError(f"c_window must be finite and > 0, got {c_window}")
+    _require_window(c_window)
     if rho is None:
         rho = autocorr_function_fft(x)
     else:
@@ -242,6 +249,9 @@ def tau_int_or_half(x: np.ndarray, *, c_window: float = 1.5) -> float:
     Raises:
         ValueError: bei NaN/inf in x (oder Varianz-Ueberlauf, s. autocorr_function_fft).
     """
+    # PR #53 R2 (Codex P2): c_window ZUERST und unabhaengig von den Daten pruefen --
+    # vorher nahm eine konstante Reihe den 0.5-Shortcut und c_window=inf/nan/0 ging durch.
+    _require_window(c_window)
     x = np.asarray(x, dtype=np.float64).ravel()
     # PR #53 (Codex P2): leere Reihe -> np.var = NaN -> frueher still tau = 0.5 aus null
     # Beobachtungen. Dieselbe Mindestlaenge wie integrated_autocorr_time.

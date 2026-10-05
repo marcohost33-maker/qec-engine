@@ -66,6 +66,7 @@ Validitaetsgrenzen dieser MVP-Instanz
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -87,6 +88,12 @@ class MVPConfig:
             raise ValueError(f"L must be >= 2 (ring needs >=2 sites), got {self.L}")
         if not (self.beta_min > 0.0):
             raise ValueError(f"beta_min must be > 0, got {self.beta_min}")
+        # PR #53 R2 (Codex P2): Theta muss KOMPAKT sein. beta_max=inf liess beta_target=inf
+        # durch alle Bereichspruefungen; jeder Sweep lief bei unendlichem beta, erst die
+        # Freeze-Pruefung nach dem Lauf schlug an. Endlichkeit hier, vor jedem Sweep.
+        # (beta_min ist dann ueber 0 < beta_min < beta_max ebenfalls endlich.)
+        if not math.isfinite(self.beta_max):
+            raise ValueError(f"beta_max must be finite (compact Theta), got {self.beta_max}")
         if not (self.beta_max > self.beta_min):
             raise ValueError(f"beta_max ({self.beta_max}) must exceed beta_min ({self.beta_min})")
 

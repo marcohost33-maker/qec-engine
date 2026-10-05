@@ -376,3 +376,14 @@ def test_swendsen_constant_blocked_series_is_rejected_not_nan() -> None:
     Sp = np.ones(256)
     with pytest.raises(ValueError):
         mcrg.swendsen_T_from_chain(S, Sp, K=0.5)
+
+
+@pytest.mark.parametrize(
+    "bad", [float("inf"), float("nan"), 0.0, -1.0], ids=["inf", "nan", "zero", "neg"]
+)
+def test_tau_int_or_half_validates_c_window_before_the_constant_shortcut(bad: float) -> None:
+    """PR #53 R2: die Validierung haengt nicht von den Daten ab (konstante Reihe)."""
+    const = np.full(50, 3.0)
+    assert autocorr.tau_int_or_half(const) == 0.5  # Kontrolle: gueltiges c_window
+    with pytest.raises(ValueError, match="c_window must be finite and > 0"):
+        autocorr.tau_int_or_half(const, c_window=bad)
