@@ -146,6 +146,10 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     batch_means = (cs[b:] - cs[: n - b + 1]) / b
     ssq = float(np.sum((batch_means - grand_mean) ** 2))
     sigma2 = (n * b) / ((n - b) * (n - b + 1)) * ssq
+    # Issue #48: endliche Samples |x| ~ 1e308 -> cumsum/Quadrate laufen ueber, vorher
+    # kam NaN/inf still zurueck. Positiv formuliert: nur ein endliches sigma2 geht durch.
+    if not np.isfinite(sigma2):
+        raise ValueError("OBM sums overflow float64; rescale the series")
     return sigma2
 
 
@@ -196,8 +200,8 @@ def confidence_interval(
     """
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
-    if not (n >= 1):  # NaN-sicher (#46)
-        raise ValueError(f"n must be >= 1, got {n}")
+    if not (np.isfinite(n) and n >= 1):  # NaN-sicher (#46), endlich (#48)
+        raise ValueError(f"n must be finite and >= 1, got {n}")
     # Issue #46: positiv formuliert und endlich -- ``sigma2_g < 0.0`` liess NaN durch.
     if not (np.isfinite(sigma2_g) and sigma2_g >= 0.0):
         raise ValueError(f"sigma2_g must be finite and >= 0, got {sigma2_g}")

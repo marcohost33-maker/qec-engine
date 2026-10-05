@@ -461,6 +461,8 @@ def _T_ratio_combine(num_means: np.ndarray, den_means: np.ndarray) -> float:
     cov_sps = num_means[0] - num_means[1] * num_means[2]
     cov_spsp = den_means[0] - den_means[1] * den_means[1]
     if cov_spsp == 0.0:
+        # Platzhalter: autocorr.jackknife_ratio lehnt jedes nicht-endliche combine()
+        # ab (Issue #48), das Verhaeltnis gilt dann als undefiniert statt NaN.
         return float("nan")
     return float(cov_sps / cov_spsp)
 

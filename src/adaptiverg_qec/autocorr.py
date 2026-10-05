@@ -161,12 +161,20 @@ def integrated_autocorr_time(
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
     _require_finite(x, "samples")
-    if not (c_window > 0):  # NaN-sicher (Issue #46)
-        raise ValueError(f"c_window must be > 0, got {c_window}")
+    # NaN-sicher (#46) UND endlich (#48): c_window=+inf liess tau_W = inf zu, g wurde
+    # sofort -inf und das Fenster stoppte bei W=1 (AR(1) phi=0.9: tau 1.40 statt 9.6).
+    if not (np.isfinite(c_window) and c_window > 0):
+        raise ValueError(f"c_window must be finite and > 0, got {c_window}")
     if rho is None:
         rho = autocorr_function_fft(x)
     else:
+        # Issue #48: rho war ungeprueft -- leeres x mit gegebenem rho ergab tau_int
+        # aus rho, aber NaN fuer mean/sem (still). rho muss zu x passen.
+        if n < 2:
+            raise ValueError(f"need >=2 samples for an autocorrelation, got {n}")
         rho = np.asarray(rho, dtype=np.float64)
+        if rho.shape != (n,):
+            raise ValueError(f"rho must have shape ({n},) like x, got {rho.shape}")
         _require_finite(rho, "rho")
     # Kumulative tau_int(W) = 0.5 + cumsum(rho[1:]); tau_of_w[k] = tau_int(W=k+1).
     tau_of_w = 0.5 + np.cumsum(rho[1:])
@@ -194,6 +202,8 @@ def integrated_autocorr_time(
     tau_int = max(tau_int, 0.5)
 
     variance = float(np.var(x))  # = gamma(0) (biased), konsistent mit rho-Normierung
+    if not np.isfinite(variance):  # Issue #48: |x| ~ 1e308 mit vorgegebenem rho
+        raise ValueError("variance overflows float64; rescale the series")
     sem_iid = float(np.sqrt(variance / n)) if n > 0 else float("nan")
     sem = float(np.sqrt(2.0 * tau_int * variance / n)) if n > 0 else float("nan")
     n_eff = n / (2.0 * tau_int)
@@ -307,6 +317,10 @@ def binning_error(x: np.ndarray, *, max_block: int | None = None) -> BinningResu
     # sem(b)-Kurve flach ist. Median ueber die obere Haelfte der b-Werte (robust
     # gegen das Endpunkt-Rauschen, das bei sehr grossem b / wenigen Bloecken
     # auftritt; deshalb deckelt max_block die Block-Anzahl auf >= 32).
+    # Issue #48: endliche Samples |x| ~ 1e308 lassen Block-Summen/Varianz ueberlaufen;
+    # vorher kamen sem_plateau=inf und sem_iid=nan still zurueck. Positiv formuliert.
+    if not (np.isfinite(sem_iid) and np.all(np.isfinite(sem_of_b))):
+        raise ValueError("binning sums overflow float64; rescale the series")
     upper = sem_of_b[len(sem_of_b) // 2 :]
     sem_plateau = float(np.median(upper)) if upper.size else float(sem_of_b[-1])
     tau_int_equiv = 0.5 * (sem_plateau / sem_iid) ** 2 if sem_iid > 0 else float("nan")
@@ -397,6 +411,14 @@ def jackknife_ratio(
         den_mean_j = (den_total - den_b[j]) / denom_count
         jack[j] = combine(num_mean_j, den_mean_j)
 
+    # Issue #48: ein nicht-endliches combine() (z.B. Nenner-Kovarianz 0 ->
+    # Platzhalter NaN in mcrg._T_ratio_combine) ergab still ratio/error = NaN.
+    if not (np.isfinite(full) and np.all(np.isfinite(jack))):
+        bad = int(np.sum(~np.isfinite(jack)))
+        raise ValueError(
+            f"combine() returned a non-finite value (full={full!r}, "
+            f"{bad}/{n_blocks} block deletions); ratio undefined"
+        )
     jack_mean = float(jack.mean())
     # Jackknife-Varianz: (n_blocks-1)/n_blocks * sum (jack_j - jack_mean)^2.
     error = float(np.sqrt((n_blocks - 1) / n_blocks * np.sum((jack - jack_mean) ** 2)))
