@@ -79,21 +79,29 @@ def test_version_literal_is_single_pep440_and_equals_runtime() -> None:
 
 def _checkout_install() -> tuple[metadata.Distribution | None, str]:
     """Distribution, falls sie aus DIESEM Checkout installiert ist, sonst Grund."""
+    # Nicht metadata.distribution(name): mit pytest ``pythonpath = ["src"]`` findet sie
+    # zuerst das Build-Artefakt src/<pkg>.egg-info (ohne direct_url.json), das setuptools
+    # bei ``pip install -e .`` auch in CI anlegt. Massgeblich ist die installierte
+    # Distribution, deren direct_url.json auf genau diesen Checkout zeigt.
     name = _pyproject()["project"]["name"]
-    try:
-        dist = metadata.distribution(name)
-    except metadata.PackageNotFoundError:
+    candidates = list(metadata.distributions(name=name))
+    if not candidates:
         return None, f"{name} is not installed"
-    raw = dist.read_text("direct_url.json")
-    if not raw:
-        return None, f"{name} has no direct_url.json (not installed from a local checkout)"
-    url = json.loads(raw).get("url", "")
-    if not url.startswith("file:"):
-        return None, f"{name} installed from {url!r}, not from a local checkout"
-    source = Path(url2pathname(urlparse(url).path))
-    if os.path.normcase(source.resolve()) != os.path.normcase(ROOT):
-        return None, f"{name} installed from another checkout: {source}"
-    return dist, ""
+    reasons: list[str] = []
+    for dist in candidates:
+        raw = dist.read_text("direct_url.json")
+        if not raw:
+            reasons.append("entry without direct_url.json")
+            continue
+        url = json.loads(raw).get("url", "")
+        if not url.startswith("file:"):
+            reasons.append(f"installed from {url!r}")
+            continue
+        source = Path(url2pathname(urlparse(url).path))
+        if os.path.normcase(source.resolve()) == os.path.normcase(ROOT):
+            return dist, ""
+        reasons.append(f"installed from another checkout: {source}")
+    return None, f"{name} not installed from this checkout ({'; '.join(reasons)})"
 
 
 def test_installed_distribution_reports_the_runtime_version() -> None:

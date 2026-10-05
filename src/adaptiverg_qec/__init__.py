@@ -25,6 +25,9 @@ als MVP-WAHL gekennzeichnet, nicht als die volle Spec.
 # (cli selftest "version", manifest/runtime "package_version"). Ein reines
 # String-Literal bleiben lassen: setuptools liest es per AST, ohne zu importieren.
 # Gepinnt durch tests/test_version_ssot.py. dev-Reife, NICHT release-fertig.
-__version__ = "0.1.0.dev2"
+# 0.5.0.dev0 statt 0.1.0.dev2 (2026-10-05): ein Entwicklungsstand nach dem Tag
+# v0.4.0 muss nach PEP 440 darueber liegen; 0.1.0.dev2 < 0.4.0 ordnete falsch.
+# Aeltere results/*.json tragen weiterhin 0.1.0.dev2 (historische Evidenz).
+__version__ = "0.5.0.dev0"
 
 __all__ = ["__version__"]
