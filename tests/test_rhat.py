@@ -361,3 +361,16 @@ def test_folded_floor_does_not_overflow_at_dbl_max() -> None:
         r = rhat.split_rhat(chains)
     assert r.diagnostic_state is rhat.DiagnosticState.OK
     assert r.rhat_defined
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_folded_floor_verdict_at_dbl_max_without_fp_traps() -> None:
+    """Wie oben, aber ohne errstate-Falle: das URTEIL selbst darf bei DBL_MAX nicht kippen.
+
+    Die errstate-Variante wird bei einem ueberlaufenden Boden durch eine Ausnahme rot;
+    diese hier durch die Zusicherung (OK statt DEGENERATE_FOLDED).
+    """
+    chains = np.random.default_rng(48).standard_normal((4, 1000))
+    chains[2, 500] = np.finfo(np.float64).max
+    r = rhat.split_rhat(chains)
+    assert r.diagnostic_state is rhat.DiagnosticState.OK

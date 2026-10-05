@@ -285,6 +285,17 @@ def test_advance_chain_freezes_by_assignment() -> None:
     assert state.beta == 1.0
 
 
+def test_split_phases_window_is_warmup_plus_burn_in() -> None:
+    """Produktion beginnt bei warmup_steps + burn_in, nicht bei burn_in (G7a/G7d)."""
+    H = np.arange(50.0)
+    beta = np.full(50, 0.8)
+    beta[:10] = np.linspace(0.5, 0.79, 10)  # Warm-up
+    cal, prod = a_kernel.split_phases(H, beta, warmup_steps=10, burn_in=10, beta_star=0.8)
+    assert prod.t_start == 20
+    np.testing.assert_array_equal(prod.H, H[20:])
+    np.testing.assert_array_equal(cal.H, H[:10])
+
+
 def test_split_phases_refuses_unfrozen_production() -> None:
     """Eine Trajektorie mit wanderndem Ziel ergibt keinen Produktions-Record."""
     beta = np.linspace(0.5, 0.8, 50)
