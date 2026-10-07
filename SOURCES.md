@@ -226,7 +226,7 @@ Kern-Dependency; ohne das Extra SKIPPEN die Tests (verifiziert: dev-only-venv 3 
 gegen 0.103 (MWPM), NICHT gegen 0.1094 (optimal/ML) — ein Schaetzer, der 0.109 „erreicht",
 waere verdaechtig. Endliche Distanzen → KEINE L→∞-FSS; der Kreuzungs-Schaetzer driftet von
 unten zum Threshold (sichtbar: (7,9)<(9,11)). Phenomenological Multi-Round-Sampling ist seit 2026-09-19 als klar spezifizierte Stim-Baseline
-als Code + Tests vorhanden, Gate-Log in `results/` noch offen (Daten-DEPOLARIZE1 je Runde + Mess-Flip; PyMatching aus DEM). Ein numerischer
+als Code + Tests vorhanden, Gate-Log seit 2026-10-07 in `results/qec-multiround-evidence.json` (Daten-DEPOLARIZE1 je Runde + Mess-Flip; PyMatching aus DEM). Ein numerischer
 ~2.9%-Literatur-Threshold wird bewusst NICHT als Orakel verwendet, bis Noise-Konvention und FSS
 apples-to-apples festgelegt sind. Jede genannte Zahl ist aus
 `python -m adaptiverg_qec.surface_decoder` → `results/qec-surface-mwpm.json` regenerierbar
@@ -407,3 +407,23 @@ Branch `claude/qec-engine-next-steps-coapze` (Agent: Claude).
   main übernommen (kein Doppel-Fix).
 - Literatur unverändert: Andrieu & Thoms, Stat. Comput. 18, 343–373 (2008); Roberts & Rosenthal,
   J. Appl. Probab. 44(2), 458–475 (2007) — fester Zielkern nach dem Freeze erfüllt deren Voraussetzung.
+
+---
+
+## Lineage-Append — 2026-10-07: Gate-Log 3.1/3.2 + gepaarter Decoder-A/B (Inkrement 3.3)
+
+- **PyMatching Correlated Matching** (`Matching.from_detector_error_model(dem, enable_correlations=True)`,
+  `decode_batch(..., enable_correlations=True)`; ab PyMatching 2.3.0, 2025-08-10): Two-Pass-Matching, das
+  zerlegte Hyperkanten (z.B. Y-Fehler) im zweiten Pass zum Umgewichten nutzt. API-Doku in
+  `pymatching/matching.py`; lokal gegen PyMatching 2.4.0 geprüft. Daher `[surface]`-Extra jetzt
+  `pymatching>=2.3`. Ohne Hyperkanten im DEM ist Correlated Matching bitgleich zur Baseline (Gate Q6).
+- **Exakter McNemar-Test** (bedingt, b | b+c ~ Bin(b+c, 1/2)); mid-p nur als Diagnose:
+  M. W. Fagerland, S. Lydersen, P. Laake, *The McNemar test for binary matched-pairs data: mid-p and
+  asymptotic are better than exact conditional*, BMC Med. Res. Methodol. 13, 91 (2013),
+  doi:10.1186/1471-2288-13-91. Das Gate nutzt bewusst den konservativen exakten Test; Referenz-
+  implementierung `scipy.stats.binomtest` (Gate Q5).
+- **Clopper-Pearson**: C. J. Clopper, E. S. Pearson, Biometrika 26(4), 404–413 (1934),
+  doi:10.1093/biomet/26.4.404 (exakte Binomial-Intervalle, auch bei k=0 nicht entartet).
+- **Gepaarter Bootstrap**: Multinomial über die 2×2-Tafel == Resampling der Shot-Indizes (Efron &
+  Tibshirani 1993, *An Introduction to the Bootstrap*); getestet gegen explizites Index-Resampling.
+- Methodik übernommen aus dem Wissenstransfer 2026-10-04 (§5.4 „Gepaartes Decoder-A/B", P1-A).
