@@ -206,3 +206,68 @@ def test_evidence_runner_quick_all_pass(tmp_path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["all_pass"] and payload["n_gates"] == 10
     assert [g["id"] for g in payload["gates"]] == [f"Q{i}" for i in range(1, 11)]
+
+
+# --- Review-Haertung PR #54 ---------------------------------------------------------
+
+
+def test_alpha_and_counts_validation():
+    with pytest.raises(TypeError):
+        ab.clopper_pearson(3, 10, "0.05")
+    with pytest.raises(ValueError):
+        ab.PairedCounts(-5, 1, 1, 1)
+    with pytest.raises(ValueError):
+        ab.PairedCounts.from_failures(np.array([0.2, 2, 0]), np.array([0, 1, 0]))
+    t = ab.PairedCounts.from_failures(np.array([0, 1, 1]), np.array([1, 1, 0]))
+    assert (t.n00, t.n01, t.n10, t.n11) == (0, 1, 1, 1)
+
+
+def test_independent_pairing_table_keeps_margins_and_kills_pairing_gain():
+    t = ab.PairedCounts(9_000, 100, 200, 700)
+    ind = ab.independent_pairing_table(t)
+    assert ind.shots == t.shots
+    assert ind.baseline_failures == t.baseline_failures
+    assert ind.candidate_failures == t.candidate_failures
+    r = ab.paired_bootstrap_delta(ind.n00, ind.n01, ind.n10, ind.n11, n_boot=10_000, seed=1)
+    assert 0.9 <= r["ci_width"] / r["unpaired_wald_ci_width"] <= 1.1
+
+
+def test_failures_digest_is_shot_exact():
+    a = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1], dtype=bool)
+    b = a.copy()
+    b[[0, 1]] = b[[1, 0]]  # gleiche Zahl, anderer Shot
+    assert a.sum() == b.sum()
+    assert ab.failures_digest(a) == ab.failures_digest(a.copy())
+    assert ab.failures_digest(a) != ab.failures_digest(b)
+    # Laenge zaehlt (packbits polstert auf Byte-Grenzen).
+    assert ab.failures_digest(a[:8]) != ab.failures_digest(np.append(a[:8], False))
+
+
+@pytest.mark.parametrize("version,ok", [("2.4.0", True), ("2.3rc1", True), ("2.2.9", False)])
+def test_pymatching_version_gate(monkeypatch, version, ok):
+    if not sd.HAVE_SURFACE:
+        pytest.skip("needs the [surface] extras")
+    import pymatching
+
+    monkeypatch.setattr(pymatching, "__version__", version)
+    if ok:
+        ab._require_decoders()
+    else:
+        with pytest.raises(ImportError, match="pymatching>=2.3"):
+            ab._require_decoders()
+
+
+@requires_surface
+def test_q4_counter_direction_fails_if_sampler_ignores_seed(monkeypatch):
+    """Review-Szenario: ein Sampler, der den Seed ignoriert, darf Q4 nicht bestehen."""
+    from adaptiverg_qec import qec_evidence
+
+    real = sd._generated_memory_decode
+
+    def seed_blind(d, **kw):
+        kw["seed"] = 12345
+        return real(d, **kw)
+
+    monkeypatch.setattr(sd, "_generated_memory_decode", seed_blind)
+    gates = {g["id"]: g for g in qec_evidence.build_evidence(quick=True)["gates"]}
+    assert gates["Q4"]["status"] == "FAIL"

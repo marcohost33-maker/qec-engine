@@ -42,7 +42,9 @@ kein Threshold-Claim, keine Uebertragung auf andere Noise-Konventionen.
 
 from __future__ import annotations
 
+import hashlib
 import math
+import re
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -70,6 +72,8 @@ def _count(name: str, value) -> int:
 
 
 def _alpha(alpha) -> float:
+    if isinstance(alpha, (bool, np.bool_)) or not isinstance(alpha, (int, float, np.number)):
+        raise TypeError(f"alpha must be a real number, got {type(alpha).__name__}")
     a = float(alpha)
     if not math.isfinite(a) or not 0.0 < a < 1.0:
         raise ValueError(f"alpha must be in (0, 1), got {alpha}")
@@ -160,6 +164,36 @@ def paired_bootstrap_delta(
     }
 
 
+def _as_failure_vector(name: str, v) -> np.ndarray:
+    """Bool-Vektor; Zahlen nur als exakt 0/1 (kein stilles 0.2 -> True)."""
+    a = np.asarray(v)
+    if a.dtype == bool:
+        return a
+    if not np.issubdtype(a.dtype, np.number) or not np.all((a == 0) | (a == 1)):
+        raise ValueError(f"{name} failures must be boolean or exactly 0/1")
+    return a.astype(bool)
+
+
+def failures_digest(failures: np.ndarray) -> str:
+    """SHA-256 des bit-gepackten Fehlvektors: Shot-genaue Identitaet zweier Laeufe."""
+    packed = np.packbits(np.asarray(failures, dtype=bool))
+    return hashlib.sha256(packed.tobytes() + str(packed.size).encode()).hexdigest()
+
+
+def independent_pairing_table(counts: PairedCounts) -> PairedCounts:
+    """Gleiche Raender, aber UNABHAENGIGE Paarung (erwartete Zellen, gerundet).
+
+    Gegenkontrolle zum Paarungsgewinn: zerstoert man die Shot-Zuordnung (z.B. durch
+    Permutation der Kandidaten-Entscheide), bleibt nur die Unabhaengigkeitstafel; dann
+    darf das gepaarte Intervall NICHT schmaler sein als das ungepaarte.
+    """
+    n = counts.shots
+    fa, fb = counts.baseline_failures, counts.candidate_failures
+    n11 = int(round(fa * fb / n))
+    n10, n01 = fa - n11, fb - n11
+    return PairedCounts(n00=n - n11 - n10 - n01, n01=n01, n10=n10, n11=n11)
+
+
 @dataclass(frozen=True)
 class PairedCounts:
     """2x2-Tafel aus zwei Fehlervektoren gleicher Laenge (Baseline, Kandidat)."""
@@ -169,10 +203,14 @@ class PairedCounts:
     n10: int
     n11: int
 
+    def __post_init__(self) -> None:
+        for name in ("n00", "n01", "n10", "n11"):
+            _count(name, getattr(self, name))
+
     @classmethod
     def from_failures(cls, base: np.ndarray, cand: np.ndarray) -> PairedCounts:
-        base = np.asarray(base, dtype=bool)
-        cand = np.asarray(cand, dtype=bool)
+        base = _as_failure_vector("base", base)
+        cand = _as_failure_vector("cand", cand)
         if base.ndim != 1 or base.shape != cand.shape:
             raise ValueError("failure vectors must be 1-D and of equal length")
         return cls(
@@ -206,7 +244,8 @@ def _require_decoders():
     sd._require_surface()
     import pymatching  # type: ignore
 
-    parts = tuple(int(x) for x in pymatching.__version__.split(".")[:2] if x.isdigit())
+    m = re.match(r"(\d+)\.(\d+)", pymatching.__version__)
+    parts = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
     if parts < _MIN_PYMATCHING_FOR_CORRELATIONS:
         raise ImportError(
             "correlated matching needs pymatching>=2.3 (enable_correlations), "
@@ -244,8 +283,9 @@ def paired_decoder_ab(
 
     Der Sampling-Vertrag (Noise, Distanzen, Runden, Shots, Zell-Seeds) kommt
     unveraendert aus dem Manifest; ``manifest.decoder`` ist die Baseline und muss mit
-    ``baseline`` uebereinstimmen. Damit sind die Baseline-Fehler einer Zelle bitgleich zu
-    ``surface_decoder.run_experiment_manifest`` (gleicher Seed, gleicher Pfad).
+    ``baseline`` uebereinstimmen. Die Baseline nutzt denselben Seed und denselben
+    Stim-DEM->PyMatching-Pfad wie ``surface_decoder.run_experiment_manifest``; jede Zelle
+    traegt zusaetzlich den SHA-256 beider Fehlvektoren (Shot-genaue Wiederholbarkeit).
     """
     if not isinstance(manifest, QECExperimentManifestV2):
         raise TypeError("manifest must be QECExperimentManifestV2")
@@ -269,10 +309,11 @@ def paired_decoder_ab(
             **manifest.noise.to_stim_kwargs(),
         )
         dem = circuit.detector_error_model(decompose_errors=True)
-        matchings = {
-            "plain": pymatching.Matching.from_detector_error_model(dem),
-            "corr": pymatching.Matching.from_detector_error_model(dem, enable_correlations=True),
-        }
+        matchings = {"plain": pymatching.Matching.from_detector_error_model(dem)}
+        if CORRELATED_DECODER in (baseline, candidate):
+            matchings["corr"] = pymatching.Matching.from_detector_error_model(
+                dem, enable_correlations=True
+            )
         sampler = circuit.compile_detector_sampler(seed=seed)
         detectors, observables = sampler.sample(manifest.shots_per_cell, separate_observables=True)
         pred_base = _decode(matchings, baseline, detectors)
@@ -289,6 +330,8 @@ def paired_decoder_ab(
                 "shots": n,
                 "hyperedges": count_hyperedges(dem),
                 "decisions_identical": bool(np.array_equal(pred_base, pred_cand)),
+                "baseline_failures_sha256": failures_digest(fail_base),
+                "candidate_failures_sha256": failures_digest(fail_cand),
                 "table": asdict(counts),
                 "baseline": {
                     "failures": counts.baseline_failures,

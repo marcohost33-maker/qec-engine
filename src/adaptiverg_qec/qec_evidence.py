@@ -9,19 +9,22 @@ nicht als erledigt. Dieses Modul faehrt die echten Pfade und schreibt EIN Gate-L
 Exit 0 nur, wenn alle Gates PASS sind; ohne [surface]-Extra Exit 2 (NOT_RUN, weder PASS
 noch FAIL). CI faehrt das im surface-Job und laedt das Log hoch.
 
-Gates (je mit Gegenrichtung, damit kein Gate vakuos gruen ist):
+Gates (Q1-Q4, Q6, Q8, Q9 mit expliziter Gegenrichtung; Q5 ist ein Orakelvergleich, Q7
+und Q10 sind Konsistenz-/Wiederholungschecks):
   Q1  Null-Rausch-Orakel: p=0 -> exakt 0 logische Fehler (d=3,5,7; X- und Z-Memory).
   Q2  Unter der Schwelle: p_L faellt streng mit d, Clopper-Pearson-Intervalle disjunkt.
   Q3  Ueber der Schwelle: p_L STEIGT mit d (Gegenrichtung zu Q2), Intervalle disjunkt.
-  Q4  Manifest-Replay: JSON-Round-Trip -> bitgleiche Zeilen; anderer base_seed -> andere.
+  Q4  Manifest-Replay: JSON-Round-Trip -> bitgleiche Zeilen; anderer base_seed -> andere
+      ERGEBNISSE (verglichen werden nur p_L je d, nicht das Seed-Feld selbst).
   Q5  McNemar-Implementierung == scipy.stats.binomtest (exakt) auf einem (b,c)-Gitter.
   Q6  Struktur-Negativkontrolle: DEM ohne Hyperkanten -> Correlated == Baseline bitgleich.
   Q7  Selbstvergleich: Baseline gegen Baseline -> b=c=0, p=1, Delta=0.
   Q8  Positivkontrolle: Circuit-Level-Noise mit Hyperkanten -> Correlated besser,
       exakter McNemar p<1e-3 und Bootstrap-CI von Delta komplett < 0.
-  Q9  Paarungsgewinn: gepaartes CI schmaler als das ungepaarte Wald-CI derselben Daten.
+  Q9  Paarungsgewinn: gepaartes CI deutlich schmaler als das ungepaarte Wald-CI; Gegen-
+      kontrolle: gleiche Raender mit unabhaengiger Paarung -> KEIN Gewinn.
   Q10 A/B-Baseline == run_experiment_manifest (gleicher Seed, gleiche Fehlerzahl) und
-      A/B-Wiederholung bitgleich.
+      A/B-Wiederholung shot-genau identisch (SHA-256 beider Fehlvektoren je Zelle).
 """
 
 from __future__ import annotations
@@ -35,8 +38,11 @@ from pathlib import Path
 from .qec_decoder_ab import (
     BASELINE_DECODER,
     CORRELATED_DECODER,
+    PairedCounts,
     clopper_pearson,
+    independent_pairing_table,
     mcnemar_exact,
+    paired_bootstrap_delta,
     paired_decoder_ab,
 )
 from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
@@ -45,7 +51,10 @@ ALPHA_ORDER = 0.01  # 99%-Intervalle fuer die Ordnungs-Gates Q2/Q3.
 
 
 def _rows_hash(rows: list[dict]) -> str:
-    blob = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # Nur Ergebnisfelder: das Seed-Feld aendert sich mit base_seed IMMER und wuerde die
+    # Gegenrichtung von Q4 vakuos machen (Review PR #54).
+    outcome = [(r["d"], r["rounds"], r["shots"], r["p_logical"]) for r in rows]
+    blob = json.dumps(outcome, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
@@ -132,7 +141,7 @@ def build_evidence(*, quick: bool = False) -> dict:
     q4 = h0 == h1 and h0 != h2 and replay.fingerprint() == sub.fingerprint()
     gate(
         "Q4",
-        "manifest JSON round-trip replays bit-identical rows; changed base_seed changes them",
+        "manifest JSON round-trip replays bit-identical outcomes; changed base_seed changes them",
         q4,
         {"rows_hash": h0, "replay_rows_hash": h1, "moved_seed_rows_hash": h2},
     )
@@ -214,21 +223,29 @@ def build_evidence(*, quick: bool = False) -> dict:
         q8,
         {"cell_d5": _cell_summary({"cells": [big]})[0]},
     )
-    q9 = all(c["delta"]["ci_width"] < c["delta"]["unpaired_wald_ci_width"] for c in ab["cells"])
+    widths = []
+    for c in ab["cells"]:
+        indep = independent_pairing_table(PairedCounts(**c["table"]))
+        ind = paired_bootstrap_delta(
+            indep.n00, indep.n01, indep.n10, indep.n11, n_boot=20_000, seed=c["seed"]
+        )
+        widths.append(
+            {
+                "d": c["d"],
+                "paired_ratio": c["delta"]["ci_width"] / c["delta"]["unpaired_wald_ci_width"],
+                "independent_pairing_ratio": ind["ci_width"] / ind["unpaired_wald_ci_width"],
+                "independent_table": indep.__dict__,
+            }
+        )
+    q9 = all(
+        w["paired_ratio"] < 0.8 and 0.9 <= w["independent_pairing_ratio"] <= 1.1 for w in widths
+    )
     gate(
         "Q9",
-        "pairing gain: paired bootstrap CI narrower than unpaired Wald CI (same data)",
+        "pairing gain: paired/unpaired CI width < 0.8; counter-control with the same margins "
+        "but independent pairing gives no gain (ratio in [0.9, 1.1])",
         q9,
-        {
-            "widths": [
-                {
-                    "d": c["d"],
-                    "paired": c["delta"]["ci_width"],
-                    "unpaired": c["delta"]["unpaired_wald_ci_width"],
-                }
-                for c in ab["cells"]
-            ]
-        },
+        {"widths": widths},
     )
     direct = sd.run_experiment_manifest(circuit)["rows"]
     again = paired_decoder_ab(circuit, candidate=CORRELATED_DECODER)
@@ -236,14 +253,22 @@ def build_evidence(*, quick: bool = False) -> dict:
         round(r["p_logical"] * r["shots"]) == c["baseline"]["failures"] and r["seed"] == c["seed"]
         for r, c in zip(direct, ab["cells"], strict=True)
     )
-    q10 = base_match and json.dumps(ab["cells"], sort_keys=True) == json.dumps(
-        again["cells"], sort_keys=True
+    shot_identical = all(
+        a["baseline_failures_sha256"] == b["baseline_failures_sha256"]
+        and a["candidate_failures_sha256"] == b["candidate_failures_sha256"]
+        for a, b in zip(ab["cells"], again["cells"], strict=True)
+    )
+    q10 = (
+        base_match
+        and shot_identical
+        and json.dumps(ab["cells"], sort_keys=True) == json.dumps(again["cells"], sort_keys=True)
     )
     gate(
         "Q10",
-        "A/B baseline equals run_experiment_manifest; A/B rerun bit-identical",
+        "A/B baseline: same seed + failure count as run_experiment_manifest; "
+        "A/B rerun shot-identical (failure-vector SHA-256)",
         q10,
-        {"baseline_matches_manifest_run": base_match},
+        {"baseline_matches_manifest_run": base_match, "rerun_shot_identical": shot_identical},
     )
 
     sections["decoder_ab_circuit_level"] = ab
@@ -303,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not sd.HAVE_SURFACE:
         print("NOT_RUN: [surface]-Extras fehlen (pip install 'adaptiverg-qec[surface]')")
+        return 2
+    from .qec_decoder_ab import _require_decoders
+
+    try:
+        _require_decoders()
+    except ImportError as exc:
+        print(f"NOT_RUN: {exc}")
         return 2
     t0 = time.perf_counter()
     payload = build_evidence(quick=args.quick)

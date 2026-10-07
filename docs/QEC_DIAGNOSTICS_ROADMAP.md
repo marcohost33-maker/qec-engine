@@ -143,7 +143,8 @@ schreibt `results/qec-multiround-evidence.json`; Exit != 0 bei jedem FAIL, ohne 
 
 `qec_decoder_ab.py`: Baseline `pymatching-mwpm-dem` und Kandidat `pymatching-correlated-mwpm-dem`
 dekodieren DIESELBEN Shots je Manifest-Zelle (ein Sampler-Aufruf, Zell-Seed aus dem Manifest);
-die Baseline ist damit bitgleich zu `run_experiment_manifest` (Gate Q10). Statistik: exakter
+die Baseline nutzt denselben Seed und Pfad wie `run_experiment_manifest` (gleiche Fehlerzahl, Gate Q10);
+jede Zelle traegt den SHA-256 beider Fehlvektoren, eine Wiederholung ist damit shot-genau pruefbar. Statistik: exakter
 bedingter McNemar (Gate), mid-p (Diagnose), gepaarter Multinomial-Bootstrap fuer Delta,
 Clopper-Pearson je Arm, ungepaartes Wald-CI nur als Vergleich.
 
@@ -152,17 +153,18 @@ Clopper-Pearson je Arm, ungepaartes Wald-CI nur als Vergleich.
 | Q1 | p=0 -> 0 Fehler, d=3,5,7, X/Z | 0/2000 je Zelle |
 | Q2 | phenom p=0.01: p_L faellt streng, 99%-CP disjunkt | 531 / 158 / 39 von 60k (d=3/5/7) |
 | Q3 | phenom p=0.06: p_L steigt (Gegenrichtung) | 3925 / 4806 / 5921 von 20k |
-| Q4 | Manifest-JSON-Replay bitgleich; base_seed+1 -> andere Zeilen | Hash gleich / verschieden |
+| Q4 | Manifest-JSON-Replay bitgleich; base_seed+1 -> andere Ergebnisse (nur p_L-Felder gehasht) | Hash gleich / verschieden |
 | Q5 | McNemar == `scipy.stats.binomtest` | max diff = 0 (157 Tafeln, Gate-Schwelle 1e-12) |
 | Q6 | DEM ohne Hyperkanten -> Correlated bitgleich | b=c=0 bei 276 bzw. 104 Fehlern |
 | Q7 | Baseline vs Baseline | b=c=0, p=1, Delta=0 |
 | Q8 | circuit-level p=0.006, d=5: Correlated besser | 881 -> 709 von 40k, b=368, c=196, p~4e-13, CI(Delta)=[-0.0055, -0.0031] |
-| Q9 | gepaartes CI schmaler als ungepaartes | 0.0023 vs 0.0039 (d=5) |
-| Q10 | A/B-Baseline == Manifest-Lauf; Wiederholung bitgleich | ja |
+| Q9 | gepaart/ungepaart-CI-Breite < 0.8; Gegenkontrolle gleiche Raender + unabhaengige Paarung in [0.9, 1.1] | 0.44 / 0.60 vs 0.99 / 1.00 (d=3/5) |
+| Q10 | A/B-Baseline: gleicher Seed + Fehlerzahl wie Manifest-Lauf; Wiederholung shot-genau (SHA-256) | ja |
 
 **Claim ceiling:** bounded simulation (T1-Kandidat). Die Correlated-Matching-Verbesserung gilt
 fuer den deklarierten Stim-Circuit-Noise-Vertrag (SD-artige Gleichgewichtung aller vier Achsen)
-und d<=5; kein Threshold, keine FSS, keine Latenz (Python-Wallclock ist kein Benchmark),
+und ist nur bei d=5 signifikant (Gate Q8); bei d=3 ist der Unterschied NICHT signifikant
+(b=188, c=170, McNemar p~0.37, CI(Delta) enthaelt 0); kein Threshold, keine FSS, keine Latenz (Python-Wallclock ist kein Benchmark),
 keine Uebertragung auf Hardware oder andere Noise-Konventionen.
 **Naechster Schritt:** Sweep-Engine mit fester vorregistrierter p×d-Matrix (fixed shots) und
 Bootstrap-FSS; A/B ueber das ganze Gitter; Sinter erst nach Issue #42.

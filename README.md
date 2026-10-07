@@ -204,11 +204,11 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
 - **Inkr. 3.1–3.3 Gate-Log** (`qec_evidence.py`, `qec_decoder_ab.py`): Multi-Round-Baseline und
   Manifest-v2-Pfad laufen jetzt mit committetem Gate-Log; dazu ein **gepaarter Decoder-A/B**
   (Standard-MWPM vs. PyMatching-Correlated-MWPM auf IDENTISCHEN Shots; exakter McNemar,
-  gepaarter Multinomial-Bootstrap für Δ, Clopper-Pearson je Arm). 10 Gates Q1–Q10, alle mit
-  Gegenrichtung: Null-Rausch-Orakel; Unterdrückung unter / Umkehr über der Schwelle mit
+  gepaarter Multinomial-Bootstrap für Δ, Clopper-Pearson je Arm). 10 Gates Q1–Q10 (Q1–Q4, Q6, Q8,
+  Q9 mit expliziter Gegenrichtung, Q5 Orakelvergleich, Q7/Q10 Konsistenz): Null-Rausch-Orakel; Unterdrückung unter / Umkehr über der Schwelle mit
   disjunkten 99%-CP-Intervallen; Manifest-Replay bitgleich, anderer Seed ≠; DEM ohne
   Hyperkanten → Correlated bitgleich zur Baseline; Circuit-Level p=0.006, d=5: Correlated
-  besser (McNemar p≈4e-13, CI(Δ) < 0). Evidenz: `results/qec-multiround-evidence.json`
+  besser (McNemar p≈4e-13, CI(Δ) < 0; bei d=3 nicht signifikant). Evidenz: `results/qec-multiround-evidence.json`
   (`python -m adaptiverg_qec.qec_evidence`; CI-Job `surface` fährt es fail-closed).
   **Claim ceiling:** bounded simulation; kein Threshold-, FSS- oder Latenz-Claim.
 
