@@ -1,0 +1,657 @@
+{
+  "tool": "adaptiverg_qec.qec_evidence",
+  "quick": false,
+  "stim_version": "1.16.0",
+  "pymatching_version": "2.4.0",
+  "runtime_environment": {
+    "package_version": "0.5.0.dev0",
+    "distribution_version": "0.5.0.dev0",
+    "git_sha": "b1ce1b4",
+    "python": "3.13.16",
+    "platform": "Linux-6.18.44-fc-v77-x86_64-with-glibc2.39",
+    "machine": "x86_64"
+  },
+  "reproducibility": {
+    "tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+    "note": "Seeded Stim sampling is exact only for the same Stim version, machine architecture, and sampling call pattern; it is not cross-version bitwise."
+  },
+  "gates": [
+    {
+      "id": "Q1",
+      "name": "zero-noise oracle p_L == 0 (d=3,5,7; x,z)",
+      "status": "PASS",
+      "rows": {
+        "x": [
+          {
+            "d": 3,
+            "rounds": 3,
+            "shots": 2000,
+            "seed": 1077586477545874548,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          },
+          {
+            "d": 5,
+            "rounds": 5,
+            "shots": 2000,
+            "seed": 3091918600072488886,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          },
+          {
+            "d": 7,
+            "rounds": 7,
+            "shots": 2000,
+            "seed": 1062686237661552425,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          }
+        ],
+        "z": [
+          {
+            "d": 3,
+            "rounds": 3,
+            "shots": 2000,
+            "seed": 4904722327225910876,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          },
+          {
+            "d": 5,
+            "rounds": 5,
+            "shots": 2000,
+            "seed": 7242709661878711172,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          },
+          {
+            "d": 7,
+            "rounds": 7,
+            "shots": 2000,
+            "seed": 6631412024084821898,
+            "p_logical": 0.0,
+            "std_err": 0.0003534208715695225
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q2",
+      "name": "below threshold (phenom p=0.01): p_L strictly decreasing in d, 99% CP disjoint",
+      "status": "PASS",
+      "rows": [
+        {
+          "d": 3,
+          "rounds": 3,
+          "shots": 60000,
+          "seed": 8950038967502205528,
+          "p_logical": 0.00885,
+          "std_err": 0.0003825292634353656
+        },
+        {
+          "d": 5,
+          "rounds": 5,
+          "shots": 60000,
+          "seed": 8593196820083378631,
+          "p_logical": 0.0026333333333333334,
+          "std_err": 0.00020954889920384162
+        },
+        {
+          "d": 7,
+          "rounds": 7,
+          "shots": 60000,
+          "seed": 8680714518642104008,
+          "p_logical": 0.00065,
+          "std_err": 0.00010471301836946212
+        }
+      ],
+      "clopper_pearson_99": [
+        [
+          0.007895775239476356,
+          0.009883001563033523
+        ],
+        [
+          0.002125545766643656,
+          0.0032216332803343653
+        ],
+        [
+          0.0004132254462178229,
+          0.0009691873538583344
+        ]
+      ]
+    },
+    {
+      "id": "Q3",
+      "name": "above threshold (phenom p=0.06): p_L strictly increasing in d, 99% CP disjoint",
+      "status": "PASS",
+      "rows": [
+        {
+          "d": 3,
+          "rounds": 3,
+          "shots": 20000,
+          "seed": 4549923182765146349,
+          "p_logical": 0.19625,
+          "std_err": 0.0028084262783124258
+        },
+        {
+          "d": 5,
+          "rounds": 5,
+          "shots": 20000,
+          "seed": 820732536559279639,
+          "p_logical": 0.2403,
+          "std_err": 0.0030212799762948405
+        },
+        {
+          "d": 7,
+          "rounds": 7,
+          "shots": 20000,
+          "seed": 623090008183103619,
+          "p_logical": 0.29605,
+          "std_err": 0.0032280687473186177
+        }
+      ],
+      "clopper_pearson_99": [
+        [
+          0.1890642574502295,
+          0.20358090115912025
+        ],
+        [
+          0.23255548599202377,
+          0.24816858013657883
+        ],
+        [
+          0.2877595513168413,
+          0.30443785387632066
+        ]
+      ]
+    },
+    {
+      "id": "Q4",
+      "name": "manifest JSON round-trip replays bit-identical rows; changed base_seed changes them",
+      "status": "PASS",
+      "rows_hash": "8ebd77ae1cd0b1515f3a6c12ec9d50ce7991f68e68aea88df9ac07fc47406b4f",
+      "replay_rows_hash": "8ebd77ae1cd0b1515f3a6c12ec9d50ce7991f68e68aea88df9ac07fc47406b4f",
+      "moved_seed_rows_hash": "83e41f7a955d3b29c953f1590bdcb367fcabb035bc85e6c9bf532fb7ea713ee1"
+    },
+    {
+      "id": "Q5",
+      "name": "exact McNemar equals scipy.stats.binomtest",
+      "status": "PASS",
+      "grid_size": 157,
+      "max_abs_diff": 0.0
+    },
+    {
+      "id": "Q6",
+      "name": "structural negative control: no hyperedges -> correlated decisions bit-identical",
+      "status": "PASS",
+      "cells": [
+        {
+          "d": 3,
+          "hyperedges": 0,
+          "decisions_identical": true,
+          "baseline_failures": 276,
+          "candidate_failures": 276,
+          "b": 0,
+          "c": 0,
+          "p_value": 1.0,
+          "delta": 0.0,
+          "delta_ci": [
+            0.0,
+            0.0
+          ],
+          "shots": 20000
+        },
+        {
+          "d": 5,
+          "hyperedges": 0,
+          "decisions_identical": true,
+          "baseline_failures": 104,
+          "candidate_failures": 104,
+          "b": 0,
+          "c": 0,
+          "p_value": 1.0,
+          "delta": 0.0,
+          "delta_ci": [
+            0.0,
+            0.0
+          ],
+          "shots": 20000
+        }
+      ]
+    },
+    {
+      "id": "Q7",
+      "name": "self-comparison baseline vs baseline: b=c=0, p=1, delta=0",
+      "status": "PASS",
+      "cells": [
+        {
+          "d": 3,
+          "hyperedges": 208,
+          "decisions_identical": true,
+          "baseline_failures": 915,
+          "candidate_failures": 915,
+          "b": 0,
+          "c": 0,
+          "p_value": 1.0,
+          "delta": 0.0,
+          "delta_ci": [
+            0.0,
+            0.0
+          ],
+          "shots": 40000
+        },
+        {
+          "d": 5,
+          "hyperedges": 1451,
+          "decisions_identical": true,
+          "baseline_failures": 881,
+          "candidate_failures": 881,
+          "b": 0,
+          "c": 0,
+          "p_value": 1.0,
+          "delta": 0.0,
+          "delta_ci": [
+            0.0,
+            0.0
+          ],
+          "shots": 40000
+        }
+      ]
+    },
+    {
+      "id": "Q8",
+      "name": "positive control (circuit-level p=0.006, d=5): correlated MWPM better, exact McNemar p<1e-3, paired bootstrap CI(delta) < 0",
+      "status": "PASS",
+      "cell_d5": {
+        "d": 5,
+        "hyperedges": 1451,
+        "decisions_identical": false,
+        "baseline_failures": 881,
+        "candidate_failures": 709,
+        "b": 368,
+        "c": 196,
+        "p_value": 3.976038569927887e-13,
+        "delta": -0.0043,
+        "delta_ci": [
+          -0.00545,
+          -0.003125
+        ],
+        "shots": 40000
+      }
+    },
+    {
+      "id": "Q9",
+      "name": "pairing gain: paired bootstrap CI narrower than unpaired Wald CI (same data)",
+      "status": "PASS",
+      "widths": [
+        {
+          "d": 3,
+          "paired": 0.001825,
+          "unpaired": 0.004124029413256641
+        },
+        {
+          "d": 5,
+          "paired": 0.002325,
+          "unpaired": 0.0038681727123004426
+        }
+      ]
+    },
+    {
+      "id": "Q10",
+      "name": "A/B baseline equals run_experiment_manifest; A/B rerun bit-identical",
+      "status": "PASS",
+      "baseline_matches_manifest_run": true
+    }
+  ],
+  "n_pass": 10,
+  "n_gates": 10,
+  "all_pass": true,
+  "sections": {
+    "decoder_ab_circuit_level": {
+      "tool": "adaptiverg_qec.qec_decoder_ab.paired_decoder_ab",
+      "baseline": "pymatching-mwpm-dem",
+      "candidate": "pymatching-correlated-mwpm-dem",
+      "manifest": {
+        "schema": "adaptiverg_qec.qec_experiment_manifest/v2",
+        "code_family": "surface_code:rotated_memory",
+        "memory_basis": "z",
+        "distances": [
+          3,
+          5
+        ],
+        "rounds_policy": "distance",
+        "rounds": null,
+        "shots_per_cell": 40000,
+        "base_seed": 81,
+        "seed_policy": "manifest-sha256-v1",
+        "sampling_backend": "direct-stim-detector-sampler",
+        "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+        "decoder": "pymatching-mwpm-dem",
+        "noise": {
+          "schema": "adaptiverg_qec.stim_noise_profile/v1",
+          "before_round_data_depolarization": 0.006,
+          "before_measure_flip_probability": 0.006,
+          "after_clifford_depolarization": 0.006,
+          "after_reset_flip_probability": 0.006
+        },
+        "environment": {}
+      },
+      "manifest_fingerprint": "b13d0c8887ea17e50c6c2cb86cce2e9cfafce5002ee9cbc8feca331193fb0cb7",
+      "stim_version": "1.16.0",
+      "pymatching_version": "2.4.0",
+      "pairing": "identical detector samples per cell (one sampler call, two decoders)",
+      "cells": [
+        {
+          "d": 3,
+          "rounds": 3,
+          "seed": 6345038772832614722,
+          "shots": 40000,
+          "hyperedges": 208,
+          "decisions_identical": false,
+          "table": {
+            "n00": 38915,
+            "n01": 170,
+            "n10": 188,
+            "n11": 727
+          },
+          "baseline": {
+            "failures": 915,
+            "p_logical": 0.022875,
+            "clopper_pearson": [
+              0.021432092868357677,
+              0.02438773001008511
+            ]
+          },
+          "candidate": {
+            "failures": 897,
+            "p_logical": 0.022425,
+            "clopper_pearson": [
+              0.020996274940303268,
+              0.02392362134701174
+            ]
+          },
+          "mcnemar": {
+            "b": 188,
+            "c": 170,
+            "n_discordant": 358,
+            "p_value": 0.3689527238500436,
+            "p_value_mid": 0.34212173455275185
+          },
+          "delta": {
+            "delta": -0.00045,
+            "ci": [
+              -0.00135,
+              0.000475
+            ],
+            "ci_width": 0.001825,
+            "unpaired_wald_ci": [
+              -0.0025120147066283204,
+              0.0016120147066283207
+            ],
+            "unpaired_wald_ci_width": 0.004124029413256641,
+            "n_boot": 20000,
+            "seed": 6345038772832614722,
+            "alpha": 0.05,
+            "method": "percentile bootstrap, multinomial over the paired 2x2 table"
+          }
+        },
+        {
+          "d": 5,
+          "rounds": 5,
+          "seed": 3580804533180399827,
+          "shots": 40000,
+          "hyperedges": 1451,
+          "decisions_identical": false,
+          "table": {
+            "n00": 38923,
+            "n01": 196,
+            "n10": 368,
+            "n11": 513
+          },
+          "baseline": {
+            "failures": 881,
+            "p_logical": 0.022025,
+            "clopper_pearson": [
+              0.020609009447951705,
+              0.023510952298258496
+            ]
+          },
+          "candidate": {
+            "failures": 709,
+            "p_logical": 0.017725,
+            "clopper_pearson": [
+              0.016454513036228496,
+              0.01906616752968939
+            ]
+          },
+          "mcnemar": {
+            "b": 368,
+            "c": 196,
+            "n_discordant": 564,
+            "p_value": 3.976038569927887e-13,
+            "p_value_mid": 3.035040610846449e-13
+          },
+          "delta": {
+            "delta": -0.0043,
+            "ci": [
+              -0.00545,
+              -0.003125
+            ],
+            "ci_width": 0.002325,
+            "unpaired_wald_ci": [
+              -0.006234086356150221,
+              -0.002365913643849779
+            ],
+            "unpaired_wald_ci_width": 0.0038681727123004426,
+            "n_boot": 20000,
+            "seed": 3580804533180399827,
+            "alpha": 0.05,
+            "method": "percentile bootstrap, multinomial over the paired 2x2 table"
+          }
+        }
+      ],
+      "claim_ceiling": "bounded simulation; decoder accuracy on the declared Stim noise contract only; no latency, real-time or threshold claim"
+    },
+    "decoder_ab_no_hyperedges": {
+      "tool": "adaptiverg_qec.qec_decoder_ab.paired_decoder_ab",
+      "baseline": "pymatching-mwpm-dem",
+      "candidate": "pymatching-correlated-mwpm-dem",
+      "manifest": {
+        "schema": "adaptiverg_qec.qec_experiment_manifest/v2",
+        "code_family": "surface_code:rotated_memory",
+        "memory_basis": "z",
+        "distances": [
+          3,
+          5
+        ],
+        "rounds_policy": "distance",
+        "rounds": null,
+        "shots_per_cell": 20000,
+        "base_seed": 61,
+        "seed_policy": "manifest-sha256-v1",
+        "sampling_backend": "direct-stim-detector-sampler",
+        "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+        "decoder": "pymatching-mwpm-dem",
+        "noise": {
+          "schema": "adaptiverg_qec.stim_noise_profile/v1",
+          "before_round_data_depolarization": 0.0,
+          "before_measure_flip_probability": 0.02,
+          "after_clifford_depolarization": 0.0,
+          "after_reset_flip_probability": 0.02
+        },
+        "environment": {}
+      },
+      "manifest_fingerprint": "61831663468675f765933665aedc276ae89fee2d91d677957f3ad8cc480b1c52",
+      "stim_version": "1.16.0",
+      "pymatching_version": "2.4.0",
+      "pairing": "identical detector samples per cell (one sampler call, two decoders)",
+      "cells": [
+        {
+          "d": 3,
+          "rounds": 3,
+          "seed": 4907946588509336161,
+          "shots": 20000,
+          "hyperedges": 0,
+          "decisions_identical": true,
+          "table": {
+            "n00": 19724,
+            "n01": 0,
+            "n10": 0,
+            "n11": 276
+          },
+          "baseline": {
+            "failures": 276,
+            "p_logical": 0.0138,
+            "clopper_pearson": [
+              0.01222918137361089,
+              0.015514391419557825
+            ]
+          },
+          "candidate": {
+            "failures": 276,
+            "p_logical": 0.0138,
+            "clopper_pearson": [
+              0.01222918137361089,
+              0.015514391419557825
+            ]
+          },
+          "mcnemar": {
+            "b": 0,
+            "c": 0,
+            "n_discordant": 0,
+            "p_value": 1.0,
+            "p_value_mid": 1.0
+          },
+          "delta": {
+            "delta": 0.0,
+            "ci": [
+              0.0,
+              0.0
+            ],
+            "ci_width": 0.0,
+            "unpaired_wald_ci": [
+              -0.0022864943539787266,
+              0.0022864943539787266
+            ],
+            "unpaired_wald_ci_width": 0.004572988707957453,
+            "n_boot": 2000,
+            "seed": 4907946588509336161,
+            "alpha": 0.05,
+            "method": "percentile bootstrap, multinomial over the paired 2x2 table"
+          }
+        },
+        {
+          "d": 5,
+          "rounds": 5,
+          "seed": 1793173911803804191,
+          "shots": 20000,
+          "hyperedges": 0,
+          "decisions_identical": true,
+          "table": {
+            "n00": 19896,
+            "n01": 0,
+            "n10": 0,
+            "n11": 104
+          },
+          "baseline": {
+            "failures": 104,
+            "p_logical": 0.0052,
+            "clopper_pearson": [
+              0.004250694503191635,
+              0.006297199761619782
+            ]
+          },
+          "candidate": {
+            "failures": 104,
+            "p_logical": 0.0052,
+            "clopper_pearson": [
+              0.004250694503191635,
+              0.006297199761619782
+            ]
+          },
+          "mcnemar": {
+            "b": 0,
+            "c": 0,
+            "n_discordant": 0,
+            "p_value": 1.0,
+            "p_value_mid": 1.0
+          },
+          "delta": {
+            "delta": 0.0,
+            "ci": [
+              0.0,
+              0.0
+            ],
+            "ci_width": 0.0,
+            "unpaired_wald_ci": [
+              -0.0014096706289448567,
+              0.0014096706289448567
+            ],
+            "unpaired_wald_ci_width": 0.0028193412578897134,
+            "n_boot": 2000,
+            "seed": 1793173911803804191,
+            "alpha": 0.05,
+            "method": "percentile bootstrap, multinomial over the paired 2x2 table"
+          }
+        }
+      ],
+      "claim_ceiling": "bounded simulation; decoder accuracy on the declared Stim noise contract only; no latency, real-time or threshold claim"
+    },
+    "manifest_rows": {
+      "below_threshold": {
+        "schema": "adaptiverg_qec.qec_experiment_manifest/v2",
+        "code_family": "surface_code:rotated_memory",
+        "memory_basis": "z",
+        "distances": [
+          3,
+          5,
+          7
+        ],
+        "rounds_policy": "distance",
+        "rounds": null,
+        "shots_per_cell": 60000,
+        "base_seed": 31,
+        "seed_policy": "manifest-sha256-v1",
+        "sampling_backend": "direct-stim-detector-sampler",
+        "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+        "decoder": "pymatching-mwpm-dem",
+        "noise": {
+          "schema": "adaptiverg_qec.stim_noise_profile/v1",
+          "before_round_data_depolarization": 0.01,
+          "before_measure_flip_probability": 0.01,
+          "after_clifford_depolarization": 0.0,
+          "after_reset_flip_probability": 0.0
+        },
+        "environment": {}
+      },
+      "above_threshold": {
+        "schema": "adaptiverg_qec.qec_experiment_manifest/v2",
+        "code_family": "surface_code:rotated_memory",
+        "memory_basis": "z",
+        "distances": [
+          3,
+          5,
+          7
+        ],
+        "rounds_policy": "distance",
+        "rounds": null,
+        "shots_per_cell": 20000,
+        "base_seed": 32,
+        "seed_policy": "manifest-sha256-v1",
+        "sampling_backend": "direct-stim-detector-sampler",
+        "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+        "decoder": "pymatching-mwpm-dem",
+        "noise": {
+          "schema": "adaptiverg_qec.stim_noise_profile/v1",
+          "before_round_data_depolarization": 0.06,
+          "before_measure_flip_probability": 0.06,
+          "after_clifford_depolarization": 0.0,
+          "after_reset_flip_probability": 0.0
+        },
+        "environment": {}
+      }
+    }
+  },
+  "claim_ceiling": "bounded simulation (T1-candidate): orderings, replay and paired decoder accuracy on declared Stim noise contracts; no threshold value, no FSS, no latency claim",
+  "elapsed_s": 4.93
+}
