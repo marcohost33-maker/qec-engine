@@ -1,10 +1,10 @@
 {
   "tool": "adaptiverg_qec",
   "version": "0.5.0.dev0",
-  "n_pass": 45,
-  "n_total": 45,
+  "n_pass": 49,
+  "n_total": 49,
   "all_pass": true,
-  "elapsed_s": 1060.732,
+  "elapsed_s": 137.465,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -24,7 +24,7 @@
     {
       "gate": "G4 Jacobian-Consistency (CS==FD==analytic)",
       "pass": true,
-      "detail": "max|CS-analytic|=1.11e-16 max|CS-FD|=1.18e-11"
+      "detail": "max|CS-analytic|=1.11e-16 max|CS-FD|=2.12e-11"
     },
     {
       "gate": "G5 RG-Fixpoint (R(0)=0, iter->0)",
@@ -230,6 +230,26 @@
       "gate": "G45 checkpoint lockfile + tamper fail-closed",
       "pass": true,
       "detail": "double-lock rejected=True; resume-under-lock rejected=True; tampered checkpoint rejected=True (fail-closed)"
+    },
+    {
+      "gate": "G46 exact TV in spectral sandwich + beta=0 flagged",
+      "pass": true,
+      "detail": "b=0.3: lam*=0.2457 fit=0.2451; b=0.8: lam*=0.5712 fit=0.5707; b=1.5: lam*=0.8640 fit=0.8628; beta=0 flagged=True"
+    },
+    {
+      "gate": "G47 real sampler within TV band of exact kernel",
+      "pass": true,
+      "detail": "band ratio true-kernel=0.530 (<=1), wrong beta=1.2 -> 3.56 (>2)"
+    },
+    {
+      "gate": "G48 adaptive chain exact TV: freeze -> pi_target; no freeze -> floor",
+      "pass": true,
+      "detail": "schedule bit-identical=True; freeze@30: beta exact=True, TV_end=2.8e-14; no freeze: beta_inf=0.5490 (closed 0.5493), floor=0.0880"
+    },
+    {
+      "gate": "G49 containment: t_rel bounded on Theta, diverges out",
+      "pass": true,
+      "detail": "sup t_rel on Theta=18.85 sweeps; t_rel(4)=994, t_rel(6)=54252 (diverges toward beta_c=inf)"
     }
   ]
 }

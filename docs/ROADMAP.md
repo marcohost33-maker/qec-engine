@@ -1,8 +1,8 @@
 # AdaptiveRG-QEC — Implementierungs-Roadmap
 
-Aus der gehärteten Kernel-Spec v1.0 (5-Phasen-Roadmap, ~16 Wochen). **Status (2026-06-18): Phase 1 als
-bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 OFFEN.** Übergang Spec-Repo
-→ Code-Repo. Reifegrad dev/Prototyp, nicht release-fertig.
+Aus der gehärteten Kernel-Spec v1.0 (5-Phasen-Roadmap, ~16 Wochen). **Status (2026-09-27): Phasen 1–7 als
+bounded, orakel-validierte MVP-Inkremente umgesetzt (Details je Phase unten; offene Punkte dort markiert).**
+Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad dev/Prototyp, nicht release-fertig.
 
 > Hinweis: Diese Roadmap ist aus der Spec extrahiert/zusammengefasst. Vor Implementierung gegen das
 > Original `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` (§„5-phasiger Research Roadmap") abgleichen
@@ -15,7 +15,8 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 - **MVP-Stand:** A-Kernel (`a_kernel.py`) + conditional-mean Drift-Guard (`drift.py`) implementiert +
   getestet gegen analytisches Transfer-Matrix-Orakel; Guard greift (equilib λ̂<1) UND feuert
   (non-contract λ̂≥1). MVP-Instanz: 1D-Repetition-Code-Ring (`mvp_instance.py`).
-  **Offen für volle Akzeptanz:** R-hat-Multichain (Vehtari, Spec §10.1a) + TV-Distanz-Verlauf.
+  ~~**Offen für volle Akzeptanz:** R-hat-Multichain (Vehtari, Spec §10.1a) + TV-Distanz-Verlauf.~~
+  **Erledigt:** R-hat-Multichain in Phase 5; TV-Distanz-Verlauf **exakt** in Phase 7 (s.u., G46/G47).
 
 ## Phase 2 — Adaptive Steuerung (Diminishing Adaptation + Containment)
 - Lernraten-Schedule η_t = η0/(1+t/T0); Θ auf kompakte Menge (kritischen Punkt ausschliessen).
@@ -31,6 +32,17 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
   `warmup_steps` und `burn_in` vor dem Lauf. Der Phase-5-Lauf reproduziert unter dem neuen
   Vertrag denselben `result_hash` (4f058f80…) wie das alte Artefakt: β lag dort ab ~t=250
   nur noch ulp neben β*, die Metropolis-Entscheide waren identisch.
+- **Stand (Phase 7, 2026-09-27; nachgezogen auf den Freeze-Vertrag 2026-10-07):** für die
+  MVP-Instanz exakt belegt — adaptive Randverteilung `μ_{t+1}=μ_t P_{β_t}` konvergiert unter
+  WARM-UP → FREEZE (`β:=β*` per Zuweisung) exakt nach `π_{β*}`, selbst beim schlechtesten
+  Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `sup_{β∈Θ} t_rel = 18.9` Sweeps
+  (Containment), außerhalb Θ divergent (G48/G49). **Gegenrichtung (Defektklasse ohne Freeze,
+  Sampler vor #53):** derselbe summierbare Schedule friert β bei
+  `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
+  zuerst beziffert, Issue #51/PR #53 hat ihn im Sampler geschlossen.
+  Offen: der Spec-Schedule `η_t = η0/(1+t/T0)` (nicht summierbar) ist im MVP nicht der
+  implementierte Warm-up-Schedule (`a_t = c/(1+t/T0)^2`); unter dem Freeze-Vertrag ist das
+  nur noch eine Kalibrations-, keine Korrektheitsfrage.
 
 ## Phase 3 — RG-Analyse + Jacobian-Extraktion
 - Stochastische RG-Map R̂, Fixpunkt-Konsistenz (Bias O(n^−β), β>1/2), hyperbolischer Fixpunkt.
@@ -175,6 +187,28 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
   konservativ; jetzt im Code dokumentiert).
 - G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht
   arbeitsnormiert — der ×12–16-Claim ist als solcher zu lesen.
+
+## Phase 7 — Exakte TV-Mischung + adaptive Kette + Containment  [DONE 2026-09-27, Branch `claude/qec-engine-next-steps-coapze`]
+
+Schließt die ältesten offenen Akzeptanzkriterien (Phase 1: „TV-Distanz fällt", Phase 2:
+„Mischzeiten beschränkt") mit exakten Orakeln (`mixing.py`; Gates G46–G49; Artefakt
+`results/phase7-mixing-tv.json`, regenerierbar via `python -m adaptiverg_qec.cli phase7 --json
+results/phase7-mixing-tv.json`):
+
+1. **Exakter Sweep-Kern** `P = P_1^L` des A-Kernels auf `{0,1}^L` (L=6), reversibel geprüft;
+   π gegen `ising1d.exact_distribution`/`mean_energy` (1e-15).
+2. **Spektral-Sandwich** (Levin/Peres/Wilmer 2017, Kap. 12): `λ*^t/2 ≤ d(t) ≤
+   √((1−π_min)/π_min)·λ*^t/2`, Fit-Rate = λ* (<1 %). Gegenrichtung: β=0 → λ*=1, geflaggt.
+3. **Echter Sampler im TV-Band** des exakten Kerns (4000 Ketten, Jensen+McDiarmid, δ=1e-6):
+   Ratio 0.56; falscher Kern (β=1.2) 3.6. Trennschärfe-Grenze dokumentiert (β±12 %, L±1 nicht erkannt).
+4. **Adaptive Kette exakt**, Containment-Profil `t_rel(β)`, eingefrorene summierbare Adaption
+   (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088).
+
+**Im selben Inkrement:** Issue #48 geschlossen — `autocorr.tau_int_or_half` ersetzt die
+`np.var(x) > 0`-Vorchecks in `mcrg_matrix`/`mcrg_multirg` (NaN lief am #46-Gate vorbei);
+`rhat`-folded-Boden als Konstante `16·5e-324` statt `16·spacing(scale)` (kein Überlauf bei DBL_MAX).
+
+**Ehrliche Scope-Grenze:** exakt nur für 2^L ≤ 4096 (1D-Ring); keine Aussage zu 2D/RBIM-Mischung.
 
 ## ROADMAP-Inkr.4 — RBIM-Nishimori ↔ MCRG/QEC-Brücke  [DONE 2026-06-19, Branch `claude/qec-inkr4`]
 

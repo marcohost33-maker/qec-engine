@@ -369,6 +369,45 @@ für einen kleinen einzelnen Monte-Carlo-Scan.
 - **PyMatching 2**: `Matching.from_detector_error_model` + `decode_batch` ist der etablierte DEM->MWPM-Pfad; kein eigener Spacetime-Matcher.
 - Implementiert in `surface_decoder.surface_phenomenological_logical_error_rate`; Claim-Tier bewusst `bounded baseline`, keine FSS-/Threshold-Promotion.
 
+## Lineage-Append (append-only) — 2026-09-27: Phase-7 (exakte TV-Mischung) + Issue #48
+
+Branch `claude/qec-engine-next-steps-coapze` (Agent: Claude).
+
+- **Neu:** `src/adaptiverg_qec/mixing.py`, `tests/test_mixing.py`, Gates G46–G49, CLI `phase7`,
+  Artefakt `results/phase7-mixing-tv.json`.
+- **Methodenquellen (Methode, keine Dependency):**
+  - D. A. Levin, Y. Peres, E. L. Wilmer, *Markov Chains and Mixing Times*, 2. Aufl., AMS 2017,
+    Kap. 12 (Spektraldarstellung reversibler Ketten, absolute spectral gap, l2-Schranke,
+    Eigenfunktions-Untergrenze im Beweis von Thm 12.5). Die beiden benutzten Ungleichungen sind im
+    Modul-Docstring hergeleitet und werden numerisch an der exakten d(t) geprüft (G46).
+  - C. McDiarmid, „On the method of bounded differences", Surveys in Combinatorics 1989 —
+    Konzentration der empirischen TV (1/n-Lipschitz je Kette) für das Sampler-Band (G47).
+  - G. O. Roberts, J. S. Rosenthal, „Coupling and ergodicity of adaptive MCMC", J. Appl. Probab.
+    44(2), 458–475 (2007) — Diminishing Adaptation + Containment. **Einordnung:** der Satz setzt
+    ein gemeinsames Ziel π voraus; im MVP ändert θ=β das Ziel selbst. Phase 7 zeigt daher exakt die
+    Konvergenz gegen π_{β_∞} und beziffert β_∞ ≠ β_target bei summierbarem Schedule (kein Zitat
+    als Beleg dafür).
+- **Unabhängiges Orakel für π:** `ising1d.exact_distribution` / `mean_energy` (separat geschriebene
+  Enumeration bzw. Transfer-Matrix).
+- **Issue #48:** `autocorr.tau_int_or_half` (Endlichkeit vor Konstanz); `rhat`-Boden
+  `16·smallest_subnormal` (äquivalent zu `16·spacing(scale)` für jede endliche Skala, da
+  `spacing(x) ≤ eps·x` für normale x und = 5e-324 für subnormale; kein Überlauf bei DBL_MAX).
+
+---
+
+## Lineage-Append — 2026-10-07: Phase-7 auf den Freeze-Vertrag (#51/#53) nachgezogen
+
+- `mixing.adaptive_beta_schedule` / `adaptive_exact_tv` verlangen jetzt `freeze_at` (kein Default)
+  und spiegeln `a_kernel.advance_chain(freeze_at=...)` bit-genau; `freeze_at = n` bildet die
+  zielwandernde Defektklasse des Samplers vor #53 nach.
+- G48 zweiseitig: Freeze nach 30 Sweeps beim schlechtesten Schedule (c=0.5, T0=1) -> beta ab dem
+  Freeze bit-gleich beta_target, TV zu pi_target < 1e-10; ohne Freeze -> beta_inf ~ 0.549
+  (geschlossene Produktformel), TV-Boden > 0.05.
+- Issue-#48-Teil dieses Zweigs war inzwischen identisch über PR #53 auf main; beim Merge wurde
+  main übernommen (kein Doppel-Fix).
+- Literatur unverändert: Andrieu & Thoms, Stat. Comput. 18, 343–373 (2008); Roberts & Rosenthal,
+  J. Appl. Probab. 44(2), 458–475 (2007) — fester Zielkern nach dem Freeze erfüllt deren Voraussetzung.
+
 ---
 
 ## Lineage-Append — 2026-10-07: Gate-Log 3.1/3.2 + gepaarter Decoder-A/B (Inkrement 3.3)
