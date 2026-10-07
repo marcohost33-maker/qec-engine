@@ -85,5 +85,18 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,surface]"
 
-      - name: Pytest (surface decoder MWPM tests)
-        run: pytest tests/test_surface_decoder.py -v
+      - name: Pytest (surface decoder MWPM + decoder A/B tests)
+        run: pytest tests/test_surface_decoder.py tests/test_qec_decoder_ab.py -v
+
+      # Inkrement 3.1/3.2/3.3 Gate-Log: exit != 0 bei jedem FAIL; ein fehlendes
+      # Artefakt laesst den Upload (if-no-files-found: error) rot werden.
+      - name: Multi-round + decoder A/B evidence gates (Q1-Q10)
+        run: python -m adaptiverg_qec.qec_evidence --json results/qec-multiround-evidence-ci.json
+
+      - name: Upload multi-round evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qec-multiround-evidence
+          path: results/qec-multiround-evidence-ci.json
+          if-no-files-found: error

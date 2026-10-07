@@ -133,10 +133,10 @@ Optionaler Forschungszweig:
 
 1. PR #39 gruener machen und integrieren: R-hat-Semantik + RBIM-Streams.
 2. PR #40 gruener machen und integrieren: bounded Multi-Round-Phenomenological-Baseline.
-3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren. **Code + Tests in PR #41; Gate-Log in `results/` offen.**
+3. `NoiseProfile` + `ExperimentManifest v2` spezifizieren und implementieren. **Code + Tests in PR #41; Gate-Log seit 2026-10-07 (`results/qec-multiround-evidence.json`, Q4/Q10).**
 4. Sinter-Reproduzierbarkeitsgate aus Issue #42 klaeren; danach Sweep-Engine mit sequential stopping.
 5. Wilson/Beta-Intervalle + Bootstrap-FSS.
-6. correlated-MWPM A/B-Linse.
+6. correlated-MWPM A/B-Linse. **Erste Fassung 2026-10-07 (`qec_decoder_ab.py`, Gates Q5–Q10): gepaart auf identischen Shots, exakter McNemar + gepaarter Bootstrap; Gitter-Sweep offen.**
 7. Circuit-level profiles + Latency-Harness.
 8. Erst danach qLDPC-Backend-Schnittstelle.
 
