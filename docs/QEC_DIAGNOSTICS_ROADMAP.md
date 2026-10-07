@@ -101,7 +101,7 @@ Luecke, additiv und ohne Bestehendes anzufassen.
 - `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`). Tests
   `tests/test_surface_decoder.py` (Orakel A/B + Threshold-Verhalten + Silent-Failure-Gate
   + optional-dep-Gate-Verhalten).
-- **Inkrement 3.1 [CODE+TESTS 2026-09-19; Gate-Log in `results/` OFFEN]:
+- **Inkrement 3.1 [CODE+TESTS 2026-09-19; Gate-Log 2026-10-07 `results/qec-multiround-evidence.json`, Q1–Q3]:
   Multi-Round-Phenomenological-Baseline.** Erst mit committetem, regenerierbarem Gate-Log
   gilt das Inkrement als erledigt (AGENTS.md Working agreement 1).
   `surface_phenomenological_logical_error_rate` nutzt Stim `rotated_memory_x/z` mit exakt
@@ -115,7 +115,7 @@ Luecke, additiv und ohne Bestehendes anzufassen.
   Intervallen, FSS-Kreuzungsmodell und apples-to-apples Literaturmodell; danach circuit-level
   noise + correlated matching als separate Decoder-Linse.
 
-## Inkrement 3.2 — NoiseProfile + ExperimentManifest v2  [CODE+TESTS 2026-09-19; Gate-Log OFFEN]
+## Inkrement 3.2 — NoiseProfile + ExperimentManifest v2  [CODE+TESTS 2026-09-19; Gate-Log 2026-10-07, Q4/Q10]
 
 Erst mit einem committeten Gate-Log in `results/`, das den Manifest-Ausfuehrungspfad
 (`run_experiment_manifest`) tatsaechlich faehrt, gilt das Inkrement als erledigt
@@ -134,6 +134,40 @@ diesen Pfad nicht.
   und schreibt Manifest-Fingerprint sowie Dependency-Versionen in das Ergebnis.
 - **Claim ceiling bleibt bounded simulation.** FSS, Sinter, sequential stopping und
   Literatur-Promotion sind der naechste Schritt.
+
+## Inkrement 3.3 — Gate-Log 3.1/3.2 + gepaarter Decoder-A/B  [DONE 2026-10-07]
+
+`qec_evidence.py` faehrt die echten Pfade (`run_experiment_manifest`, Stim DEM -> PyMatching) und
+schreibt `results/qec-multiround-evidence.json`; Exit != 0 bei jedem FAIL, ohne Extras Exit 2
+(NOT_RUN). Der CI-Job `surface` fuehrt es aus und laedt das Log hoch (`if-no-files-found: error`).
+
+`qec_decoder_ab.py`: Baseline `pymatching-mwpm-dem` und Kandidat `pymatching-correlated-mwpm-dem`
+dekodieren DIESELBEN Shots je Manifest-Zelle (ein Sampler-Aufruf, Zell-Seed aus dem Manifest);
+die Baseline nutzt denselben Seed und Pfad wie `run_experiment_manifest` (gleiche Fehlerzahl, Gate Q10);
+jede Zelle traegt den SHA-256 beider Fehlvektoren, eine Wiederholung ist damit shot-genau pruefbar. Statistik: exakter
+bedingter McNemar (Gate), mid-p (Diagnose), gepaarter Multinomial-Bootstrap fuer Delta,
+Clopper-Pearson je Arm, ungepaartes Wald-CI nur als Vergleich.
+
+| Gate | Pruefung | Gemessen (Default-Budget) |
+|---|---|---|
+| Q1 | p=0 -> 0 Fehler, d=3,5,7, X/Z | 0/2000 je Zelle |
+| Q2 | phenom p=0.01: p_L faellt streng, 99%-CP disjunkt | 531 / 158 / 39 von 60k (d=3/5/7) |
+| Q3 | phenom p=0.06: p_L steigt (Gegenrichtung) | 3925 / 4806 / 5921 von 20k |
+| Q4 | Manifest-JSON-Replay bitgleich; base_seed+1 -> andere Ergebnisse (nur p_L-Felder gehasht) | Hash gleich / verschieden |
+| Q5 | McNemar == `scipy.stats.binomtest` | max diff = 0 (157 Tafeln, Gate-Schwelle 1e-12) |
+| Q6 | DEM ohne Hyperkanten -> Correlated bitgleich | b=c=0 bei 276 bzw. 104 Fehlern |
+| Q7 | Baseline vs Baseline | b=c=0, p=1, Delta=0 |
+| Q8 | circuit-level p=0.006, d=5: Correlated besser | 881 -> 709 von 40k, b=368, c=196, p~4e-13, CI(Delta)=[-0.0055, -0.0031] |
+| Q9 | gepaart/ungepaart-CI-Breite < 0.8; Gegenkontrolle gleiche Raender + unabhaengige Paarung in [0.9, 1.1] | 0.44 / 0.60 vs 0.99 / 1.00 (d=3/5) |
+| Q10 | A/B-Baseline: gleicher Seed + Fehlerzahl wie Manifest-Lauf; Wiederholung shot-genau (SHA-256) | ja |
+
+**Claim ceiling:** bounded simulation (T1-Kandidat). Die Correlated-Matching-Verbesserung gilt
+fuer den deklarierten Stim-Circuit-Noise-Vertrag (SD-artige Gleichgewichtung aller vier Achsen)
+und ist nur bei d=5 signifikant (Gate Q8); bei d=3 ist der Unterschied NICHT signifikant
+(b=188, c=170, McNemar p~0.37, CI(Delta) enthaelt 0); kein Threshold, keine FSS, keine Latenz (Python-Wallclock ist kein Benchmark),
+keine Uebertragung auf Hardware oder andere Noise-Konventionen.
+**Naechster Schritt:** Sweep-Engine mit fester vorregistrierter p×d-Matrix (fixed shots) und
+Bootstrap-FSS; A/B ueber das ganze Gitter; Sinter erst nach Issue #42.
 
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 

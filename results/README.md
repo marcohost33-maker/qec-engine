@@ -50,6 +50,14 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   adaptiverg-qec phase6 --json results/phase6-snis-surrogate-checkpoint.json
   ```
 
+- `qec-multiround-evidence.json` — **Inkrement 3.1–3.3:** Gate-Log Q1–Q10 für die
+  Multi-Round-Baseline, den Manifest-v2-Pfad und den gepaarten Decoder-A/B (Standard- vs.
+  Correlated-MWPM auf identischen Shots). Braucht `[surface]`. Reproduzierbar via:
+
+  ```bash
+  python -m adaptiverg_qec.qec_evidence --json results/qec-multiround-evidence.json
+  ```
+
 Die SHA-256 dieser Logs ist lauf-spezifisch (Zeitstempel/Elapsed) und wird daher nicht
 in SOURCES.md gepinnt — die Reproduktion erfolgt durch erneuten Lauf. CI lädt zusätzlich
 `results/selftest-ci.json` als Artefakt hoch.

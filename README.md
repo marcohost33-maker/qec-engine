@@ -201,6 +201,17 @@ Vergleichszahl behauptet.
 
 Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_decoder`).
 
+- **Inkr. 3.1–3.3 Gate-Log** (`qec_evidence.py`, `qec_decoder_ab.py`): Multi-Round-Baseline und
+  Manifest-v2-Pfad laufen jetzt mit committetem Gate-Log; dazu ein **gepaarter Decoder-A/B**
+  (Standard-MWPM vs. PyMatching-Correlated-MWPM auf IDENTISCHEN Shots; exakter McNemar,
+  gepaarter Multinomial-Bootstrap für Δ, Clopper-Pearson je Arm). 10 Gates Q1–Q10 (Q1–Q4, Q6, Q8,
+  Q9 mit expliziter Gegenrichtung, Q5 Orakelvergleich, Q7/Q10 Konsistenz): Null-Rausch-Orakel; Unterdrückung unter / Umkehr über der Schwelle mit
+  disjunkten 99%-CP-Intervallen; Manifest-Replay bitgleich, anderer Seed ≠; DEM ohne
+  Hyperkanten → Correlated bitgleich zur Baseline; Circuit-Level p=0.006, d=5: Correlated
+  besser (McNemar p≈4e-13, CI(Δ) < 0; bei d=3 nicht signifikant). Evidenz: `results/qec-multiround-evidence.json`
+  (`python -m adaptiverg_qec.qec_evidence`; CI-Job `surface` fährt es fail-closed).
+  **Claim ceiling:** bounded simulation; kein Threshold-, FSS- oder Latenz-Claim.
+
 > **Ehrliche Korrektheits-Grenze (kein Overclaim):** Validiert wird gegen den MWPM-Wert
 > 0.103 (Nulltemperatur-RBIM), **NICHT** gegen den optimalen ML/Tensor-Network-Threshold
 > 0.1094 (Nishimori-Punkt) — MWPM ist near-optimal, aber sub-optimal; ein Schätzer, der
@@ -270,6 +281,7 @@ python -m adaptiverg_qec.qec_diagnostics      # results/qec-diagnostics-rep-code
 python -m adaptiverg_qec.qec_fit_diagnostics  # results/qec-fit-diagnostics-rep-code.json (Inkr.2)
 pip install ".[surface]"                       # optionales MWPM-Extra (stim + pymatching)
 python -m adaptiverg_qec.surface_decoder      # results/qec-surface-mwpm.json (Inkr.3, braucht [surface])
+python -m adaptiverg_qec.qec_evidence         # results/qec-multiround-evidence.json (Inkr.3.1-3.3, braucht [surface])
 python -m adaptiverg_qec.mcrg_matrix    # schreibt results/phase3b-swendsen-matrix.json
 python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.json (Wolff+Multi-RG+y_h)
 ```
