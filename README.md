@@ -5,7 +5,7 @@ integriert stochastische Dynamik, adaptive Steuerung, Sampling, RG-Analyse, Surr
 Stabilitäts-Guards. Coworker-Research Säule 3 (Physik/Methodik).
 
 > **Ehrlicher Status (2026-06-18):** Die gehärtete Theorie (`spec/`) liegt vor; ein **bounded Phase-1-MVP**
-> (`src/adaptiverg_qec/`, Version `0.1.0.dev0`) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
+> (`src/adaptiverg_qec/`, Version = `adaptiverg_qec.__version__`, einzige Quelle) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
 > einen MCRG-C-Kernel und einen Swendsen-MCRG-Schätzer (skalare sample-geschätzte R̂). Reifegrad **dev/Prototyp** — nicht release-fertig, nicht selbst-zertifiziert.
 > Was MVP-real vs. offen ist, steht unten und in `src/adaptiverg_qec/mvp_instance.py`.
 
@@ -93,7 +93,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 |---|---|
 | A-Kernel: adaptiver Single-Spin-Metropolis (`a_kernel.py`) | **real** (detailed balance, Philox-Seed) |
 | Foster-Lyapunov-Drift-Guard, conditional-mean (`drift.py`) | **real** (greift + feuert, getestet) |
-| Diminishing-Adaptation-Schedule `sum a_t < inf` + Containment-Clip | **real** |
+| Freeze-Vertrag (Issue #51): adaptives Warm-up mit Containment-Clip -> exakter Freeze `beta := beta_star` -> Fixed-Target-Burn-in -> Produktion; Schaetzer sehen nur den Produktions-Record (`require_frozen`, bit-exakt) | **real** (G7, `tests/test_freeze_contract.py`) |
 | C-Kernel: 1D-Ising-Decimation-RG-Map (`rg_map.py`) | **real** (lehrbuchexakt, b=2) |
 | Jacobian: Complex-Step + zentrale Differenzen + Exponenten/Hyperbolizität | **real** (CS==FD==analytisch) |
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
@@ -110,7 +110,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
 | **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % weniger Stufe-2-Auswertungen (Accounting-Größe, kein gemessener Speedup im 1D-Toy); Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
 | **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer (über Laden+Lauf gehalten); SHA-256-Integritäts-Hash weist korrumpierte Checkpoints LAUT ab (unkeyed — Korruptions-Erkennung, keine krypt. Authentifizierung) |
-| **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt im rigorosen TV-Band des exakten Kerns (Ratio 0.56), β=1.2 fällt heraus (3.6); β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `sup_Θ t_rel = 18.9` Sweeps, außerhalb divergent (β=6: 5.4·10⁴). **Befund:** summierbarer Schedule mit kleinem T0 friert β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) |
+| **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt im rigorosen TV-Band des exakten Kerns (Ratio 0.56), β=1.2 fällt heraus (3.6); β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `sup_Θ t_rel = 18.9` Sweeps, außerhalb divergent (β=6: 5.4·10⁴). **Befund:** ohne Freeze friert ein summierbarer Schedule mit kleinem T0 β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) — seit #51/#53 geschlossen: mit Freeze TV_end < 1e-10 auch bei T0=1 (G48) |
 | MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
@@ -279,14 +279,18 @@ Orakeln statt Plots (Evidenz: `results/phase7-mixing-tv.json`, regenerierbar via
    Trennschärfe:** ein um 12 % falsches β oder L±1 Einzelschritte je Sweep erkennt das Band
    bei n=4000 nicht.
 4. **Adaptive Kette exakt.** Weil der MVP β deterministisch adaptiert, ist die Randverteilung
-   `μ_{t+1} = μ_t P_{β_{t+1}}` exakt berechenbar (Schedule bit-identisch zu `run_adaptive_mcmc`).
-   Default (c=0.5, T0=100): TV zu π_target < 1e-14. **Containment:** `sup_{β∈Θ} t_rel = 18.9`
+   `μ_{t+1} = μ_t P_{β_{t+1}}` exakt berechenbar (Schedule bit-identisch zu
+   `run_adaptive_mcmc(warmup_steps=W)`, geprüft für W ∈ {0, 1, 30, 79}). **Freeze-Vertrag
+   (#51/#53):** ab dem Freeze ist β bit-gleich β_target und die Kette zeithomogen; selbst beim
+   schlechtesten Warm-up-Schedule (c=0.5, T0=1, Freeze nach 30 Sweeps) ist TV zu π_target am
+   Ende < 1e-10 (G48). **Containment:** `sup_{β∈Θ} t_rel = 18.9`
    Sweeps; Richtung kritischer Punkt (β_c=∞) wächst t_rel ungebremst (β=4: 994, β=6: 54 252).
-5. **Befund ([LÜCKE], jetzt beziffert).** Ein summierbarer Schedule (Σa_t<∞) friert die Adaption
-   ein: `β_∞ − β_target = (β_0 − β_target)·Π(1−a_t)`. Mit T0=1 endet β bei 0.549 statt 0.8, und
+5. **Befund ([LÜCKE], beziffert; seit #51/#53 im Sampler geschlossen).** OHNE Freeze — so lief
+   der Sampler bis #53 — friert ein summierbarer Schedule (Σa_t<∞) die Adaption ein: `β_∞ − β_target = (β_0 − β_target)·Π(1−a_t)`. Mit T0=1 endet β bei 0.549 statt 0.8, und
    die Kette konvergiert exakt nach π_{β_∞} — der TV-Abstand zu π_target bleibt bei 0.088.
    Beim Default ist `Π(1−a_t) ≈ e^{−50}` und der Effekt numerisch null; wer T0 verkleinert,
-   bekommt einen anderen Zielparameter, ohne dass ein bisheriger Guard anschlägt.
+   bekommt einen anderen Zielparameter, ohne dass ein bisheriger Guard anschlägt. G48 hält diese
+   Defektklasse (`freeze_at = n`) als Gegenrichtung zum Freeze-Vertrag fest.
 
 **Ehrlich:** exakt nur für 2^L ≤ 4096 Zustände (1D-Ring). Für große L und 2D bleiben
 R̂/ESS und τ_int die Diagnostik; Phase 7 kalibriert, dass sie auf einem Kern mit exakt

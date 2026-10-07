@@ -12,7 +12,7 @@ Gates (jedes gegen ein UNABHAENGIGES Orakel, Codie-Disziplin):
   G4 Jacobian-Consistency: Complex-Step == FD (bis Toleranz) == analytisch.
   G5 RG-Fixpoint:        R(K*=0)=0; R-Iteration von kleinem K -> 0 (Stabilitaet).
   G6 Reproducibility:    gleicher Seed -> bit-identische Trajektorie.
-  G7 Diminishing-Adapt:  sum_t a_t < inf (summierbarer Schedule).
+  G7 Freeze-Vertrag:    Warm-up -> exakter Freeze -> Produktion bei beta_star (#51).
   G8 Negative/Edge-Input: invalide Eingaben werfen sauber (Silent-Failure-Gate).
   ...
   G46-G49 (Phase 7): exakte TV-Mischung im Spektral-Sandwich, echter Sampler im
@@ -140,7 +140,7 @@ def _g5_rg_fixpoint() -> tuple[bool, str]:
 
 def _g6_reproducibility() -> tuple[bool, str]:
     """Gleicher Seed -> bit-identische Trajektorie (Spec 10.3b bit-exact)."""
-    kw = dict(beta_target=0.9, n_steps=2000, burn_in=500, seed=99, beta_start=0.3)
+    kw = dict(beta_target=0.9, n_steps=2000, burn_in=300, seed=99, beta_start=0.3, warmup_steps=200)
     a = a_kernel.run_adaptive_mcmc(_CFG, **kw)
     b = a_kernel.run_adaptive_mcmc(_CFG, **kw)
     ok = (
@@ -152,16 +152,58 @@ def _g6_reproducibility() -> tuple[bool, str]:
     return ok, f"H_traj identical={same} mean_H eq={a.mean_H == b.mean_H}"
 
 
-def _g7_diminishing_adaptation() -> tuple[bool, str]:
-    """Schedule a_t = c/(1+t/T0)^2 ist summierbar (sum < inf)."""
-    a = a_kernel.diminishing_step_sizes(200000, c=0.5, T0=100.0)
-    s = float(np.sum(a))
-    # Vergleich gegen lange Partialsumme bei doppelter Laenge -> Konvergenz.
-    a2 = a_kernel.diminishing_step_sizes(400000, c=0.5, T0=100.0)
-    s2 = float(np.sum(a2))
-    converging = abs(s2 - s) < 0.01 * s
-    ok = math.isfinite(s) and converging
-    return ok, f"sum_200k={s:.4f} sum_400k={s2:.4f} converging={converging}"
+def _g7_freeze_contract() -> tuple[bool, str]:
+    """Issue #51: Warm-up -> exakter Freeze -> Fixed-Target-Burn-in -> Produktion.
+
+    Frueher pruefte G7 nur "sum a_t < inf" und wertete das als Diminishing
+    Adaptation. Genau diese Summierbarkeit friert ein wanderndes Ziel FALSCH ein
+    (Moduldoku a_kernel). Das Gate prueft jetzt den Vertrag, der das verhindert:
+    (a) Fehlerklasse belegt: summierbarer Plan (c=0.5, T0=1, 0.1 -> 0.8) bleibt
+        im Warm-up bei ~0.549 stehen; Orakel geschlossen
+        0.8 - 0.7 sin(pi/sqrt2)/(pi/sqrt2), Abstand <= Trunkierungsrest.
+    (b) Freeze: erstes Post-Warm-up-beta == beta_star (Gleichheit, keine Naehe),
+        jedes Produktions-beta bit-gleich beta_star.
+    (c) Negativkontrolle: ein injiziertes Pre-Freeze-Sample im Produktions-Record
+        wird vom Schaetzer abgelehnt.
+    """
+    n_w = 4000
+    r = a_kernel.run_adaptive_mcmc(
+        _CFG,
+        beta_target=0.8,
+        n_steps=n_w + 600,
+        burn_in=100,
+        seed=51,
+        beta_start=0.1,
+        adapt_c=0.5,
+        adapt_T0=1.0,
+        warmup_steps=n_w,
+    )
+    x = math.pi / math.sqrt(2.0)
+    beta_inf = 0.8 - 0.7 * math.sin(x) / x
+    # Rest des Produkts ab n_w+1: prod_{n>N}(1 - 1/(2n^2)) >= 1 - 1/(2N) -> |dbeta| <= 0.7/(2N)
+    trunc = 0.7 / (2.0 * n_w)
+    assert r.calibration is not None and r.production is not None
+    gap = abs(r.calibration.beta_end - beta_inf)
+    frozen_class = gap <= trunc and abs(r.calibration.beta_end - 0.8) > 0.2
+    first_after = float(r.beta_traj[n_w])
+    exact_freeze = first_after == 0.8 and bool(np.all(r.production.beta == 0.8))
+    injected = a_kernel.ProductionRecord(
+        beta_star=0.8,
+        t_start=r.production.t_start - 1,
+        H=np.concatenate(([r.calibration.H[-1]], r.production.H)),
+        beta=np.concatenate(([r.calibration.beta_end], r.production.beta)),
+    )
+    try:
+        a_kernel.production_mean(injected)
+        neg_ok = False
+    except a_kernel.FreezeContractError:
+        neg_ok = True
+    ok = frozen_class and exact_freeze and neg_ok
+    return ok, (
+        f"warm-up beta_end={r.calibration.beta_end:.6f} vs closed form {beta_inf:.6f} "
+        f"(|gap|={gap:.2e} <= {trunc:.2e}); beta[t=freeze]==0.8: {first_after == 0.8}; "
+        f"all production beta==0.8: {exact_freeze}; injected pre-freeze rejected={neg_ok}"
+    )
 
 
 def _dummy_ts() -> mcrg_matrix.OperatorTimeseries:
@@ -193,6 +235,18 @@ def _g8_negative_edge_input() -> tuple[bool, str]:
             "burn_in>=n_steps",
             lambda: a_kernel.run_adaptive_mcmc(
                 _CFG, beta_target=0.5, n_steps=10, burn_in=10, seed=1
+            ),
+        ),
+        (
+            "warmup+burn_in>=n_steps",
+            lambda: a_kernel.run_adaptive_mcmc(
+                _CFG, beta_target=0.5, n_steps=10, burn_in=5, seed=1, beta_start=0.2, warmup_steps=5
+            ),
+        ),
+        (
+            "beta_start ignored without warm-up",
+            lambda: a_kernel.run_adaptive_mcmc(
+                _CFG, beta_target=0.5, n_steps=10, burn_in=0, seed=1, beta_start=0.2
             ),
         ),
         ("ising beta<=0", lambda: ising1d.mean_energy(-1.0, 8)),
@@ -1090,9 +1144,16 @@ def _g35_rhat_well_mixed_converges() -> tuple[bool, str]:
     rows = []
     for c in range(4):
         res = a_kernel.run_adaptive_mcmc(
-            _CFG, beta_target=1.0, n_steps=2500, burn_in=500, seed=2000 + c, beta_start=0.2
+            _CFG,
+            beta_target=1.0,
+            n_steps=2500,
+            burn_in=250,
+            seed=2000 + c,
+            beta_start=0.2,
+            warmup_steps=250,
         )
-        rows.append(res.H_traj[500:])
+        assert res.production is not None
+        rows.append(a_kernel.require_frozen(res.production).H)
     rk = rhat_mod.split_rhat(np.vstack(rows))
     ok = bool(ri.rhat < 1.01 and rk.rhat < 1.05 and ri.converged)
     return ok, (
@@ -1432,46 +1493,54 @@ def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
 
 
 def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
-    """Phase-2: exakte Randverteilung der adaptiven Kette (mu_{t+1} = mu_t P_{beta_t}).
+    """Phase-2: exakte Randverteilung der adaptiven Kette unter dem Freeze-Vertrag (#51).
 
-    beta_t-Schedule bit-identisch zu run_adaptive_mcmc; Default-Schedule
-    (c=0.5, T0=100) -> TV zu pi_target < 1e-10. Gegenrichtung ([LUECKE]
-    quantifiziert): summierbarer Schedule mit T0=1 friert beta bei beta_inf != target
-    ein (geschlossene Produktformel), TV zu pi_target bleibt am Boden > 0.05.
+    beta_t-Schedule bit-identisch zu run_adaptive_mcmc(warmup_steps=W). Mit Freeze
+    konvergiert mu_t exakt nach pi_target, auch beim SCHLECHTESTEN Warm-up-Schedule
+    (c=0.5, T0=1): TV_end < 1e-10, beta ab dem Freeze bit-gleich beta_target.
+    Gegenrichtung (Defektklasse ohne Freeze, alter Sampler): derselbe Schedule friert
+    beta bei beta_inf ~ 0.549 ein (geschlossene Produktformel), TV-Boden > 0.05.
     """
     cfg = MVPConfig(L=_MIX_L, beta_min=0.1, beta_max=2.0)
-    a_short = a_kernel.diminishing_step_sizes(80, 0.5, 1.0)
+    n, warm = 400, 30
+    a_t = a_kernel.diminishing_step_sizes(n, 0.5, 1.0)
     run = a_kernel.run_adaptive_mcmc(
-        cfg, beta_target=0.8, n_steps=80, burn_in=0, seed=1, adapt_c=0.5, adapt_T0=1.0
+        cfg,
+        beta_target=0.8,
+        n_steps=80,
+        burn_in=10,
+        seed=1,
+        beta_start=0.1,
+        adapt_c=0.5,
+        adapt_T0=1.0,
+        warmup_steps=warm,
     )
-    sched = mixing.adaptive_beta_schedule(cfg, beta_start=0.1, beta_target=0.8, a_t=a_short)
+    sched = mixing.adaptive_beta_schedule(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t[:80], freeze_at=warm
+    )
     identical = bool(np.array_equal(run.beta_traj, sched))
-    good = mixing.adaptive_exact_tv(
-        cfg,
-        beta_start=0.1,
-        beta_target=0.8,
-        a_t=a_kernel.diminishing_step_sizes(300, 0.5, 100.0),
-        x0=0,
+    frozen_ok = mixing.adaptive_exact_tv(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=warm
     )
-    frozen = mixing.adaptive_exact_tv(
-        cfg,
-        beta_start=0.1,
-        beta_target=0.8,
-        a_t=a_kernel.diminishing_step_sizes(400, 0.5, 1.0),
-        x0=0,
+    no_freeze = mixing.adaptive_exact_tv(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=n
     )
     closed = 0.8 - 0.7 * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, 0.5, 1.0)))
+    exact_after_freeze = bool(np.all(frozen_ok.beta_traj[warm:] == 0.8))
     ok = (
         identical
-        and good.tv_to_target[-1] < 1e-10
-        and abs(frozen.beta_limit - closed) < 1e-3
-        and frozen.frozen_floor > 0.05
-        and frozen.tv_to_limit[-1] < 1e-6
+        and exact_after_freeze
+        and frozen_ok.frozen_floor == 0.0
+        and frozen_ok.tv_to_target[-1] < 1e-10
+        and abs(no_freeze.beta_limit - closed) < 1e-3
+        and no_freeze.frozen_floor > 0.05
+        and no_freeze.tv_to_limit[-1] < 1e-6
     )
     return ok, (
-        f"schedule bit-identical={identical}; default TV_end={good.tv_to_target[-1]:.1e}; "
-        f"T0=1: beta_inf={frozen.beta_limit:.4f} (closed {closed:.4f}), "
-        f"floor={frozen.frozen_floor:.4f}, TV-to-limit={frozen.tv_to_limit[-1]:.1e}"
+        f"schedule bit-identical={identical}; freeze@{warm}: beta exact={exact_after_freeze}, "
+        f"TV_end={frozen_ok.tv_to_target[-1]:.1e}; no freeze: "
+        f"beta_inf={no_freeze.beta_limit:.4f} (closed {closed:.4f}), "
+        f"floor={no_freeze.frozen_floor:.4f}"
     )
 
 
@@ -1499,7 +1568,7 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G4 Jacobian-Consistency (CS==FD==analytic)", _g4_jacobian_consistency),
     ("G5 RG-Fixpoint (R(0)=0, iter->0)", _g5_rg_fixpoint),
     ("G6 Reproducibility (seed->bit-identical)", _g6_reproducibility),
-    ("G7 Diminishing-Adaptation (sum a_t<inf)", _g7_diminishing_adaptation),
+    ("G7 Freeze contract (warm-up -> exact freeze -> production)", _g7_freeze_contract),
     ("G8 Negative/Edge-Input rejection", _g8_negative_edge_input),
     ("G9 Swendsen-MCRG T-hat vs tanh(2K) (<=3sigma)", _g9_swendsen_vs_oracle),
     ("G10 Connected-corr vs exact enumeration", _g10_connected_corr_exact),
@@ -1543,7 +1612,10 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G45 checkpoint lockfile + tamper fail-closed", _g45_checkpoint_lock_and_tamper),
     ("G46 exact TV in spectral sandwich + beta=0 flagged", _g46_tv_spectral_sandwich),
     ("G47 real sampler within TV band of exact kernel", _g47_sampler_carries_exact_kernel),
-    ("G48 adaptive chain exact TV + frozen-schedule floor", _g48_adaptive_chain_exact_tv),
+    (
+        "G48 adaptive chain exact TV: freeze -> pi_target; no freeze -> floor",
+        _g48_adaptive_chain_exact_tv,
+    ),
     ("G49 containment: t_rel bounded on Theta, diverges out", _g49_containment_relaxation_time),
 ]
 
@@ -1627,9 +1699,10 @@ def run_demo() -> int:
         _CFG,
         beta_target=1.0,
         n_steps=4000,
-        burn_in=1000,
+        burn_in=500,
         seed=42,
         beta_start=0.2,
+        warmup_steps=500,
     )
     exact = ising1d.mean_energy(1.0, _CFG.L)
     print(f"  A-Kernel: <H>={r.mean_H:.3f} (exact {exact:.3f}), acc={r.acceptance:.3f}")
@@ -1647,7 +1720,9 @@ def run_phase5(
     n_chains: int = 4,
     L: int = 16,
     n_steps: int = 3000,
-    burn_in: int = 500,
+    burn_in: int = 250,
+    warmup_steps: int = 250,
+    beta_start: float | None = 0.2,
     seed: int = 20260619,
     manifest_path: str | None = None,
     from_manifest: str | None = None,
@@ -1664,8 +1739,16 @@ def run_phase5(
         result = manifest_mod.run(mf)
         print(f"Reproduced from manifest {from_manifest}")
     else:
+        # Issue #51: Warm-up (adaptiv) -> Freeze -> Fixed-Target-Burn-in -> Produktion.
+        # Default 250 + 250 laesst 2500 Produktions-Sweeps je Kette (wie vorher 3000-500).
         mf = manifest_mod.RunManifest(
-            base_seed=seed, n_chains=n_chains, L=L, n_steps=n_steps, burn_in=burn_in
+            base_seed=seed,
+            n_chains=n_chains,
+            L=L,
+            n_steps=n_steps,
+            burn_in=burn_in,
+            warmup_steps=warmup_steps,
+            beta_start=beta_start if warmup_steps > 0 else None,
         )
         result = manifest_mod.run(mf)
 
@@ -1688,7 +1771,8 @@ def run_phase5(
     print("Phase-5: Multichain A-Kernel -> R-hat + CLT-Varianz")
     print(
         f"  manifest: base_seed={mf.base_seed} M={mf.n_chains} L={mf.L} "
-        f"n_steps={mf.n_steps} burn_in={mf.burn_in}"
+        f"n_steps={mf.n_steps} warmup={mf.warmup_steps} burn_in={mf.burn_in} "
+        f"production={mf.n_production}"
     )
     print(
         f"  R-hat={result.rhat:.4f} (bulk={result.bulk_rhat:.4f}, "
@@ -1720,6 +1804,15 @@ def run_phase5(
                 "AR(1) closed-form sigma^2_g = sigma_eps^2/(1-phi)^2 = Var*(1+phi)/(1-phi)"
             ),
             "manifest": mf.with_environment().to_dict(),
+            "freeze_contract": {
+                "issue": 51,
+                "pipeline": "WARM-UP -> FREEZE -> FIXED-TARGET BURN-IN -> PRODUCTION",
+                "warmup_steps": mf.warmup_steps,
+                "fixed_target_burn_in": mf.burn_in,
+                "production_sweeps_per_chain": mf.n_production,
+                "beta_star": mf.beta_target,
+                "estimators_see": "production record only (a_kernel.require_frozen)",
+            },
             "multichain_rhat": {
                 "observable": "H (domain-wall count)",
                 "rhat": result.rhat,
@@ -1947,13 +2040,21 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
 
     cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
     adaptive = []
-    for c, T0, n in ((0.5, 100.0, 300), (0.5, 1.0, 400), (0.05, 1.0, 400)):
+    # freeze_at = n: Defektklasse ohne Freeze (alter Sampler); freeze_at = 30: Vertrag #51.
+    for c, T0, n, freeze_at in (
+        (0.5, 100.0, 300, 300),
+        (0.5, 1.0, 400, 400),
+        (0.05, 1.0, 400, 400),
+        (0.5, 1.0, 400, 30),
+        (0.05, 1.0, 400, 30),
+    ):
         r = mixing.adaptive_exact_tv(
             cfg,
             beta_start=0.1,
             beta_target=0.8,
             a_t=a_kernel.diminishing_step_sizes(n, c, T0),
             x0=0,
+            freeze_at=freeze_at,
         )
         prod = float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
         adaptive.append(
@@ -1961,10 +2062,13 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
                 "adapt_c": c,
                 "adapt_T0": T0,
                 "n_sweeps": n,
+                "freeze_at": freeze_at,
+                "frozen": freeze_at < n,
                 "beta_start": 0.1,
                 "beta_target": 0.8,
                 "beta_limit_schedule_end": r.beta_limit,
-                "beta_limit_closed_form_1e6": 0.8 - 0.7 * prod,
+                # Ohne Freeze: geschlossene Produktformel; mit Freeze: exakt beta_target.
+                "beta_limit_closed_form_1e6": 0.8 - 0.7 * prod if freeze_at >= n else 0.8,
                 "frozen_floor_tv": r.frozen_floor,
                 "tv_to_target_end": float(r.tv_to_target[-1]),
                 "tv_to_limit_end": float(r.tv_to_limit[-1]),
@@ -1974,7 +2078,7 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             }
         )
         print(
-            f"  adaptive c={c} T0={T0}: beta_inf={r.beta_limit:.4f} "
+            f"  adaptive c={c} T0={T0} freeze_at={freeze_at}: beta_inf={r.beta_limit:.4f} "
             f"floor={r.frozen_floor:.4f} TV_end={r.tv_to_target[-1]:.2e}"
         )
 
@@ -2005,8 +2109,10 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             "adaptive_chain": adaptive,
             "containment": containment,
             "honest_scope": "exact only for 2^L <= 4096 states (1D ring); no statement "
-            "about 2D/RBIM mixing. Summable schedules converge to pi_{beta_inf}, which "
-            "equals pi_{beta_target} only when prod(1-a_t) is negligible.",
+            "about 2D/RBIM mixing. WITHOUT a freeze (the pre-#51 sampler), summable "
+            "schedules converge to pi_{beta_inf}, which equals pi_{beta_target} only when "
+            "prod(1-a_t) is negligible; under the freeze contract (#51/#53) the chain is "
+            "time-homogeneous after freeze_at and converges to pi_{beta_target}.",
             "seed": seed,
         }
         out_path = _resolve_json_path(json_path)
@@ -2041,7 +2147,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-chains", type=int, default=4, help="phase5: number of MCMC chains M")
     parser.add_argument("--L", type=int, default=16, help="phase5: ring length L")
     parser.add_argument("--n-steps", type=int, default=3000, help="phase5: sweeps per chain")
-    parser.add_argument("--burn-in", type=int, default=500, help="phase5: burn-in sweeps")
+    parser.add_argument(
+        "--burn-in",
+        type=int,
+        default=250,
+        help="phase5: fixed-target burn-in sweeps AFTER the freeze (Issue #51)",
+    )
+    parser.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=250,
+        help="phase5: adaptive warm-up sweeps BEFORE the freeze (calibration only; 0 = none)",
+    )
+    parser.add_argument(
+        "--beta-start",
+        type=float,
+        default=0.2,
+        help="phase5: warm-up start beta (ignored and not recorded when --warmup-steps 0)",
+    )
     parser.add_argument("--seed", type=int, default=20260619, help="phase5: base seed")
     parser.add_argument(
         "--manifest-out", metavar="PATH", default=None, help="phase5: write run-manifest JSON"
@@ -2066,6 +2189,8 @@ def main(argv: list[str] | None = None) -> int:
             L=args.L,
             n_steps=args.n_steps,
             burn_in=args.burn_in,
+            warmup_steps=args.warmup_steps,
+            beta_start=args.beta_start,
             seed=args.seed,
             manifest_path=args.manifest_out,
             from_manifest=args.from_manifest,

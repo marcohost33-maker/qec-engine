@@ -78,5 +78,11 @@ def test_phase7_writes_artifact(tmp_path) -> None:
     assert by_beta[0.0]["geometrically_ergodic"] is False
     assert all(by_beta[b]["geometrically_ergodic"] for b in (0.3, 0.8, 1.5, 2.0))
     assert payload["empirical_sampler"]["marginal_band_ratio_true_kernel"] <= 1.0
-    frozen = [r for r in payload["adaptive_chain"] if r["adapt_T0"] == 1.0]
-    assert all(r["frozen_floor_tv"] > 0.05 for r in frozen)
+    t0_1 = [r for r in payload["adaptive_chain"] if r["adapt_T0"] == 1.0]
+    no_freeze = [r for r in t0_1 if not r["frozen"]]
+    freeze = [r for r in t0_1 if r["frozen"]]
+    assert no_freeze and freeze
+    # Defektklasse ohne Freeze (vor #51/#53): Boden bleibt.
+    assert all(r["frozen_floor_tv"] > 0.05 for r in no_freeze)
+    # Freeze-Vertrag: exakt beta_target, TV zu pi_target verschwindet.
+    assert all(r["frozen_floor_tv"] == 0.0 and r["tv_to_target_end"] < 1e-10 for r in freeze)

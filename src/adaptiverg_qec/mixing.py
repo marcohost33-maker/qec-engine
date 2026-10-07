@@ -46,17 +46,20 @@ EMPIRISCHE SEITE (der ECHTE Sampler, kein Nachbau):
   selbst (marginal_band_ratio, schaerfer). Faellt der Sampler aus dem Band, ist
   er NICHT der Kern, den die Spektralanalyse beschreibt.
 
-ADAPTIVE KETTE (Phase 2):
-  a_kernel bewegt beta DETERMINISTISCH: beta_{t+1} = clip(beta_t + a_t
-  (beta_target - beta_t)) vor jedem Sweep. Die Randverteilung der adaptiven
+ADAPTIVE KETTE (Phase 2, Freeze-Vertrag aus Issue #51):
+  a_kernel bewegt beta DETERMINISTISCH: im Warm-up (t < freeze_at) gilt
+  beta_{t+1} = clip(beta_t + a_t (beta_target - beta_t)) vor jedem Sweep; vor dem
+  Sweep t = freeze_at wird beta := beta_target per ZUWEISUNG gesetzt und bleibt dort
+  (a_kernel.advance_chain). Die Randverteilung der adaptiven
   Kette ist daher exakt mu_{t+1} = mu_t P_{beta_{t+1}} -- ein zeitinhomogenes
   Matrixprodukt, keine Simulation. Zwei Aussagen:
   1. Containment: sup_{beta in Theta} t_rel(beta) < inf (Theta kompakt, Kerne
      stetig in beta). Kontrolle in Gegenrichtung: t_rel(beta) waechst mit beta
      ohne Schranke (1D-Ising: kritischer Punkt beta_c = inf) -- genau deshalb
      muss Theta den kritischen Punkt ausschliessen (Spec 4.2, mvp_instance.py).
-  2. [LUECKE, hier quantifiziert] Ein SUMMIERBARER Schedule (sum a_t < inf,
-     P1.2) friert die Adaption ein: beta_t -> beta_inf mit
+  2. [LUECKE, hier quantifiziert; seit #51/#53 im Sampler GESCHLOSSEN] Ohne Freeze
+     (freeze_at = n, die Defektklasse des alten Samplers) friert ein SUMMIERBARER
+     Schedule (sum a_t < inf, P1.2) die Adaption ein: beta_t -> beta_inf mit
          beta_inf - beta_target = (beta_0 - beta_target) prod_t (1 - a_t) != 0
      (solange kein Clip greift). Die adaptive Kette konvergiert dann nach
      pi_{beta_inf}, NICHT nach pi_{beta_target}; der TV-Boden ist
@@ -68,6 +71,9 @@ ADAPTIVE KETTE (Phase 2):
      (pi_beta), der Satz greift also nicht unmittelbar; was hier exakt gezeigt
      wird, ist die Konvergenz gegen pi_{beta_inf} -- und dass beta_inf vom
      Schedule abhaengt, statt stillschweigend = beta_target angenommen zu werden.
+  3. [OK, Freeze-Vertrag] Mit freeze_at < n ist der Kern ab dem Freeze zeit-
+     homogen P_{beta_target}; mu_t konvergiert geometrisch exakt nach pi_{beta_target},
+     gleichgueltig wie schlecht der Warm-up-Schedule ist (G48 zeigt beides).
 
 EHRLICHE SCOPE-GRENZE: exakt nur fuer den 1D-Ring mit 2^L <= 4096 Zustaenden.
 Fuer grosse L (und 2D) bleiben R-hat/ESS (rhat.py) und tau_int (autocorr.py) die
@@ -437,17 +443,34 @@ def fit_geometric_rate(tv: np.ndarray, *, floor: float) -> tuple[float, int]:
 
 
 def adaptive_beta_schedule(
-    cfg: MVPConfig, *, beta_start: float, beta_target: float, a_t: np.ndarray
+    cfg: MVPConfig,
+    *,
+    beta_start: float,
+    beta_target: float,
+    a_t: np.ndarray,
+    freeze_at: int,
 ) -> np.ndarray:
-    """beta_t exakt wie a_kernel.advance_chain (Update + Containment-Clip VOR jedem Sweep)."""
+    """beta_t exakt wie a_kernel.advance_chain(freeze_at=...).
+
+    t < freeze_at: Warm-up-Update + Containment-Clip VOR dem Sweep; ab t = freeze_at:
+    beta = beta_target per Zuweisung. ``freeze_at = a_t.size`` bildet die alte,
+    zielwandernde Defektklasse nach (kein Freeze); es gibt bewusst keinen Default.
+    """
     a_t = np.asarray(a_t, dtype=np.float64)
     if not np.all(np.isfinite(a_t)):
         raise ValueError("a_t must be finite")
+    if isinstance(freeze_at, bool) or not isinstance(freeze_at, int | np.integer):
+        raise ValueError(f"freeze_at must be an int, got {type(freeze_at).__name__}")
+    if not 0 <= freeze_at <= a_t.size:
+        raise ValueError(f"need 0 <= freeze_at <= {a_t.size}, got {freeze_at}")
     beta = float(beta_start)
     out = np.empty(a_t.size)
     for t, a in enumerate(a_t):
-        beta += a * (beta_target - beta)
-        beta = min(max(beta, cfg.beta_min), cfg.beta_max)
+        if t < freeze_at:
+            beta += a * (beta_target - beta)
+            beta = min(max(beta, cfg.beta_min), cfg.beta_max)
+        else:
+            beta = float(beta_target)
         out[t] = beta
     return out
 
@@ -475,11 +498,13 @@ def adaptive_exact_tv(
     beta_target: float,
     a_t: np.ndarray,
     x0: int,
+    freeze_at: int,
     beta_limit: float | None = None,
 ) -> AdaptiveTV:
     """mu_{t+1} = mu_t P_{beta_{t+1}} exakt; Kerne je beta gecacht.
 
     Args:
+        freeze_at: Freeze-Sweep wie in a_kernel.advance_chain; a_t.size = kein Freeze.
         beta_limit: Grenzwert beta_inf; Default der letzte Schedule-Wert. Fuer
             einen summierbaren Schedule ist die geschlossene Form
             beta_target + (beta_start - beta_target) * prod(1 - a_t) (ohne Clip).
@@ -489,7 +514,9 @@ def adaptive_exact_tv(
         raise ValueError("beta_target outside compact Theta (Containment violation)")
     if not (cfg.beta_min <= beta_start <= cfg.beta_max):
         raise ValueError("beta_start outside compact Theta")
-    betas = adaptive_beta_schedule(cfg, beta_start=beta_start, beta_target=beta_target, a_t=a_t)
+    betas = adaptive_beta_schedule(
+        cfg, beta_start=beta_start, beta_target=beta_target, a_t=a_t, freeze_at=freeze_at
+    )
     b_inf = float(betas[-1]) if beta_limit is None else _check_beta(beta_limit)
     pi_target = stationary_distribution(L, beta_target)
     pi_limit = stationary_distribution(L, b_inf)

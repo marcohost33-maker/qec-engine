@@ -52,7 +52,8 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 
 - `phase7-mixing-tv.json` — **Phase-7:** exakte TV-Verläufe des A-Kernels (Ring L=6)
   im Spektral-Sandwich, echter Sampler im TV-Band des exakten Kerns, exakte
-  Randverteilung der adaptiven Kette (inkl. eingefrorener summierbarer Adaption) und
+  Randverteilung der adaptiven Kette (ohne Freeze: eingefrorene summierbare Adaption als
+  Defektklasse; mit Freeze-Vertrag #51: Konvergenz nach π_target) und
   Containment-Profil `t_rel(β)`. Reproduzierbar via:
 
   ```bash

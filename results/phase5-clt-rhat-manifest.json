@@ -4,7 +4,7 @@
   "oracle_rhat": "Vehtari et al. 2021 threshold R-hat<1.01",
   "oracle_clt": "AR(1) closed-form sigma^2_g = sigma_eps^2/(1-phi)^2 = Var*(1+phi)/(1-phi)",
   "manifest": {
-    "schema": "adaptiverg_qec.phase5.run_manifest/v1",
+    "schema": "adaptiverg_qec.phase5.run_manifest/v2",
     "base_seed": 20260619,
     "n_chains": 4,
     "L": 16,
@@ -13,17 +13,27 @@
     "beta_target": 1.0,
     "beta_start": 0.2,
     "n_steps": 3000,
-    "burn_in": 500,
+    "burn_in": 250,
+    "warmup_steps": 250,
     "adapt_c": 0.5,
     "adapt_T0": 100.0,
     "environment": {
-      "python": "3.14.4",
-      "numpy": "2.4.6",
-      "scipy": "1.17.1",
-      "package_version": "0.1.0.dev2",
-      "git_sha": "c94efae",
+      "python": "3.12.10",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "package_version": "0.5.0.dev0",
+      "git_sha": "4712e4a",
       "platform": "Windows-11-10.0.26200-SP0"
     }
+  },
+  "freeze_contract": {
+    "issue": 51,
+    "pipeline": "WARM-UP -> FREEZE -> FIXED-TARGET BURN-IN -> PRODUCTION",
+    "warmup_steps": 250,
+    "fixed_target_burn_in": 250,
+    "production_sweeps_per_chain": 2500,
+    "beta_star": 1.0,
+    "estimators_see": "production record only (a_kernel.require_frozen)"
   },
   "multichain_rhat": {
     "observable": "H (domain-wall count)",
@@ -32,7 +42,11 @@
     "folded_rhat": 1.0000384464878516,
     "ess_bulk": 5148.764318378989,
     "ess_tail": 5668.8578078947985,
+    "diagnostic_state": "OK",
+    "rhat_defined": true,
     "converged": true,
+    "rhat_below_threshold": true,
+    "ess_sufficient": true,
     "chain_mean_H": [
       4.3016,
       4.3432,

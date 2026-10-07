@@ -45,22 +45,24 @@ def test_mcmc_reproduces_analytic_mean_energy(beta: float) -> None:
 
 
 def test_reproducibility_bit_exact() -> None:
-    kw = dict(beta_target=0.9, n_steps=1500, burn_in=300, seed=99, beta_start=0.3)
+    kw = dict(beta_target=0.9, n_steps=1500, burn_in=200, seed=99, beta_start=0.3, warmup_steps=100)
     a = a_kernel.run_adaptive_mcmc(CFG, **kw)
     b = a_kernel.run_adaptive_mcmc(CFG, **kw)
     assert np.array_equal(a.H_traj, b.H_traj)
     assert np.array_equal(a.final_state, b.final_state)
     assert a.mean_H == b.mean_H
+    assert np.array_equal(a.beta_traj, b.beta_traj)
 
 
 def test_different_seed_differs() -> None:
-    kw = dict(beta_target=0.9, n_steps=1500, burn_in=300, beta_start=0.3)
+    kw = dict(beta_target=0.9, n_steps=1500, burn_in=200, beta_start=0.3, warmup_steps=100)
     a = a_kernel.run_adaptive_mcmc(CFG, seed=1, **kw)
     b = a_kernel.run_adaptive_mcmc(CFG, seed=2, **kw)
     assert not np.array_equal(a.H_traj, b.H_traj)
 
 
-def test_diminishing_adaptation_summable() -> None:
+def test_warmup_schedule_is_summable() -> None:
+    """Der Warm-up-Plan ist summierbar -- und deshalb nur VOR dem Freeze erlaubt (#51)."""
     s1 = float(np.sum(a_kernel.diminishing_step_sizes(100_000, 0.5, 100.0)))
     s2 = float(np.sum(a_kernel.diminishing_step_sizes(200_000, 0.5, 100.0)))
     assert np.isfinite(s1)

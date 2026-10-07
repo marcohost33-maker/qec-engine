@@ -23,6 +23,16 @@ NON-VAKUOESER TEST (SLSA-Custody-Lehre: aufgezeichneter Wert muss WIRKEN)
     Hash -> beweist, dass das Manifest den Lauf wirklich treibt (kein toter
     Record). Beide als Test (tests/test_manifest.py + Gates G37/G38).
 
+FREEZE-VERTRAG (Issue #51, Schema v2)
+-------------------------------------
+Jede Kette laeuft WARM-UP (warmup_steps, adaptiv ab beta_start) -> FREEZE
+(beta := beta_target exakt) -> FIXED-TARGET BURN-IN (burn_in) -> PRODUCTION
+(n_steps - warmup_steps - burn_in). R-hat, CLT-Varianz und Ketten-Mittel sehen
+NUR den Produktions-Record (a_kernel.require_frozen). Warm-up- und Burn-in-Laenge
+stehen im Manifest, BEVOR der Lauf startet; load_manifest verlangt jeden
+Lauf-Parameter ausdruecklich (kein stiller Default) und lehnt Schema v1 ab, weil
+v1-Laeufe ein waehrend der Produktion wanderndes Ziel hatten.
+
 Alles numpy/scipy/stdlib-only (keine neuen Runtime-Deps).
 """
 
@@ -30,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import platform
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -40,10 +51,10 @@ import numpy as np
 import scipy
 
 from . import __version__
-from .a_kernel import run_adaptive_mcmc
-from .clt import clt_variance
+from .a_kernel import require_frozen, run_adaptive_mcmc
+from .clt import MIN_CLT_SAMPLES, clt_variance
 from .mvp_instance import MVPConfig
-from .rhat import split_rhat
+from .rhat import MIN_DRAWS_PER_CHAIN, split_rhat
 
 __all__ = [
     "RunManifest",
@@ -55,7 +66,31 @@ __all__ = [
     "load_manifest",
 ]
 
-MANIFEST_SCHEMA = "adaptiverg_qec.phase5.run_manifest/v1"
+MANIFEST_SCHEMA = "adaptiverg_qec.phase5.run_manifest/v2"
+_RUN_PARAMETER_KEYS = frozenset(
+    {
+        "base_seed",
+        "n_chains",
+        "L",
+        "beta_min",
+        "beta_max",
+        "beta_target",
+        "beta_start",
+        "n_steps",
+        "burn_in",
+        "warmup_steps",
+        "adapt_c",
+        "adapt_T0",
+    }
+)
+"""Lauf-Parameter, die ein geladenes Manifest AUSDRUECKLICH nennen muss (G7c)."""
+
+MIN_PRODUCTION_DRAWS: int = max(MIN_DRAWS_PER_CHAIN, MIN_CLT_SAMPLES)
+"""Produktions-Ziehungen je Kette, die postprocess_multichain mindestens braucht.
+
+Abgeleitet aus den Quellen (rhat.split_rhat, clt.clt_variance), nicht hier gesetzt.
+PR #53 (Codex P2): vorher lief ein Manifest mit 1-3 Produktions-Sweeps durch alle
+Ketten und scheiterte erst im Post-Processing."""
 _HASH_DECIMALS = 9  # Rundung vor dem Hash (ULP-robust ueber numpy-Builds).
 
 
@@ -88,9 +123,14 @@ class RunManifest:
     beta_min: float = 0.1
     beta_max: float = 2.0
     beta_target: float = 1.0
-    beta_start: float = 0.2
+    beta_start: float | None = None
+    """Start-beta des Warm-ups; None = kein Warm-up-Start (Kette startet bei beta_target)."""
     n_steps: int = 3000
+    """Sweeps GESAMT je Kette (Warm-up + Burn-in + Produktion)."""
     burn_in: int = 500
+    """Fixed-Target-Burn-in NACH dem Freeze (verworfen)."""
+    warmup_steps: int = 0
+    """Adaptives Warm-up VOR dem Freeze (nur Kalibration, nie Produktion)."""
     adapt_c: float = 0.5
     adapt_T0: float = 100.0
     # --- Umgebung (Provenienz; treibt das Resultat NICHT, dokumentiert es) ---
@@ -102,6 +142,10 @@ class RunManifest:
         Vorher wurde ein defektes Manifest erst tief im Lauf abgelehnt (z.B.
         n_chains=1 -> split_rhat-Fehler); jetzt an der Vertrauensgrenze.
         """
+        if self.schema != MANIFEST_SCHEMA:
+            raise ValueError(
+                f"manifest schema mismatch: expected {MANIFEST_SCHEMA!r}, got {self.schema!r}"
+            )
         if not isinstance(self.base_seed, int):
             raise ValueError(f"base_seed must be an int, got {type(self.base_seed).__name__}")
         if not isinstance(self.n_chains, int) or self.n_chains < 2:
@@ -112,14 +156,46 @@ class RunManifest:
             raise ValueError(f"n_steps must be an int >= 1, got {self.n_steps}")
         if not isinstance(self.burn_in, int) or not (0 <= self.burn_in < self.n_steps):
             raise ValueError(f"need 0 <= burn_in < n_steps, got {self.burn_in}/{self.n_steps}")
+        if (
+            isinstance(self.warmup_steps, bool)
+            or not isinstance(self.warmup_steps, int)
+            or not (self.warmup_steps >= 0 and self.warmup_steps + self.burn_in < self.n_steps)
+        ):
+            raise ValueError(
+                "need int 0 <= warmup_steps and warmup_steps + burn_in < n_steps, got "
+                f"{self.warmup_steps}/{self.burn_in}/{self.n_steps}"
+            )
+        if self.n_production < MIN_PRODUCTION_DRAWS:
+            raise ValueError(
+                f"need >= {MIN_PRODUCTION_DRAWS} production draws per chain after the freeze "
+                f"(n_steps - warmup_steps - burn_in), got {self.n_production}"
+            )
         if not (0.0 < self.beta_min < self.beta_max):
             raise ValueError(f"need 0 < beta_min < beta_max, got {self.beta_min}/{self.beta_max}")
-        for name in ("beta_target", "beta_start"):
-            v = getattr(self, name)
-            if not (self.beta_min <= v <= self.beta_max):
-                raise ValueError(
-                    f"{name} {v} outside compact Theta [{self.beta_min}, {self.beta_max}]"
-                )
+        # PR #53 R2: kompaktes Theta -- endliche Grenzen (dann ist auch beta_target endlich).
+        if not math.isfinite(self.beta_max):
+            raise ValueError(f"beta_max must be finite (compact Theta), got {self.beta_max}")
+        if not (self.beta_min <= self.beta_target <= self.beta_max):
+            raise ValueError(
+                f"beta_target {self.beta_target} outside compact Theta "
+                f"[{self.beta_min}, {self.beta_max}]"
+            )
+        if self.beta_start is not None and not (self.beta_min <= self.beta_start <= self.beta_max):
+            raise ValueError(
+                f"beta_start {self.beta_start} outside compact Theta "
+                f"[{self.beta_min}, {self.beta_max}]"
+            )
+        if self.warmup_steps > 0 and self.beta_start is None:
+            raise ValueError("warmup_steps > 0 needs an explicit beta_start")
+        if (
+            self.warmup_steps == 0
+            and self.beta_start is not None
+            and self.beta_start != self.beta_target
+        ):
+            raise ValueError(
+                f"beta_start {self.beta_start} != beta_target {self.beta_target} without a "
+                "warm-up would be ignored (set warmup_steps > 0 or beta_start=None)"
+            )
         if not (self.adapt_c > 0 and self.adapt_T0 > 0):
             raise ValueError(
                 f"need adapt_c > 0 and adapt_T0 > 0, got {self.adapt_c}/{self.adapt_T0}"
@@ -138,6 +214,16 @@ class RunManifest:
         d = asdict(self)
         d["environment"] = env
         return RunManifest(**d)
+
+    @property
+    def n_production(self) -> int:
+        """Produktions-Sweeps je Kette (n_steps - warmup_steps - burn_in)."""
+        return self.n_steps - self.warmup_steps - self.burn_in
+
+    @property
+    def effective_beta_start(self) -> float:
+        """Start-beta der Kette: beta_start, ohne Warm-up-Start beta_target."""
+        return self.beta_target if self.beta_start is None else self.beta_start
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -182,7 +268,7 @@ class RunResult:
 
 
 def _multichain_H(manifest: RunManifest) -> np.ndarray:
-    """Fuehre M unabhaengige A-Kernel-Ketten -> (M, n_post) H-Trajektorien (post-burn-in)."""
+    """Fuehre M unabhaengige A-Kernel-Ketten -> (M, n_production) Produktions-H-Reihen."""
     cfg = MVPConfig(L=manifest.L, beta_min=manifest.beta_min, beta_max=manifest.beta_max)
     rows = []
     for c in range(manifest.n_chains):
@@ -195,8 +281,11 @@ def _multichain_H(manifest: RunManifest) -> np.ndarray:
             beta_start=manifest.beta_start,
             adapt_c=manifest.adapt_c,
             adapt_T0=manifest.adapt_T0,
+            warmup_steps=manifest.warmup_steps,
         )
-        rows.append(res.H_traj[manifest.burn_in :])
+        if res.production is None:  # pragma: no cover - run_adaptive_mcmc fuellt es immer
+            raise RuntimeError("run_adaptive_mcmc returned no production record")
+        rows.append(require_frozen(res.production).H)
     return np.vstack(rows)
 
 
@@ -280,6 +369,11 @@ def load_manifest(path: str | Path) -> RunManifest:
     unknown = set(data) - known
     if unknown:
         raise ValueError(f"manifest has unknown keys: {sorted(unknown)}")
+    # G7c: Warm-up, Burn-in und alle anderen Lauf-Parameter muessen VOR dem Lauf
+    # im Manifest stehen -- ein fehlender Schluessel wuerde still zum Default.
+    missing = _RUN_PARAMETER_KEYS - set(data)
+    if missing:
+        raise ValueError(f"manifest lacks run parameters: {sorted(missing)}")
     return RunManifest(**{k: data[k] for k in data if k in known})
 
 

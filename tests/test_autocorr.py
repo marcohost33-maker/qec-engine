@@ -257,6 +257,137 @@ def test_tau_int_or_half_rejects_non_finite(bad: float) -> None:
         autocorr.tau_int_or_half(_series_with(bad))
 
 
+@pytest.mark.parametrize("x", [np.array([]), np.array([3.0])])
+def test_tau_int_or_half_rejects_too_short_series(x) -> None:
+    """PR #53 (Codex P2): leere Reihe ergab still tau = 0.5 (np.var([]) = NaN)."""
+    with pytest.raises(ValueError, match="need >=2 samples"):
+        autocorr.tau_int_or_half(x)
+    assert autocorr.tau_int_or_half(np.array([3.0, 3.0])) == 0.5  # Grenze: 2 Samples
+
+
 def test_tau_int_or_half_all_nan_series_is_not_constant() -> None:
     with pytest.raises(ValueError, match="finite"):
         autocorr.tau_int_or_half(np.full(64, float("nan")))
+
+
+# --- Issue #48 Nachtraege (Delta-Runde #47) ----------------------------------
+
+
+def _ar1(n: int, phi: float, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    e = rng.standard_normal(n)
+    x = np.empty(n)
+    x[0] = e[0]
+    for i in range(1, n):
+        x[i] = phi * x[i - 1] + e[i]
+    return x
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("nan"), 0.0, -1.0])
+def test_c_window_must_be_finite_and_positive(bad: float) -> None:
+    """c_window=+inf liess tau_int auf ~1.4 fallen (AR(1) phi=0.9, wahr ~9.5)."""
+    x = _ar1(20000, 0.9, 1)
+    assert autocorr.integrated_autocorr_time(x).tau_int > 8.0  # Kontrolle: Default traegt
+    with pytest.raises(ValueError, match="c_window"):
+        autocorr.integrated_autocorr_time(x, c_window=bad)
+
+
+def test_given_rho_must_match_x() -> None:
+    """Leeres x mit gegebenem rho ergab tau aus rho und NaN fuer mean/sem (still)."""
+    rho = np.array([1.0, 0.5, 0.2])
+    with pytest.raises(ValueError, match="samples"):
+        autocorr.integrated_autocorr_time(np.array([]), rho=rho)
+    with pytest.raises(ValueError, match="shape"):
+        autocorr.integrated_autocorr_time(np.arange(5.0), rho=rho)
+    with pytest.raises(ValueError, match="shape"):
+        autocorr.integrated_autocorr_time(np.arange(3.0), rho=rho[:, None])
+    # Kontrolle: passendes rho geht durch und ist identisch zum FFT-Pfad.
+    x = _ar1(500, 0.5, 2)
+    direct = autocorr.integrated_autocorr_time(x)
+    given = autocorr.integrated_autocorr_time(x, rho=autocorr.autocorr_function_fft(x))
+    assert given == direct
+
+
+def test_given_rho_with_overflowing_variance_raises() -> None:
+    x = np.array([1e308, -1e308] * 32)
+    rho = np.ones(x.size)
+    with pytest.raises(ValueError, match="overflow"):
+        autocorr.integrated_autocorr_time(x, rho=rho)
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.parametrize("scale", [1e308, -1e308])
+def test_binning_error_overflow_raises(scale: float) -> None:
+    """Endliche Samples |x| ~ 1e308: vorher sem_plateau=inf, sem_iid=nan (still)."""
+    x = np.array([scale, -scale] * 64)
+    with pytest.raises(ValueError, match="overflow"):
+        autocorr.binning_error(x)
+
+
+def test_binning_error_scale_invariant_far_from_overflow() -> None:
+    """Metamorph: Skalierung um 1e-30/1e30 aendert tau_int_equiv nicht (Kontrolle)."""
+    x = _ar1(4096, 0.6, 3)
+    ref = autocorr.binning_error(x).tau_int_equiv
+    for s in (1e-30, 1e30):
+        assert autocorr.binning_error(x * s).tau_int_equiv == pytest.approx(ref, rel=1e-9)
+
+
+def test_jackknife_den_terms_finiteness_is_its_own_guard() -> None:
+    """autocorr.py den_terms-Waechter: Meldung nennt den Nenner (sonst faengt erst combine)."""
+    num = np.ones((40, 1))
+    den = np.ones((40, 1))
+    den[7, 0] = np.nan
+    with pytest.raises(ValueError, match="den_terms"):
+        autocorr.jackknife_ratio(num, den, block_size=4, combine=lambda a, b: a[0] / b[0])
+    den[7, 0] = np.inf
+    with pytest.raises(ValueError, match="den_terms"):
+        autocorr.jackknife_ratio(num, den, block_size=4, combine=lambda a, b: a[0] / b[0])
+
+
+def test_jackknife_num_terms_finiteness_is_its_own_guard() -> None:
+    num = np.ones((40, 1))
+    num[-1, 0] = np.nan
+    with pytest.raises(ValueError, match="num_terms"):
+        autocorr.jackknife_ratio(
+            num, np.ones((40, 1)), block_size=4, combine=lambda a, b: a[0] / b[0]
+        )
+
+
+@pytest.mark.parametrize("where", ["full", "one_deletion"])
+def test_jackknife_non_finite_combine_raises(where: str) -> None:
+    """combine() -> NaN (mcrg-Platzhalter bei Nenner-Kovarianz 0) wurde still durchgereicht."""
+    num = np.arange(40.0)[:, None]
+    den = np.ones((40, 1))
+    calls = {"n": 0}
+
+    def combine(a, b):
+        calls["n"] += 1
+        if where == "full" or calls["n"] == 3:
+            return float("nan")
+        return float(a[0] / b[0])
+
+    with pytest.raises(ValueError, match="non-finite"):
+        autocorr.jackknife_ratio(num, den, block_size=4, combine=combine)
+
+
+def test_swendsen_constant_blocked_series_is_rejected_not_nan() -> None:
+    """mcrg: konstantes S' -> <S'S'>_c = 0 -> frueher T_hat = NaN, jetzt fail-closed."""
+    S = np.random.default_rng(4).choice([-1.0, 1.0], size=256)
+    Sp = np.ones(256)
+    with pytest.raises(ValueError):
+        mcrg.swendsen_T_from_chain(S, Sp, K=0.5)
+
+
+@pytest.mark.parametrize(
+    "bad", [float("inf"), float("nan"), 0.0, -1.0], ids=["inf", "nan", "zero", "neg"]
+)
+def test_tau_int_or_half_validates_c_window_before_the_constant_shortcut(bad: float) -> None:
+    """PR #53 R2: die Validierung haengt nicht von den Daten ab (konstante Reihe)."""
+    const = np.full(50, 3.0)
+    try:  # Kontrolle: gueltiges c_window; ein immer feuernder Waechter wird zur Zusicherung
+        control = autocorr.tau_int_or_half(const)
+    except ValueError as exc:
+        raise AssertionError(f"valid c_window rejected: {exc!r}") from exc
+    assert control == 0.5
+    with pytest.raises(ValueError, match="c_window must be finite and > 0"):
+        autocorr.tau_int_or_half(const, c_window=bad)

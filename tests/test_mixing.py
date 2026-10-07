@@ -124,32 +124,63 @@ def test_empirical_tv_curve_reproducible_and_seed_sensitive() -> None:
 _CFG = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
 
 
-def test_adaptive_schedule_is_bit_identical_to_a_kernel() -> None:
+@pytest.mark.parametrize("warm", [0, 1, 30, 79])
+def test_adaptive_schedule_is_bit_identical_to_a_kernel(warm) -> None:
+    """Schedule == run_adaptive_mcmc(warmup_steps=W).beta_traj unter dem Freeze-Vertrag."""
     a = a_kernel.diminishing_step_sizes(80, 0.5, 1.0)
+    kw = {"beta_start": 0.1} if warm else {}
     run = a_kernel.run_adaptive_mcmc(
-        _CFG, beta_target=0.8, n_steps=80, burn_in=0, seed=1, adapt_c=0.5, adapt_T0=1.0
+        _CFG,
+        beta_target=0.8,
+        n_steps=80,
+        burn_in=0,
+        seed=1,
+        adapt_c=0.5,
+        adapt_T0=1.0,
+        warmup_steps=warm,
+        **kw,
     )
-    sched = mx.adaptive_beta_schedule(_CFG, beta_start=0.1, beta_target=0.8, a_t=a)
+    start = 0.1 if warm else 0.8
+    sched = mx.adaptive_beta_schedule(
+        _CFG, beta_start=start, beta_target=0.8, a_t=a, freeze_at=warm
+    )
     assert np.array_equal(run.beta_traj, sched)
+    assert np.all(sched[warm:] == 0.8)  # bit-gleich, nicht nur nahe
+
+
+def test_schedule_requires_valid_freeze_at() -> None:
+    a = np.full(5, 0.1)
+    for bad in (-1, 6, 1.5, True):
+        with pytest.raises(ValueError):
+            mx.adaptive_beta_schedule(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, freeze_at=bad)
+
+
+def test_freeze_contract_converges_to_target_even_with_summable_warmup() -> None:
+    """Freeze-Vertrag (#51): der schlechteste Schedule (T0=1) erreicht pi_target exakt."""
+    a = a_kernel.diminishing_step_sizes(400, 0.5, 1.0)
+    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=30)
+    assert r.beta_limit == 0.8
+    assert r.frozen_floor == 0.0
+    assert r.tv_to_target[-1] < 1e-10
 
 
 def test_default_schedule_adaptive_chain_converges_to_target() -> None:
     a = a_kernel.diminishing_step_sizes(300, 0.5, 100.0)
-    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0)
+    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=300)
     assert r.frozen_floor < 1e-12
     assert r.tv_to_target[-1] < 1e-10
     assert r.tv_to_target[0] > 0.8
 
 
 def test_summable_schedule_freezes_adaptation_measurable_floor() -> None:
-    """[LUECKE quantifiziert] sum a_t < inf mit kleinem T0: beta_t -> beta_inf != target.
+    """[LUECKE quantifiziert] OHNE Freeze (Defektklasse vor #51): beta_t -> beta_inf != target.
 
     Die Kette konvergiert exakt nach pi_{beta_inf}; der Abstand zu pi_target
     bleibt >= ||pi_{beta_inf} - pi_target||_TV.
     """
     c, T0 = 0.5, 1.0
     a = a_kernel.diminishing_step_sizes(400, c, T0)
-    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0)
+    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=a.size)
     closed = 0.8 + (0.1 - 0.8) * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
     assert abs(r.beta_limit - closed) < 1e-3
     assert abs(r.beta_limit - 0.8) > 0.2
@@ -215,4 +246,6 @@ def test_empirical_rejects_bad_inputs() -> None:
 
 def test_adaptive_rejects_target_outside_theta() -> None:
     with pytest.raises(ValueError, match="Containment"):
-        mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=3.0, a_t=np.ones(3), x0=0)
+        mx.adaptive_exact_tv(
+            _CFG, beta_start=0.1, beta_target=3.0, a_t=np.ones(3), x0=0, freeze_at=3
+        )

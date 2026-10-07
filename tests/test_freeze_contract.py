@@ -1,0 +1,653 @@
+"""Issue #51: Freeze-Vertrag des A-Kernels (Gates G7a-G7d + Regression der Fehlerklasse).
+
+Pipeline: WARM-UP (adaptiv, Kalibration) -> FREEZE (beta := beta_star exakt)
+-> FIXED-TARGET BURN-IN -> PRODUCTION. Orakel:
+- geschlossenes Produkt prod_{n>=1} (1 - 1/(2 n^2)) = sin(pi/sqrt2)/(pi/sqrt2)
+  (Euler-Produkt des Sinus, sin(pi x)/(pi x) = prod (1 - x^2/n^2) mit x = 1/sqrt2);
+- Transfer-Matrix-<H> (ising1d.mean_energy) bei beta_star vs beim eingefrorenen
+  falschen Ziel.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import re
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from adaptiverg_qec import a_kernel, checkpoint, ising1d, manifest
+from adaptiverg_qec.mvp_instance import MVPConfig
+
+CFG = MVPConfig(L=16, beta_min=0.1, beta_max=2.0)
+
+
+def _expect(exc_type, match, fn) -> None:
+    """Wie pytest.raises, aber eine FALSCHE Ausnahme wird zur Zusicherung, nicht zum Absturz.
+
+    Faellt ein Waechter weg, wirft oft ein nachgelagerter Pfad etwas anderes
+    (AttributeError, TypeError, ...). pytest.raises liesse das als Absturz durch; so
+    bleibt der rote Ausgang eine Zusicherung und damit ein Diskriminierungs-Beleg.
+    """
+    try:
+        fn()
+    except BaseException as exc:  # noqa: BLE001 - gerade die falsche Art soll auffallen
+        assert isinstance(exc, exc_type), f"expected {exc_type.__name__}, got {exc!r}"
+        assert re.search(match, str(exc)), f"message {str(exc)!r} does not match {match!r}"
+        return
+    raise AssertionError(f"{exc_type.__name__} not raised")
+
+
+def _no_raise(fn):
+    """Fuehre fn aus; jede Ausnahme wird zur Zusicherung (statt Absturz)."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        raise AssertionError(f"unexpected {exc!r}") from exc
+
+
+# Issue-#51-Beispiel: c = 0.5, T0 = 1, beta_0 = 0.1, beta_star = 0.8.
+_X = math.pi / math.sqrt(2.0)
+PROD_CLOSED = math.sin(_X) / _X
+BETA_INF = 0.8 - 0.7 * PROD_CLOSED
+
+
+def _summable_run(n_warm: int, n_steps: int, burn_in: int, seed: int = 51):
+    return a_kernel.run_adaptive_mcmc(
+        CFG,
+        beta_target=0.8,
+        n_steps=n_steps,
+        burn_in=burn_in,
+        seed=seed,
+        beta_start=0.1,
+        adapt_c=0.5,
+        adapt_T0=1.0,
+        warmup_steps=n_warm,
+    )
+
+
+# --- Regression der Fehlerklasse (analytisch gepinnt) -------------------------
+
+
+def test_closed_form_product_and_beta_inf_pinned() -> None:
+    """prod(1 - a_t) des Plans konvergiert gegen sin(pi/sqrt2)/(pi/sqrt2) ~ 0.358."""
+    n = 2_000_000
+    a = a_kernel.diminishing_step_sizes(n, c=0.5, T0=1.0)
+    np.testing.assert_array_equal(a[:3], [0.5, 0.125, 0.5 / 9.0])  # a_t = 1/(2 (t+1)^2)
+    log_p = float(np.sum(np.log1p(-a)))
+    p_n = math.exp(log_p)
+    # Rest: P = P_N prod_{n>N}(1 - 1/(2n^2)) und 0 <= P_N - P <= P_N / (2N).
+    assert 0.0 <= p_n - PROD_CLOSED <= p_n / (2 * n) + 1e-12
+    assert pytest.approx(0.358187786, abs=1e-9) == PROD_CLOSED
+    assert pytest.approx(0.549268550, abs=1e-9) == BETA_INF
+
+
+def test_summable_warmup_freezes_at_the_wrong_target() -> None:
+    """Ohne Freeze stuende die Kette bei ~0.549 statt 0.8 (Fehlerklasse belegt)."""
+    n_warm = 4000
+    r = _summable_run(n_warm, n_steps=n_warm + 200, burn_in=50)
+    assert r.calibration is not None
+    end = r.calibration.beta_end
+    # |beta_N - beta_inf| = 0.7 (P_N - P) <= 0.7 P_N / (2N) < 0.7 / (2N)
+    assert abs(end - BETA_INF) <= 0.7 / (2 * n_warm)
+    assert abs(end - 0.8) > 0.25
+    # Die Iteration selbst ist monoton und erreicht 0.8 nie.
+    assert np.all(np.diff(r.calibration.beta) >= 0.0)
+    assert np.all(r.calibration.beta < 0.8)
+
+
+def test_frozen_pipeline_samples_beta_star_not_beta_inf() -> None:
+    """Diskriminierend auf Verteilungsebene: <H> der Produktion trifft E_{0.8}, nicht E_{0.549}."""
+    r = _summable_run(2000, n_steps=2000 + 500 + 5000, burn_in=500, seed=7)
+    e_star = ising1d.mean_energy(0.8, CFG.L)
+    e_wrong = ising1d.mean_energy(BETA_INF, CFG.L)
+    assert e_wrong - e_star > 0.8  # Orakel-Abstand (Transfer-Matrix)
+    assert abs(r.mean_H - e_star) < 0.15
+    assert abs(r.mean_H - e_wrong) > 0.6
+
+
+# --- G7b: Freeze bit-/float-exakt --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("beta_start", "beta_star"), [(0.3, 0.9), (0.2, 1.0), (0.1, 0.8), (1.9, 0.35)]
+)
+def test_g7b_freeze_sets_target_exactly(beta_start: float, beta_star: float) -> None:
+    n_warm = 600
+    r = a_kernel.run_adaptive_mcmc(
+        CFG,
+        beta_target=beta_star,
+        n_steps=n_warm + 300,
+        burn_in=100,
+        seed=3,
+        beta_start=beta_start,
+        warmup_steps=n_warm,
+    )
+    # Die Iteration allein kommt nicht bit-genau an (ulp-Stau bzw. falsches Ziel) ...
+    assert r.beta_traj[n_warm - 1] != beta_star
+    # ... der Freeze setzt es per Zuweisung: Gleichheit, keine Naehe.
+    assert r.beta_traj[n_warm] == beta_star
+    assert np.all(r.beta_traj[n_warm:] == beta_star)
+    assert r.production is not None
+    assert np.all(r.production.beta == beta_star)
+    assert r.production.beta_star == beta_star
+
+
+def test_without_warmup_beta_is_exact_from_the_first_sweep() -> None:
+    r = a_kernel.run_adaptive_mcmc(CFG, beta_target=0.9, n_steps=50, burn_in=10, seed=1)
+    assert np.all(r.beta_traj == 0.9)
+    assert r.adaptation_sum == 0.0
+    assert r.calibration is not None and r.calibration.H.size == 0
+    assert math.isnan(r.calibration.beta_end)  # kein Warm-up -> kein Kalibrations-Endwert
+
+
+# --- G7a: Kalibration nie Produktion -----------------------------------------
+
+
+def test_g7a_calibration_and_production_are_separate_records() -> None:
+    w, b, n = 150, 100, 600
+    r = a_kernel.run_adaptive_mcmc(
+        CFG,
+        beta_target=1.0,
+        n_steps=n,
+        burn_in=b,
+        seed=11,
+        beta_start=0.2,
+        warmup_steps=w,
+        record_configs=True,
+    )
+    cal, prod = r.calibration, r.production
+    assert cal is not None and prod is not None
+    assert prod.t_start == w + b
+    assert prod.H.size == n - w - b and cal.H.size == w
+    np.testing.assert_array_equal(cal.H, r.H_traj[:w])
+    np.testing.assert_array_equal(prod.H, r.H_traj[w + b :])
+    np.testing.assert_array_equal(prod.configs, r.configs[w + b :])
+    for x, y in [
+        (cal.H, prod.H),
+        (prod.H, r.H_traj),
+        (cal.H, r.H_traj),
+        (prod.beta, r.beta_traj),
+        (prod.configs, r.configs),
+    ]:
+        assert not np.shares_memory(x, y)
+    assert r.mean_H == float(np.mean(r.H_traj[w + b :]))
+    # Ein Schreibzugriff auf die Gesamt-Trajektorie erreicht den Produktions-Record nicht.
+    r.H_traj[w + b] = -1.0
+    assert prod.H[0] != -1.0
+
+
+# --- G7c: Burn-in-Laenge im Manifest vor dem Lauf ------------------------------
+
+
+def _write(path, payload) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_g7c_manifest_must_declare_warmup_and_burn_in(tmp_path) -> None:
+    mf = manifest.RunManifest(
+        base_seed=3, n_chains=2, n_steps=400, burn_in=60, warmup_steps=40, beta_start=0.2, L=16
+    )
+    p = manifest.write_manifest(mf, tmp_path / "m.json")
+    full = json.loads(p.read_text(encoding="utf-8"))
+    assert manifest.load_manifest(p) == manifest.RunManifest(**full)
+    for key in ("burn_in", "warmup_steps", "beta_start"):
+        d = dict(full)
+        del d[key]
+        _write(tmp_path / f"no_{key}.json", d)
+        with pytest.raises(ValueError, match="lacks run parameters"):
+            manifest.load_manifest(tmp_path / f"no_{key}.json")
+    d = dict(full, schema="adaptiverg_qec.phase5.run_manifest/v1")
+    _write(tmp_path / "v1.json", d)
+    with pytest.raises(ValueError, match="schema mismatch"):
+        manifest.load_manifest(tmp_path / "v1.json")
+
+
+def test_g7c_declared_lengths_drive_the_run() -> None:
+    base = dict(base_seed=5, n_chains=2, n_steps=400, L=16, beta_start=0.2)
+    mf = manifest.RunManifest(burn_in=60, warmup_steps=40, **base)
+    assert mf.n_production == 300
+    assert manifest._multichain_H(mf).shape == (2, 300)
+    a = manifest.run(mf)
+    b = manifest.run(manifest.RunManifest(burn_in=61, warmup_steps=40, **base))
+    c = manifest.run(manifest.RunManifest(burn_in=60, warmup_steps=80, **base))
+    # (burn_in=60, warmup=41) waere KEIN guter Gegenfall: gleiches Produktionsfenster
+    # [101, 400) wie b, und die Metropolis-Entscheide eines einzelnen Sweeps bei
+    # leicht anderem beta sind mit hoher Wahrscheinlichkeit dieselben (Kopplung).
+    assert len({a.result_hash, b.result_hash, c.result_hash}) == 3
+
+
+@pytest.mark.parametrize(
+    ("kw", "match"),
+    [
+        (dict(warmup_steps=-1, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=True, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=1.0, beta_start=0.2), "warmup_steps"),
+        (dict(warmup_steps=300, burn_in=100, beta_start=0.2), "warmup_steps"),  # 400 >= n_steps
+        (dict(warmup_steps=10), "needs an explicit beta_start"),
+        (dict(beta_start=0.2), "would be ignored"),  # Start-beta ohne Warm-up
+        (dict(beta_start=float("nan"), warmup_steps=10), "beta_start nan outside"),
+        (dict(beta_target=99.0), "beta_target 99.0 outside"),
+        (dict(beta_target=float("nan")), "beta_target nan outside"),
+        (dict(schema="adaptiverg_qec.phase5.run_manifest/v1"), "schema mismatch"),
+    ],
+    ids=[
+        "neg_warmup",
+        "bool_warmup",
+        "float_warmup",
+        "window",
+        "warmup_without_start",
+        "start_without_warmup",
+        "nan_start",
+        "target_99",
+        "nan_target",
+        "schema_v1",
+    ],
+)
+def test_manifest_rejects_invalid_freeze_parameters(kw, match) -> None:
+    base = dict(n_chains=2, n_steps=400, burn_in=50, L=16)
+    base.update(kw)
+    with pytest.raises(ValueError, match=match):
+        manifest.RunManifest(**base)
+
+
+# --- G7d: kein Pre-Freeze-Sample in einem Produktionsschaetzer -----------------
+
+
+def _frozen_record():
+    r = _summable_run(300, n_steps=600, burn_in=50, seed=2)
+    assert r.calibration is not None and r.production is not None
+    return r
+
+
+def test_g7d_negative_control_injected_prefreeze_sample_fails() -> None:
+    r = _frozen_record()
+    a_kernel.production_mean(r.production)  # Kontrolle: der echte Record geht durch
+    injected = a_kernel.ProductionRecord(
+        beta_star=0.8,
+        t_start=r.production.t_start - 1,
+        H=np.concatenate(([r.calibration.H[-1]], r.production.H)),
+        beta=np.concatenate(([r.calibration.beta_end], r.production.beta)),
+    )
+    with pytest.raises(a_kernel.FreezeContractError, match="not at the frozen target"):
+        a_kernel.production_mean(injected)
+
+
+def test_g7d_one_ulp_off_is_rejected_after_construction() -> None:
+    """Mutation nach dem Bau wird erkannt (require_frozen prueft bei jedem Aufruf)."""
+    r = _frozen_record()
+    rec = r.production
+    rec.beta[-1] = np.nextafter(0.8, 0.0)  # 1 ulp unter beta_star
+    with pytest.raises(a_kernel.FreezeContractError):
+        a_kernel.production_mean(rec)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        np.arange(5.0),  # kein ProductionRecord
+        a_kernel.ProductionRecord(beta_star=0.8, t_start=0, H=np.array([]), beta=np.array([])),
+        a_kernel.ProductionRecord(
+            beta_star=0.8, t_start=0, H=np.array([1.0, np.nan]), beta=np.array([0.8, 0.8])
+        ),
+        a_kernel.ProductionRecord(
+            beta_star=float("nan"), t_start=0, H=np.array([1.0]), beta=np.array([np.nan])
+        ),
+        a_kernel.ProductionRecord(
+            beta_star=0.8, t_start=0, H=np.array([1.0, 2.0]), beta=np.array([0.8])
+        ),
+        a_kernel.ProductionRecord(
+            beta_star=0.8,
+            t_start=0,
+            H=np.array([1.0, 2.0]),
+            beta=np.array([0.8, 0.8]),
+            configs=np.zeros((3, 4), dtype=np.int8),
+        ),
+    ],
+)
+def test_g7d_estimator_rejects_malformed_records(bad) -> None:
+    _expect(a_kernel.FreezeContractError, "", lambda: a_kernel.production_mean(bad))
+
+
+def test_advance_chain_freezes_by_assignment() -> None:
+    """Primitive ohne Record-Schicht: vor Sweep t=freeze_at ist beta exakt beta_star."""
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.2)
+    a_t = a_kernel.diminishing_step_sizes(60, 0.5, 100.0)
+    H, B = np.empty(60), np.empty(60)
+    a_kernel.advance_chain(
+        state, rng, CFG, beta_target=1.0, a_t=a_t, t_stop=60, H_out=H, beta_out=B, freeze_at=25
+    )
+    assert np.all(B[:25] < 1.0)
+    assert np.all(np.diff(B[:25]) > 0.0)
+    assert B[25] == 1.0
+    assert np.all(B[25:] == 1.0)
+    assert state.beta == 1.0
+
+
+def test_split_phases_window_is_warmup_plus_burn_in() -> None:
+    """Produktion beginnt bei warmup_steps + burn_in, nicht bei burn_in (G7a/G7d)."""
+    H = np.arange(50.0)
+    beta = np.full(50, 0.8)
+    beta[:10] = np.linspace(0.5, 0.79, 10)  # Warm-up
+    cal, prod = a_kernel.split_phases(H, beta, warmup_steps=10, burn_in=10, beta_star=0.8)
+    assert prod.t_start == 20
+    np.testing.assert_array_equal(prod.H, H[20:])
+    np.testing.assert_array_equal(cal.H, H[:10])
+
+
+@pytest.mark.parametrize(
+    ("H", "beta", "w", "b", "match"),
+    [
+        (np.ones(10), np.full(9, 0.8), 0, 0, "trajectory shape mismatch"),
+        (np.ones((2, 5)), np.full((2, 5), 0.8), 0, 0, "trajectory shape mismatch"),
+        (np.ones(10), np.full(10, 0.8), 5, 5, r"warmup_steps \+ burn_in < n_steps"),
+        (np.ones(10), np.full(10, 0.8), -1, 0, "0 <= warmup_steps"),
+        (np.ones(10), np.full(10, 0.8), 0, -1, "0 <= burn_in"),
+    ],
+    ids=["len", "ndim", "window", "neg_warmup", "neg_burn_in"],
+)
+def test_split_phases_rejects_bad_shapes_and_windows(H, beta, w, b, match) -> None:
+    with pytest.raises(ValueError, match=match):
+        a_kernel.split_phases(H, beta, warmup_steps=w, burn_in=b, beta_star=0.8)
+
+
+def test_split_phases_refuses_unfrozen_production() -> None:
+    """Eine Trajektorie mit wanderndem Ziel ergibt keinen Produktions-Record."""
+    beta = np.linspace(0.5, 0.8, 50)
+    with pytest.raises(a_kernel.FreezeContractError):
+        a_kernel.split_phases(np.ones(50), beta, warmup_steps=10, burn_in=10, beta_star=0.8)
+
+
+def test_advance_chain_rejects_unfrozen_state_past_freeze() -> None:
+    """Resume eines Zustands hinter dem Freeze mit falschem beta -> fail-closed."""
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.5)
+    state.t = 20
+    a_t = a_kernel.diminishing_step_sizes(40, 0.5, 100.0)
+    H, B = np.empty(40), np.empty(40)
+    with pytest.raises(a_kernel.FreezeContractError):
+        a_kernel.advance_chain(
+            state, rng, CFG, beta_target=0.8, a_t=a_t, t_stop=40, H_out=H, beta_out=B, freeze_at=10
+        )
+
+
+@pytest.mark.parametrize(
+    ("bad", "match"),
+    [(-1, "freeze_at must be >= 0"), (True, "must be an int"), (2.0, "must be an int")],
+    ids=["negative", "bool", "float"],
+)
+def test_advance_chain_rejects_bad_freeze_at(bad, match) -> None:
+    # match noetig: ohne ihn faengt bei -1 der Past-Freeze-Waechter (FreezeContractError
+    # ist ein ValueError) und der eigentliche Waechter bliebe ohne rote Probe (Zensus).
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.5)
+    a_t = a_kernel.diminishing_step_sizes(10, 0.5, 100.0)
+    with pytest.raises(ValueError, match=match):
+        a_kernel.advance_chain(
+            state,
+            rng,
+            CFG,
+            beta_target=0.8,
+            a_t=a_t,
+            t_stop=10,
+            H_out=np.empty(10),
+            beta_out=np.empty(10),
+            freeze_at=bad,
+        )
+
+
+@pytest.mark.parametrize(
+    ("kw", "match"),
+    [
+        (dict(beta_start=0.2), "would be ignored"),  # Start-beta ohne Warm-up
+        (dict(warmup_steps=5), "needs an explicit beta_start"),  # Warm-up ohne Start-beta
+        (dict(warmup_steps=-1, beta_start=0.2), "need 0 <= warmup_steps and"),
+        (dict(warmup_steps=True, beta_start=0.2), "must be an int"),
+        (dict(warmup_steps=90, burn_in=10, beta_start=0.2), "need 0 <= warmup_steps and"),
+    ],
+    ids=["start_without_warmup", "warmup_without_start", "negative", "bool", "window"],
+)
+def test_run_rejects_invalid_freeze_parameters(kw, match) -> None:
+    # match je Fall: sonst faengt ein nachgelagerter Waechter (split_phases, advance_chain)
+    # und der Eingangs-Waechter bliebe ohne eigene rote Probe (Zensus PR #53).
+    base = dict(beta_target=0.8, n_steps=100, burn_in=0, seed=1)
+    base.update(kw)
+    _expect(ValueError, match, lambda: a_kernel.run_adaptive_mcmc(CFG, **base))
+
+
+# --- Checkpoint: Freeze ueber Interrupt/Resume bit-identisch --------------------
+
+
+@pytest.mark.parametrize("interrupt_after", [25, 50, 70, 330])
+def test_resume_across_warmup_and_freeze_is_byte_identical(tmp_path, interrupt_after) -> None:
+    mf = manifest.RunManifest(
+        base_seed=4711, n_chains=2, n_steps=300, burn_in=40, warmup_steps=50, beta_start=0.3, L=16
+    )
+    direct = manifest.run(mf)
+    p = tmp_path / "ck.json"
+    r1 = _no_raise(
+        lambda: checkpoint.run_resumable(
+            mf, p, checkpoint_every=20, interrupt_after=interrupt_after
+        )
+    )
+    assert r1 is None
+    r2 = _no_raise(lambda: checkpoint.resume(p, checkpoint_every=20))
+    assert r2 is not None
+    assert r2.result_hash == direct.result_hash
+
+
+# --- PR #53 Review-Runde 1 (Codex) ---------------------------------------------
+
+
+def test_swendsen_wrapper_reads_only_the_frozen_production_record(monkeypatch) -> None:
+    """P1: validate_swendsen_akernel darf keine Pre-Freeze-Konfiguration sehen.
+
+    Der Wrapper bekommt ein SampleResult, dessen Produktions-Record ein Pre-Freeze-beta
+    traegt; er muss scheitern. Ein direkter Slice res.configs[burn_in:] liefe durch.
+    """
+    from adaptiverg_qec import mcrg
+
+    real = a_kernel.run_adaptive_mcmc
+
+    def tampered(*args, **kwargs):
+        res = real(*args, **kwargs)
+        assert res.production is not None
+        res.production.beta[0] = np.nextafter(res.production.beta_star, 0.0)
+        return res
+
+    # Kontrolle: unmanipuliert laeuft der Wrapper durch.
+    ok = mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=400, burn_in=50, seed=1)
+    assert len(ok) == 1
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", tampered)
+    with pytest.raises(a_kernel.FreezeContractError):
+        mcrg.validate_swendsen_akernel(K_values=(0.3,), L=16, n_steps=400, burn_in=50, seed=1)
+
+
+@pytest.mark.parametrize("freeze_at", [0, 5])
+@pytest.mark.parametrize("bad", [99.0, 0.05, float("nan"), float("inf")])
+def test_advance_chain_rejects_target_outside_theta(freeze_at: int, bad: float) -> None:
+    """P2: der Freeze weist ohne Clip zu -- ein Ziel ausserhalb Theta muss vorher fallen."""
+    state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=0.5)
+    a_t = a_kernel.diminishing_step_sizes(10, 0.5, 100.0)
+    H, B = np.empty(10), np.empty(10)
+    with pytest.raises(ValueError, match="outside compact Theta"):
+        a_kernel.advance_chain(
+            state,
+            rng,
+            CFG,
+            beta_target=bad,
+            a_t=a_t,
+            t_stop=10,
+            H_out=H,
+            beta_out=B,
+            freeze_at=freeze_at,
+        )
+    assert state.t == 0  # kein Sweep gelaufen
+
+
+def test_advance_chain_accepts_targets_on_the_theta_boundary() -> None:
+    """Obere Grenze festnageln: beta_min und beta_max selbst sind zulaessig."""
+    for edge in (CFG.beta_min, CFG.beta_max):
+        state, rng = a_kernel.new_chain_state(CFG, seed=1, beta_start=edge)
+        a_t = a_kernel.diminishing_step_sizes(5, 0.5, 100.0)
+        B = np.empty(5)
+        a_kernel.advance_chain(
+            state, rng, CFG, beta_target=edge, a_t=a_t, t_stop=5, H_out=np.empty(5), beta_out=B
+        )
+        assert np.all(edge == B)
+
+
+@pytest.mark.parametrize("n_prod", [1, 2, 3])
+def test_manifest_rejects_too_few_production_draws(n_prod: int) -> None:
+    """P2: 1-3 Produktions-Sweeps liefen durch alle Ketten und scheiterten erst danach."""
+    with pytest.raises(ValueError, match="production draws"):
+        manifest.RunManifest(
+            n_chains=2, L=16, n_steps=100, warmup_steps=100 - n_prod, burn_in=0, beta_start=0.2
+        )
+
+
+def test_manifest_minimum_production_draws_is_derived_and_sufficient() -> None:
+    from adaptiverg_qec import clt, rhat
+
+    assert max(rhat.MIN_DRAWS_PER_CHAIN, clt.MIN_CLT_SAMPLES) == manifest.MIN_PRODUCTION_DRAWS
+    assert manifest.MIN_PRODUCTION_DRAWS == 4
+    mf = manifest.RunManifest(
+        n_chains=2, L=16, n_steps=100, warmup_steps=96, burn_in=0, beta_start=0.2, base_seed=9
+    )
+    assert mf.n_production == 4
+    res = manifest.run(mf)  # an der Grenze muss das Post-Processing durchlaufen
+    assert len(res.chain_mean_H) == 2
+
+
+def _no_production(real):
+    def wrapped(*args, **kwargs):
+        res = real(*args, **kwargs)
+        res.production = None
+        return res
+
+    return wrapped
+
+
+def test_manifest_run_requires_a_production_record(monkeypatch) -> None:
+    monkeypatch.setattr(manifest, "run_adaptive_mcmc", _no_production(manifest.run_adaptive_mcmc))
+    mf = manifest.RunManifest(n_chains=2, L=16, n_steps=60, burn_in=10, base_seed=1)
+    _expect(RuntimeError, "no production record", lambda: manifest.run(mf))
+
+
+def test_swendsen_wrapper_requires_production_record_and_configs(monkeypatch) -> None:
+    from adaptiverg_qec import mcrg
+
+    real = a_kernel.run_adaptive_mcmc
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", _no_production(real))
+    run = lambda: mcrg.validate_swendsen_akernel(  # noqa: E731
+        K_values=(0.3,), L=16, n_steps=200, burn_in=20, seed=1
+    )
+    _expect(RuntimeError, "no production record", run)
+
+    def no_configs(*args, **kwargs):
+        res = real(*args, **kwargs)
+        object.__setattr__(res.production, "configs", None)
+        return res
+
+    monkeypatch.setattr(a_kernel, "run_adaptive_mcmc", no_configs)
+    _expect(RuntimeError, "production configs", run)
+
+
+def _rehash_checkpoint(path, mutate) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("integrity_sha256")
+    mutate(payload)
+    payload["integrity_sha256"] = hashlib.sha256(checkpoint._canonical_blob(payload)).hexdigest()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda d: d["manifest"].update(schema="adaptiverg_qec.phase5.run_manifest/v1"),
+            "embedded manifest schema mismatch",
+        ),
+        (lambda d: d["manifest"].update(warmup_steps=-5), "embedded manifest invalid"),
+        (lambda d: d["manifest"].update(bogus=1), "embedded manifest invalid"),
+    ],
+    ids=["schema_v1", "bad_value", "unknown_key"],
+)
+def test_resume_rejects_bad_embedded_manifest(tmp_path, mutate, match) -> None:
+    """Checkpoint mit gueltigem Hash, aber v1-/ungueltigem Manifest -> CheckpointError."""
+    mf = manifest.RunManifest(
+        base_seed=4711, n_chains=2, n_steps=120, burn_in=20, warmup_steps=20, beta_start=0.3, L=16
+    )
+    p = tmp_path / "ck.json"
+    assert checkpoint.run_resumable(mf, p, checkpoint_every=20, interrupt_after=50) is None
+    _rehash_checkpoint(p, mutate)
+    _expect(checkpoint.CheckpointError, match, lambda: checkpoint.resume(p, checkpoint_every=20))
+
+
+def test_selftest_gate_g7_passes_and_fails_when_negative_control_is_defeated(monkeypatch) -> None:
+    """G7 selbst diskriminiert: wird der Schaetzer-Waechter entschaerft, muss G7 FAIL melden."""
+    from adaptiverg_qec import cli
+
+    ok, msg = cli._g7_freeze_contract()
+    assert ok, msg
+    monkeypatch.setattr(a_kernel, "production_mean", lambda record: 0.0)
+    ok2, msg2 = cli._g7_freeze_contract()
+    assert not ok2
+    assert "injected pre-freeze rejected=False" in msg2
+
+
+# --- PR #53 Review-Runde 2 (Codex) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [dict(beta_max=float("inf")), dict(beta_min=float("inf"), beta_max=float("inf"))],
+    ids=["max_inf", "both_inf"],
+)
+def test_mvpconfig_requires_compact_theta(kw) -> None:
+    """beta_max=inf liess beta_target=inf durch; jeder Sweep lief vor dem ersten Fehler."""
+    _expect(ValueError, "beta_max must be finite", lambda: MVPConfig(**kw))
+
+
+def test_manifest_requires_compact_theta() -> None:
+    _expect(
+        ValueError,
+        "beta_max must be finite",
+        lambda: manifest.RunManifest(beta_max=float("inf"), beta_target=1.0),
+    )
+
+
+def test_large_finite_theta_is_still_accepted() -> None:
+    """Grenze festnageln: nur Unendlichkeit faellt, nicht ein grosser endlicher Wert."""
+    # _no_raise: ein Waechter, der IMMER feuert, wird so zur Zusicherung (Zensus R2).
+    assert _no_raise(lambda: MVPConfig(beta_max=1e300)).beta_max == 1e300
+    assert _no_raise(lambda: manifest.RunManifest(beta_max=1e300)).beta_max == 1e300
+
+
+def test_results_artifacts_embed_the_current_manifest_schema() -> None:
+    """Jedes in results/*.json eingebettete Run-Manifest traegt das aktuelle Schema und laedt.
+
+    Ein Artefakt mit Schema v1 beschreibt einen Lauf mit wanderndem Ziel, den resume()
+    und load_manifest heute ablehnen -- als Evidenz waere es veraltet (PR #53 R2).
+    """
+    root = Path(__file__).resolve().parents[1] / "results"
+    found = []
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            schema = node.get("schema")
+            if isinstance(schema, str) and schema.startswith("adaptiverg_qec.phase5.run_manifest/"):
+                found.append((where, node))
+            for k, v in node.items():
+                walk(v, f"{where}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{where}[{i}]")
+
+    for f in sorted(root.glob("*.json")):
+        walk(json.loads(f.read_text(encoding="utf-8")), f.name)
+    assert found, "no embedded run manifest found -- the scan itself is blind"
+    for where, node in found:
+        assert node["schema"] == manifest.MANIFEST_SCHEMA, where
+        manifest.RunManifest(**node)  # laedt nach den Regeln des aktuellen Vertrags

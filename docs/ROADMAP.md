@@ -21,12 +21,28 @@ Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad
 ## Phase 2 — Adaptive Steuerung (Diminishing Adaptation + Containment)
 - Lernraten-Schedule η_t = η0/(1+t/T0); Θ auf kompakte Menge (kritischen Punkt ausschliessen).
 - **Akzeptanz:** kein AdapFail; Mischzeiten stochastisch beschränkt.
-- **Stand (Phase 7, 2026-09-27):** für die MVP-Instanz exakt belegt — adaptive Randverteilung
-  `μ_{t+1}=μ_t P_{β_t}` konvergiert (Default-Schedule), `sup_{β∈Θ} t_rel = 18.9` Sweeps
-  (Containment), außerhalb Θ divergent (G48/G49). **[LÜCKE] beziffert:** summierbarer Schedule
-  friert β bei `β_∞ = β_target + (β_0−β_target)·Π(1−a_t)` ein; nur beim Default ist das ≈ β_target.
-  Offen: der Spec-Schedule `η_t = η0/(1+t/T0)` (nicht summierbar, Σ=∞) ist im MVP nicht der
-  implementierte (`a_t = c/(1+t/T0)^2`, summierbar) — Abgleich Spec ↔ Code steht aus.
+- **[KORREKTUR 2026-10-05, Issue #51]** Der Code bewegte das ZIEL β mit dem summierbaren
+  a_t = c/(1+t/T0)² über die ganze Kette, auch in der Produktion. Für 0<a_t<1 gilt
+  β_∞ − β* = (β_0 − β*)·Π(1−a_t) ≠ 0 genau dann, wenn Σa_t < ∞: bei c=0.5, T0=1, 0.1→0.8
+  bleibt β bei 0.8 − 0.7·sin(π/√2)/(π/√2) ≈ 0.549 stehen. Auch beim Default (T0=100)
+  erreicht die Gleitkomma-Iteration β* nie bit-genau (2.5 bzw. 5 ulp darunter, gemessen auf
+  fe25191). Andrieu & Thoms (2008) verlangen Σγ=∞ und Σγ^{1+λ}<∞; Roberts & Rosenthal (2007)
+  setzen ein festes Ziel voraus. Seither gilt: WARM-UP (adaptiv, nur Kalibration) → FREEZE
+  (β := β* per Zuweisung) → FIXED-TARGET BURN-IN → PRODUKTION; Run-Manifest v2 deklariert
+  `warmup_steps` und `burn_in` vor dem Lauf. Der Phase-5-Lauf reproduziert unter dem neuen
+  Vertrag denselben `result_hash` (4f058f80…) wie das alte Artefakt: β lag dort ab ~t=250
+  nur noch ulp neben β*, die Metropolis-Entscheide waren identisch.
+- **Stand (Phase 7, 2026-09-27; nachgezogen auf den Freeze-Vertrag 2026-10-07):** für die
+  MVP-Instanz exakt belegt — adaptive Randverteilung `μ_{t+1}=μ_t P_{β_t}` konvergiert unter
+  WARM-UP → FREEZE (`β:=β*` per Zuweisung) exakt nach `π_{β*}`, selbst beim schlechtesten
+  Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `sup_{β∈Θ} t_rel = 18.9` Sweeps
+  (Containment), außerhalb Θ divergent (G48/G49). **Gegenrichtung (Defektklasse ohne Freeze,
+  Sampler vor #53):** derselbe summierbare Schedule friert β bei
+  `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
+  zuerst beziffert, Issue #51/PR #53 hat ihn im Sampler geschlossen.
+  Offen: der Spec-Schedule `η_t = η0/(1+t/T0)` (nicht summierbar) ist im MVP nicht der
+  implementierte Warm-up-Schedule (`a_t = c/(1+t/T0)^2`); unter dem Freeze-Vertrag ist das
+  nur noch eine Kalibrations-, keine Korrektheitsfrage.
 
 ## Phase 3 — RG-Analyse + Jacobian-Extraktion
 - Stochastische RG-Map R̂, Fixpunkt-Konsistenz (Bias O(n^−β), β>1/2), hyperbolischer Fixpunkt.

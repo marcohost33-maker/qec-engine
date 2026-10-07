@@ -134,6 +134,10 @@ _FOLDED_DEGENERACY_ATOL: float = 16.0 * float(np.finfo(np.float64).smallest_subn
 """Absoluter Boden der folded-Toleranz (16 ulp im Subnormal-Bereich, s.o.)."""
 
 
+MIN_DRAWS_PER_CHAIN: int = 4
+"""Mindestens 4 Ziehungen je Kette: split-R-hat halbiert jede Kette (je >= 2)."""
+
+
 @dataclass(frozen=True)
 class RhatResult:
     """Ergebnis der rank-normalized split-R-hat-Diagnostik."""
@@ -239,8 +243,8 @@ def _as_chains(draws: np.ndarray) -> np.ndarray:
     m, n = a.shape
     if m < 2:
         raise ValueError(f"need >=2 chains for R-hat, got M={m}")
-    if n < 4:
-        raise ValueError(f"need >=4 draws per chain, got n={n}")
+    if n < MIN_DRAWS_PER_CHAIN:
+        raise ValueError(f"need >={MIN_DRAWS_PER_CHAIN} draws per chain, got n={n}")
     if not np.all(np.isfinite(a)):
         raise ValueError("draws contain non-finite values (NaN/Inf)")
     return a

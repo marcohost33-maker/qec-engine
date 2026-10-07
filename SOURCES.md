@@ -392,3 +392,18 @@ Branch `claude/qec-engine-next-steps-coapze` (Agent: Claude).
 - **Issue #48:** `autocorr.tau_int_or_half` (Endlichkeit vor Konstanz); `rhat`-Boden
   `16·smallest_subnormal` (äquivalent zu `16·spacing(scale)` für jede endliche Skala, da
   `spacing(x) ≤ eps·x` für normale x und = 5e-324 für subnormale; kein Überlauf bei DBL_MAX).
+
+---
+
+## Lineage-Append — 2026-10-07: Phase-7 auf den Freeze-Vertrag (#51/#53) nachgezogen
+
+- `mixing.adaptive_beta_schedule` / `adaptive_exact_tv` verlangen jetzt `freeze_at` (kein Default)
+  und spiegeln `a_kernel.advance_chain(freeze_at=...)` bit-genau; `freeze_at = n` bildet die
+  zielwandernde Defektklasse des Samplers vor #53 nach.
+- G48 zweiseitig: Freeze nach 30 Sweeps beim schlechtesten Schedule (c=0.5, T0=1) -> beta ab dem
+  Freeze bit-gleich beta_target, TV zu pi_target < 1e-10; ohne Freeze -> beta_inf ~ 0.549
+  (geschlossene Produktformel), TV-Boden > 0.05.
+- Issue-#48-Teil dieses Zweigs war inzwischen identisch über PR #53 auf main; beim Merge wurde
+  main übernommen (kein Doppel-Fix).
+- Literatur unverändert: Andrieu & Thoms, Stat. Comput. 18, 343–373 (2008); Roberts & Rosenthal,
+  J. Appl. Probab. 44(2), 458–475 (2007) — fester Zielkern nach dem Freeze erfüllt deren Voraussetzung.
