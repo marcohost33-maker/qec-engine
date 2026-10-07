@@ -6,7 +6,7 @@
   "runtime_environment": {
     "package_version": "0.5.0.dev0",
     "distribution_version": "0.5.0.dev0",
-    "git_sha": "b1ce1b4",
+    "git_sha": "f78912c",
     "python": "3.13.16",
     "platform": "Linux-6.18.44-fc-v77-x86_64-with-glibc2.39",
     "machine": "x86_64"
@@ -167,11 +167,11 @@
     },
     {
       "id": "Q4",
-      "name": "manifest JSON round-trip replays bit-identical rows; changed base_seed changes them",
+      "name": "manifest JSON round-trip replays bit-identical outcomes; changed base_seed changes them",
       "status": "PASS",
-      "rows_hash": "8ebd77ae1cd0b1515f3a6c12ec9d50ce7991f68e68aea88df9ac07fc47406b4f",
-      "replay_rows_hash": "8ebd77ae1cd0b1515f3a6c12ec9d50ce7991f68e68aea88df9ac07fc47406b4f",
-      "moved_seed_rows_hash": "83e41f7a955d3b29c953f1590bdcb367fcabb035bc85e6c9bf532fb7ea713ee1"
+      "rows_hash": "48a11ffefa8184016718660c71635cd9a5c6520d74c5489868f73dbc34557871",
+      "replay_rows_hash": "48a11ffefa8184016718660c71635cd9a5c6520d74c5489868f73dbc34557871",
+      "moved_seed_rows_hash": "9c6fcff3fb4b193a8768e9aac4b2d8bad4588397e557a7867ec371bc40fbbe3c"
     },
     {
       "id": "Q5",
@@ -281,26 +281,39 @@
     },
     {
       "id": "Q9",
-      "name": "pairing gain: paired bootstrap CI narrower than unpaired Wald CI (same data)",
+      "name": "pairing gain: paired/unpaired CI width < 0.8; counter-control with the same margins but independent pairing gives no gain (ratio in [0.9, 1.1])",
       "status": "PASS",
       "widths": [
         {
           "d": 3,
-          "paired": 0.001825,
-          "unpaired": 0.004124029413256641
+          "paired_ratio": 0.4425283665857378,
+          "independent_pairing_ratio": 0.9941733167131644,
+          "independent_table": {
+            "n00": 38209,
+            "n01": 876,
+            "n10": 894,
+            "n11": 21
+          }
         },
         {
           "d": 5,
-          "paired": 0.002325,
-          "unpaired": 0.0038681727123004426
+          "paired_ratio": 0.6010589942395044,
+          "independent_pairing_ratio": 1.001764990399174,
+          "independent_table": {
+            "n00": 38426,
+            "n01": 693,
+            "n10": 865,
+            "n11": 16
+          }
         }
       ]
     },
     {
       "id": "Q10",
-      "name": "A/B baseline equals run_experiment_manifest; A/B rerun bit-identical",
+      "name": "A/B baseline: same seed + failure count as run_experiment_manifest; A/B rerun shot-identical (failure-vector SHA-256)",
       "status": "PASS",
-      "baseline_matches_manifest_run": true
+      "baseline_matches_manifest_run": true,
+      "rerun_shot_identical": true
     }
   ],
   "n_pass": 10,
@@ -348,6 +361,8 @@
           "shots": 40000,
           "hyperedges": 208,
           "decisions_identical": false,
+          "baseline_failures_sha256": "f7e009ca7708fc59ae0c9d69f748758a00de48017a552dacd57c03de0d1fcb5c",
+          "candidate_failures_sha256": "c384131c2665ff030e3affdee76c32fafdfde76a670eda21a21be152e760ddd5",
           "table": {
             "n00": 38915,
             "n01": 170,
@@ -402,6 +417,8 @@
           "shots": 40000,
           "hyperedges": 1451,
           "decisions_identical": false,
+          "baseline_failures_sha256": "04381d822b64bd87b2b8aa5fa1bf77754485323974c775e1280a7c3937eb1178",
+          "candidate_failures_sha256": "18ce332ad13aa02d54e53ba6f355d72e6d0ce59070ed20360cc0ba3226077f87",
           "table": {
             "n00": 38923,
             "n01": 196,
@@ -493,6 +510,8 @@
           "shots": 20000,
           "hyperedges": 0,
           "decisions_identical": true,
+          "baseline_failures_sha256": "47d60f2856cdfd86bb20f1422568545ad18a7ebdd9a580dd5fa35e43664517cc",
+          "candidate_failures_sha256": "47d60f2856cdfd86bb20f1422568545ad18a7ebdd9a580dd5fa35e43664517cc",
           "table": {
             "n00": 19724,
             "n01": 0,
@@ -547,6 +566,8 @@
           "shots": 20000,
           "hyperedges": 0,
           "decisions_identical": true,
+          "baseline_failures_sha256": "73202c0f23cf70dcf32ce64b0ceec30792e6a09b4326866b00fd2558d8319aae",
+          "candidate_failures_sha256": "73202c0f23cf70dcf32ce64b0ceec30792e6a09b4326866b00fd2558d8319aae",
           "table": {
             "n00": 19896,
             "n01": 0,
@@ -653,5 +674,5 @@
     }
   },
   "claim_ceiling": "bounded simulation (T1-candidate): orderings, replay and paired decoder accuracy on declared Stim noise contracts; no threshold value, no FSS, no latency claim",
-  "elapsed_s": 4.93
+  "elapsed_s": 5.28
 }
