@@ -14,6 +14,10 @@ Gates (jedes gegen ein UNABHAENGIGES Orakel, Codie-Disziplin):
   G6 Reproducibility:    gleicher Seed -> bit-identische Trajektorie.
   G7 Freeze-Vertrag:    Warm-up -> exakter Freeze -> Produktion bei beta_star (#51).
   G8 Negative/Edge-Input: invalide Eingaben werfen sauber (Silent-Failure-Gate).
+  ...
+  G46-G49 (Phase 7): exakte TV-Mischung im Spektral-Sandwich, echter Sampler im
+      TV-Band des exakten Kerns, adaptive Kette exakt (inkl. eingefrorener
+      summierbarer Adaption), Containment-Profil t_rel(beta).
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from . import (
     mcrg,
     mcrg_matrix,
     mcrg_multirg,
+    mixing,
     rg_map,
     snis,
     surrogate,
@@ -1439,6 +1444,280 @@ def _g45_checkpoint_lock_and_tamper() -> tuple[bool, str]:
     )
 
 
+# --- Phase-7: exakte TV-Mischung (Phase-1/2-Akzeptanz) ------------------------
+
+_MIX_L = 6
+_STATIONARY_TOL_DIST = 1e-15
+_STATIONARY_TOL_ENERGY = 1e-12
+
+
+def _stationary_oracle(L: int, betas: tuple[float, ...]) -> dict:
+    """pi_beta (mixing) gegen das separat geschriebene ising1d-Orakel, GEMESSEN.
+
+    Codex P2 (PR #49, README:281): die README nannte "1e-15" als Phase-7-Evidenz, das
+    Artefakt trug aber nur den Orakel-NAMEN. Jetzt stehen gemessener Fehler, Toleranz und
+    Urteil im Artefakt (und G46 haengt am selben Urteil). ising1d verlangt beta > 0.
+    """
+    rows = []
+    for beta in betas:
+        pi = mixing.stationary_distribution(L, beta)
+        err_d = float(np.max(np.abs(pi - np.asarray(ising1d.exact_distribution(beta, L)))))
+        err_e = abs(float(pi @ mixing.hamiltonians(L)) - ising1d.mean_energy(beta, L))
+        rows.append({"beta": beta, "max_abs_err_distribution": err_d, "abs_err_mean_energy": err_e})
+    max_d = max(r["max_abs_err_distribution"] for r in rows)
+    max_e = max(r["abs_err_mean_energy"] for r in rows)
+    return {
+        "oracle": "ising1d.exact_distribution / ising1d.mean_energy (independent enumeration)",
+        "per_beta": rows,
+        "max_abs_err_distribution": max_d,
+        "max_abs_err_mean_energy": max_e,
+        "tol_distribution": _STATIONARY_TOL_DIST,
+        "tol_mean_energy": _STATIONARY_TOL_ENERGY,
+        "pass": bool(max_d <= _STATIONARY_TOL_DIST and max_e <= _STATIONARY_TOL_ENERGY),
+    }
+
+
+def _g46_tv_spectral_sandwich() -> tuple[bool, str]:
+    """Phase-1-Akzeptanz: exakte d(t) liegt im Spektral-Sandwich und faellt mit lambda_*.
+
+    lambda_*^t/2 <= d(t) <= sqrt((1-pi_min)/pi_min) lambda_*^t/2 (LPW 2017 Kap. 12);
+    die gefittete Rate der exakten TV-Kurve trifft lambda_* (<1 %). Gegenrichtung:
+    beta=0 (jeder Flip akzeptiert, L gerade -> Paritaet erhalten) wird als NICHT
+    geometrisch ergodisch geflaggt (lambda_*=1, TV bleibt >= 0.49).
+    """
+    roundoff = 1e-13
+    details = []
+    ok = True
+    for beta in (0.3, 0.8, 1.5):
+        P = mixing.sweep_kernel(_MIX_L, beta)
+        pi = mixing.stationary_distribution(_MIX_L, beta)
+        lower, d, upper, spec = mixing.tv_sandwich(P, pi, 40)
+        rate, _ = mixing.fit_geometric_rate(mixing.exact_tv_curve(P, pi, 0, 30), floor=1e-12)
+        inside = bool(np.all(lower <= d + roundoff) and np.all(d <= upper + roundoff))
+        rate_ok = abs(rate - spec.lambda_star) / spec.lambda_star < 0.01
+        ok = ok and inside and rate_ok and spec.geometrically_ergodic
+        details.append(f"b={beta}: lam*={spec.lambda_star:.4f} fit={rate:.4f}")
+    P0 = mixing.sweep_kernel(_MIX_L, 0.0)
+    pi0 = mixing.stationary_distribution(_MIX_L, 0.0)
+    spec0 = mixing.spectral_summary(P0, pi0)
+    flagged = (not spec0.geometrically_ergodic) and (
+        mixing.exact_tv_curve(P0, pi0, 0, 50)[-1] >= 0.49
+    )
+    stat = _stationary_oracle(_MIX_L, (0.3, 0.8, 1.5))
+    return ok and flagged and stat["pass"], (
+        "; ".join(details)
+        + f"; beta=0 flagged={flagged}; pi vs ising1d max err "
+        + f"{stat['max_abs_err_distribution']:.1e} (<= {_STATIONARY_TOL_DIST:.0e})"
+    )
+
+
+def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
+    """Sampler-vs-kernel gate with a predeclared finite-family error budget.
+
+    The 13 looks t=0..12 share family_delta=1e-6 via Bonferroni/union bound.
+    This is not an anytime-valid claim.
+
+    Second, separately budgeted test (Codex P2, PR #49): the step count per sweep.
+    The 12-sweep band cannot tell L-1 or L+1 single-flip steps from L; one sweep
+    from the alternating start x0=21 at beta=0.3 can, via the parity sign
+    (mixing.parity_band_ratio, Hoeffding delta=1e-6). Both tests together: false
+    alarm <= 2e-6.
+    """
+    emp = mixing.empirical_tv_curve(_MIX_L, 0.8, x0=0, n_chains=4000, n_sweeps=12, seed=7)
+    family_delta = 1e-6
+    r_true = mixing.marginal_family_band_ratio(
+        emp, mixing.sweep_kernel(_MIX_L, 0.8), family_delta=family_delta
+    )
+    r_wrong = mixing.marginal_family_band_ratio(
+        emp, mixing.sweep_kernel(_MIX_L, 1.2), family_delta=family_delta
+    )
+    par = _parity_step_check(seed=7)
+    ok = _empirical_band_accepts(r_true, r_wrong) and par["pass"]
+    return ok, (
+        f"family band ratio true-kernel={r_true:.3f} (<=1), "
+        f"wrong beta=1.2 -> {r_wrong:.2f} (>2); "
+        f"1-sweep parity ratio L={par['ratio_L']:.2f} (<=1), "
+        f"L-1={par['ratio_L_minus_1']:.2f}, L+1={par['ratio_L_plus_1']:.2f} (>3)"
+    )
+
+
+def _empirical_band_accepts(r_true: float, r_wrong: float) -> bool:
+    """Akzeptanz des familienweisen TV-Bands: G47 UND phase7 urteilen hiermit.
+
+    Codex P2 (PR #49, cli.py:2217): phase7 schrieb diese Zahlen ins Artefakt, urteilte
+    aber nicht darueber. Positiv formuliert, damit NaN durchfaellt.
+    """
+    return bool(r_true <= 1.0 and r_wrong > 2.0)
+
+
+def _parity_step_check(*, seed: int) -> dict:
+    """Ein-Sweep-Paritaetstest gegen L-1 / L / L+1 Einzelschritte (G47 und phase7).
+
+    Vom alternierenden Start x0=21 bei beta=0.3 nach EINEM Sweep: der echte Sampler muss
+    P_1^L treffen (ratio <= 1) und beide Nachbarkerne P_1^{L+-1} verwerfen (> 3),
+    Hoeffding delta=1e-6. Sieht nur ungerade Versaetze (L+-2 bleibt schwach).
+    """
+    beta, x0, n_chains, delta = 0.3, 21, 4000, 1e-6
+    one = mixing.empirical_tv_curve(_MIX_L, beta, x0=x0, n_chains=n_chains, n_sweeps=1, seed=seed)
+    P1 = mixing.single_flip_kernel(_MIX_L, beta)
+    q = {
+        k: mixing.parity_band_ratio(one, np.linalg.matrix_power(P1, k), delta=delta)
+        for k in (_MIX_L - 1, _MIX_L, _MIX_L + 1)
+    }
+    return {
+        "beta": beta,
+        "x0": x0,
+        "n_chains": n_chains,
+        "n_sweeps": 1,
+        "delta": delta,
+        "seed": seed,
+        "ratio_L": q[_MIX_L],
+        "ratio_L_minus_1": q[_MIX_L - 1],
+        "ratio_L_plus_1": q[_MIX_L + 1],
+        "acceptance": "ratio_L <= 1 and ratio_L_minus_1 > 3 and ratio_L_plus_1 > 3",
+        "pass": bool(q[_MIX_L] <= 1.0 and q[_MIX_L - 1] > 3.0 and q[_MIX_L + 1] > 3.0),
+    }
+
+
+def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
+    """Phase-2: exakte Randverteilung der adaptiven Kette unter dem Freeze-Vertrag (#51).
+
+    beta_t-Schedule bit-identisch zu run_adaptive_mcmc(warmup_steps=W). Mit Freeze
+    konvergiert mu_t exakt nach pi_target, auch beim SCHLECHTESTEN Warm-up-Schedule
+    (c=0.5, T0=1): TV_end < 1e-10, beta ab dem Freeze bit-gleich beta_target.
+    Gegenrichtung (Defektklasse ohne Freeze, alter Sampler): derselbe Schedule friert
+    beta bei beta_inf ~ 0.549 ein (geschlossene Produktformel), TV-Boden > 0.05.
+    """
+    cfg = MVPConfig(L=_MIX_L, beta_min=0.1, beta_max=2.0)
+    n, warm = 400, 30
+    a_t = a_kernel.diminishing_step_sizes(n, 0.5, 1.0)
+    run = a_kernel.run_adaptive_mcmc(
+        cfg,
+        beta_target=0.8,
+        n_steps=80,
+        burn_in=10,
+        seed=1,
+        beta_start=0.1,
+        adapt_c=0.5,
+        adapt_T0=1.0,
+        warmup_steps=warm,
+    )
+    sched = mixing.adaptive_beta_schedule(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t[:80], freeze_at=warm
+    )
+    identical = bool(np.array_equal(run.beta_traj, sched))
+    frozen_ok = mixing.adaptive_exact_tv(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=warm
+    )
+    # Codex P2 (PR #49, cli.py:1615): ohne beta_limit misst adaptive_exact_tv gegen den
+    # LETZTEN endlichen Schedule-Wert (beta_400 = 0.54896), nicht gegen den Grenzwert der
+    # unendlichen Schedule (0.54927). Erst den Grenzwert (geschlossene Produktformel, ohne
+    # Clip gueltig: beta waechst monoton in Theta) bestimmen und durchreichen.
+    closed = 0.8 - 0.7 * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, 0.5, 1.0)))
+    no_freeze = mixing.adaptive_exact_tv(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=n, beta_limit=closed
+    )
+    longer = mixing.adaptive_exact_tv(
+        cfg,
+        beta_start=0.1,
+        beta_target=0.8,
+        a_t=a_kernel.diminishing_step_sizes(10 * n, 0.5, 1.0),
+        x0=0,
+        freeze_at=10 * n,
+        beta_limit=closed,
+    )
+    pi_inf = mixing.stationary_distribution(_MIX_L, closed)
+    drift = mixing.tv_distance(
+        mixing.stationary_distribution(_MIX_L, float(no_freeze.beta_traj[-1])), pi_inf
+    )
+    exact_after_freeze = bool(np.all(frozen_ok.beta_traj[warm:] == 0.8))
+    ok = (
+        identical
+        and exact_after_freeze
+        and frozen_ok.frozen_floor == 0.0
+        and frozen_ok.tv_to_target[-1] < 1e-10
+        and no_freeze.beta_limit == closed
+        and abs(float(longer.beta_traj[-1]) - closed) < abs(float(no_freeze.beta_traj[-1]) - closed)
+        # Boden gegen den WAHREN Grenzwert, nicht gegen beta_400.
+        and no_freeze.frozen_floor > 0.05
+        # Nach n Sweeps trennt mu_n von pi_{beta_inf} nur noch die unvollendete Schedule
+        # (TV(pi_{beta_n}, pi_{beta_inf}) -> 0, weil beta_n -> beta_inf); die Kette selbst
+        # folgt ihrem momentanen Kern bis auf 1e-6 ...
+        and no_freeze.tv_to_limit[-1] <= drift + 1e-6
+        # ... und der Abstand zum WAHREN Grenzwert faellt mit dem Horizont (O(1/n)).
+        and longer.tv_to_limit[-1] < no_freeze.tv_to_limit[-1] / 5
+        and no_freeze.tv_to_limit[-1] < 0.01 * no_freeze.frozen_floor
+    )
+    return ok, (
+        f"schedule bit-identical={identical}; freeze@{warm}: beta exact={exact_after_freeze}, "
+        f"TV_end={frozen_ok.tv_to_target[-1]:.1e}; no freeze: "
+        f"beta_inf={closed:.6f} (closed form; beta_{n}={no_freeze.beta_traj[-1]:.6f}), "
+        f"floor={no_freeze.frozen_floor:.4f}, TV(mu_t, pi_beta_inf) at t={n}: "
+        f"{no_freeze.tv_to_limit[-1]:.1e}, t={10 * n}: {longer.tv_to_limit[-1]:.1e}"
+    )
+
+
+def _containment_accepts(
+    sup: mixing.RelaxationSupBound, *, betas_far: np.ndarray, t_rel_far: np.ndarray
+) -> bool:
+    """Containment-Urteil: G49 UND phase7 urteilen hiermit (eine Stelle, ein Praedikat).
+
+    Codex P2 (PR #49, cli.py:2282): phase7 pruefte nur ``upper_bound < 25``; ein
+    invertiertes Intervall, ein zu grosser Eigenwert-Einschliessungsradius oder eine
+    nicht mehr greifende Kontrolle ausserhalb Theta ergaben trotzdem Exit 0.
+
+    Ausserhalb Theta (Codex P2, cli.py:1651): die DIVERGENZ fuer beta -> inf ist bewiesen
+    (mixing.relaxation_time_divergence_lower_bound, t_rel >= e^{2 beta}/(2 N m)), nicht
+    gemessen. Geprueft wird hier, dass die exakten Werte diese Schranke an jedem
+    ausgewerteten beta einhalten (sonst ist der analysierte Kern nicht der berechnete)
+    und, als gemessene endliche Verlangsamung, t_rel(6) > 1e4. Positiv formuliert, damit
+    NaN in jedem Feld zufaellt.
+    """
+    betas_far = np.asarray(betas_far, dtype=np.float64)
+    t_rel_far = np.asarray(t_rel_far, dtype=np.float64)
+    at_6 = t_rel_far[betas_far == 6.0]
+    above_proven = all(
+        t >= mixing.relaxation_time_divergence_lower_bound(_MIX_L, b)
+        for b, t in zip(betas_far, t_rel_far, strict=True)
+    )
+    return bool(
+        math.isfinite(sup.upper_bound)
+        and sup.lower_bound <= sup.upper_bound < 25.0
+        and sup.eigen_radius_max < 1e-9
+        and at_6.size == 1
+        and at_6[0] > 1e4
+        and above_proven
+    )
+
+
+def _g49_containment_relaxation_time() -> tuple[bool, str]:
+    """Containment: sup_{beta in Theta} t_rel(beta) endlich; ausserhalb divergent.
+
+    Theta=[0.1, 2.0] -> sup t_rel < 25 Sweeps, als RIGOROSE Intervallschranke ueber das
+    GANZE Theta (Weyl, mixing.relaxation_time_sup_bound, h=0.01), nicht nur auf Gitter-
+    punkten (Codex P2, PR #49: t_rel ist nicht monoton). Die Eigenwerte je Gitterpunkt
+    sind a posteriori eingeschlossen (Codex P2, mixing.py:686), keine feste Polsterung.
+    Gegenrichtung: Richtung kritischer Punkt (beta_c = inf fuer 1D) waechst t_rel
+    unbeschraenkt -- BEWIESEN ueber die Engpass-Schranke t_rel >= e^{2 beta}/120 (L=6,
+    mixing.relaxation_time_divergence_lower_bound; Codex P2, cli.py:1651), die exakten
+    Werte bei beta=4, 6 halten sie ein, gemessen t_rel(6) > 1e4 -- der Grund, warum Theta
+    den kritischen Punkt ausschliessen muss (Spec 4.2).
+    """
+    sup = mixing.relaxation_time_sup_bound(_MIX_L, 0.1, 2.0, step=0.01)
+    betas_far = np.array([4.0, 6.0])
+    far = mixing.relaxation_time_profile(_MIX_L, betas_far)
+    ok = _containment_accepts(sup, betas_far=betas_far, t_rel_far=far)
+    proven = [mixing.relaxation_time_divergence_lower_bound(_MIX_L, b) for b in betas_far]
+    return ok, (
+        f"{sup.lower_bound:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
+        f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}, "
+        f"certified eigen radius <= {sup.eigen_radius_max:.1e}); "
+        f"t_rel(4)={far[0]:.0f} >= {proven[0]:.0f}, t_rel(6)={far[1]:.0f} >= {proven[1]:.0f} "
+        f"(proven t_rel >= e^(2beta)/{2 * math.comb(_MIX_L, _MIX_L // 2 + 1) * (_MIX_L // 2 + 1)}"
+        f" -> inf as beta -> beta_c=inf; Cheeger, LPW Thm 13.10)"
+    )
+
+
 _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G1 Analytic-Oracle (MCMC vs Transfer-Matrix)", _g1_analytic_oracle),
     ("G2 Drift-Guard holds (equilib lambda<1)", _g2_drift_holds),
@@ -1488,6 +1767,13 @@ _GATES: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
     ("G43 DA savings + surrogate drift-guard both ways", _g43_da_savings_and_drift_guard),
     ("G44 checkpoint resume byte-identical hash", _g44_checkpoint_resume_byte_identical),
     ("G45 checkpoint lockfile + tamper fail-closed", _g45_checkpoint_lock_and_tamper),
+    ("G46 exact TV in spectral sandwich + beta=0 flagged", _g46_tv_spectral_sandwich),
+    ("G47 real sampler within TV band of exact kernel", _g47_sampler_carries_exact_kernel),
+    (
+        "G48 adaptive chain exact TV: freeze -> pi_target; no freeze -> floor",
+        _g48_adaptive_chain_exact_tv,
+    ),
+    ("G49 containment: t_rel bounded on Theta, diverges out", _g49_containment_relaxation_time),
 ]
 
 
@@ -1849,6 +2135,252 @@ def run_phase6(*, json_path: str | None = None, seed: int = 20260809) -> int:
     return 0
 
 
+def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
+    """Phase-7-Lauf: exakte TV-Mischung + adaptive Kette + Containment-Profil.
+
+    Erzeugt das regenerierbare Artefakt results/phase7-mixing-tv.json.
+    """
+    L = _MIX_L
+    kernels = []
+    for beta in (0.0, 0.3, 0.8, 1.5, 2.0):
+        P = mixing.sweep_kernel(L, beta)
+        pi = mixing.stationary_distribution(L, beta)
+        lower, d, upper, spec = mixing.tv_sandwich(P, pi, 30)
+        row = {
+            "beta": beta,
+            "lambda_star": spec.lambda_star,
+            "abs_spectral_gap": spec.abs_spectral_gap,
+            "relaxation_time_sweeps": spec.relaxation_time
+            if math.isfinite(spec.relaxation_time)
+            else None,
+            "geometrically_ergodic": spec.geometrically_ergodic,
+            "reversibility_residual": spec.reversibility_residual,
+            "similarity_asymmetry": spec.similarity_asymmetry,
+            "d_t": [float(v) for v in d[:16]],
+            "lower_t": [float(v) for v in lower[:16]],
+            "upper_t": [float(v) for v in upper[:16]],
+        }
+        if spec.geometrically_ergodic:
+            rate, used = mixing.fit_geometric_rate(mixing.exact_tv_curve(P, pi, 0, 30), floor=1e-12)
+            row["fitted_rate_from_x0_0"] = rate
+            row["fit_points"] = used
+        kernels.append(row)
+        print(
+            f"  beta={beta:.1f}: lambda*={spec.lambda_star:.4f} "
+            f"t_rel={spec.relaxation_time:.3g} geo-ergodic={spec.geometrically_ergodic}"
+        )
+
+    beta_emp, n_chains, n_sweeps = 0.8, 4000, 12
+    emp = mixing.empirical_tv_curve(
+        L, beta_emp, x0=0, n_chains=n_chains, n_sweeps=n_sweeps, seed=seed
+    )
+    P = mixing.sweep_kernel(L, beta_emp)
+    pi = mixing.stationary_distribution(L, beta_emp)
+    family_delta = 1e-6
+    n_looks = n_sweeps + 1
+    per_look_delta = family_delta / n_looks
+    band = mixing.empirical_tv_family_band(P, 0, n_sweeps, n_chains, family_delta)
+    empirical = {
+        "evidence_semantics_version": 2,
+        "beta": beta_emp,
+        "n_chains": n_chains,
+        "n_sweeps": n_sweeps,
+        "x0": 0,
+        "family_delta": family_delta,
+        "n_looks": n_looks,
+        "per_look_delta": per_look_delta,
+        "multiplicity_method": "bonferroni_union_bound_v1",
+        "scope_note": "predeclared finite family t=0..n_sweeps; not anytime-valid",
+        "tv_empirical": [float(v) for v in emp.tv],
+        "tv_exact": [float(v) for v in mixing.exact_tv_curve(P, pi, 0, n_sweeps)],
+        "band_halfwidth": [float(v) for v in band],
+        "marginal_band_ratio_true_kernel": mixing.marginal_family_band_ratio(
+            emp, P, family_delta=family_delta
+        ),
+        "marginal_band_ratio_beta_1_2": mixing.marginal_family_band_ratio(
+            emp, mixing.sweep_kernel(L, 1.2), family_delta=family_delta
+        ),
+        "acceptance": "marginal_band_ratio_true_kernel <= 1 and marginal_band_ratio_beta_1_2 > 2",
+    }
+    empirical["pass"] = _empirical_band_accepts(
+        empirical["marginal_band_ratio_true_kernel"], empirical["marginal_band_ratio_beta_1_2"]
+    )
+    # Codex P2 (PR #49, cli.py:2217): der Paritaetstest gehoert in DIESEN Lauf, nicht
+    # nur in den Selftest -- sonst besteht eine L+-1-Regression den Regenerationspfad.
+    empirical["parity_step_check"] = _parity_step_check(seed=seed)
+    par = empirical["parity_step_check"]
+    print(
+        f"  sampler vs exact kernel: band ratio {empirical['marginal_band_ratio_true_kernel']:.3f}"
+        f" (wrong beta: {empirical['marginal_band_ratio_beta_1_2']:.2f}) pass={empirical['pass']}"
+    )
+    print(
+        f"  1-sweep parity: L={par['ratio_L']:.2f} L-1={par['ratio_L_minus_1']:.2f} "
+        f"L+1={par['ratio_L_plus_1']:.2f} pass={par['pass']}"
+    )
+
+    cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
+    adaptive = []
+    # freeze_at = n: Defektklasse ohne Freeze (alter Sampler); freeze_at = 30: Vertrag #51.
+    for c, T0, n, freeze_at in (
+        (0.5, 100.0, 300, 300),
+        (0.5, 1.0, 400, 400),
+        (0.05, 1.0, 400, 400),
+        (0.5, 1.0, 400, 30),
+        (0.05, 1.0, 400, 30),
+    ):
+        prod = float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
+        # Codex P2 (cli.py:1615), gleiche Klasse: ohne Freeze ist der Grenzwert der
+        # UNENDLICHEN Schedule (geschlossene Produktformel) das Ziel von tv_to_limit und
+        # frozen_floor, nicht der letzte endliche Schedule-Wert. Mit Freeze ist der letzte
+        # Wert beta_target selbst -- greift der Freeze nicht, zeigt der Boden genau das.
+        closed = 0.8 - 0.7 * prod if freeze_at >= n else 0.8
+        r = mixing.adaptive_exact_tv(
+            cfg,
+            beta_start=0.1,
+            beta_target=0.8,
+            a_t=a_kernel.diminishing_step_sizes(n, c, T0),
+            x0=0,
+            freeze_at=freeze_at,
+            beta_limit=closed if freeze_at >= n else None,
+        )
+        adaptive.append(
+            {
+                "adapt_c": c,
+                "adapt_T0": T0,
+                "n_sweeps": n,
+                "freeze_at": freeze_at,
+                "frozen": freeze_at < n,
+                "beta_start": 0.1,
+                "beta_target": 0.8,
+                "beta_limit_schedule_end": float(r.beta_traj[-1]),
+                # Ohne Freeze: geschlossene Produktformel; mit Freeze: exakt beta_target.
+                # tv_to_limit_end und frozen_floor_tv beziehen sich auf DIESEN Wert.
+                "beta_limit_closed_form_1e6": closed,
+                "beta_limit_used": r.beta_limit,
+                "frozen_floor_tv": r.frozen_floor,
+                "tv_to_target_end": float(r.tv_to_target[-1]),
+                "tv_to_limit_end": float(r.tv_to_limit[-1]),
+                "tv_to_target_checkpoints": {
+                    str(t): float(r.tv_to_target[t]) for t in (0, 5, 10, 20, 50, 100, n)
+                },
+            }
+        )
+        print(
+            f"  adaptive c={c} T0={T0} freeze_at={freeze_at}: beta_inf={r.beta_limit:.6f} "
+            f"floor={r.frozen_floor:.4f} TV_end={r.tv_to_target[-1]:.2e}"
+        )
+
+    grid = np.round(np.linspace(0.1, 2.0, 20), 6)
+    far = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
+    sup = mixing.relaxation_time_sup_bound(L, 0.1, 2.0, step=0.002)
+    t_rel_far = mixing.relaxation_time_profile(L, far)
+    containment = {
+        "theta": [0.1, 2.0],
+        "beta_grid": grid.tolist(),
+        "t_rel_sweeps": mixing.relaxation_time_profile(L, grid).tolist(),
+        "beta_beyond_theta": far.tolist(),
+        "t_rel_beyond_theta": t_rel_far.tolist(),
+        # Codex P2 (cli.py:2282): dasselbe vollstaendige Urteil wie G49, nicht nur upper<25.
+        "pass": _containment_accepts(sup, betas_far=far, t_rel_far=t_rel_far),
+        # Codex P2 (cli.py:1651): die Divergenz ist bewiesen, nicht aus t_rel(6) gefolgert.
+        "divergence_lower_bound_beyond_theta": [
+            mixing.relaxation_time_divergence_lower_bound(L, b) for b in far
+        ],
+        "divergence_proof": "t_rel(beta) >= e^(2 beta) / (2 N m), m = floor(L/2)+1, "
+        "N = C(L, m); bottleneck S = {more than L/2 ones}, Phi(S) <= N (m/L) e^(-2 beta), "
+        "1 - lambda_2(P_1) <= 2 Phi (Levin/Peres/Wilmer 2017, Thm 13.10), "
+        "lambda_*(P_1^L) >= lambda_2(P_1)^L; hence t_rel -> inf as beta -> inf. The "
+        "exact t_rel_beyond_theta must lie above it (checked in pass).",
+        # Codex P2 (PR #49): ein Gittermaximum ist KEIN Supremum (t_rel nicht monoton).
+        "sup_t_rel_on_theta": {
+            # Codex P2 (mixing.py:686): beide Schranken mit zertifizierter Eigenwert-
+            # Einschliessung; grid_max_numerical ist die unzertifizierte Punktschaetzung.
+            "lower_bound_grid_max": sup.lower_bound,
+            "grid_max_numerical": sup.grid_max,
+            "grid_argmax_beta": sup.grid_argmax,
+            "upper_bound_rigorous": sup.upper_bound,
+            "grid_step": sup.step,
+            "n_grid_points": sup.n_points,
+            "eigen_enclosure_radius_max": sup.eigen_radius_max,
+            "exp_rel_err_max_measured": sup.exp_rel_err_max,
+            "method": "Weyl eigenvalue perturbation on A_1(beta) with the monotone "
+            "entrywise |dA_1/dbeta| at the left interval end; t_rel = 1/(1-mu_*^L); "
+            "mu_* at each grid point enclosed a posteriori (residual + orthogonality "
+            "defect of the computed eigenvectors, polar-decomposition/Weyl argument) "
+            "plus the matrix-construction error with np.exp measured against Decimal",
+            "assumptions": "IEEE-754 binary64 standard model (round-to-nearest; any "
+            "summation order in BLAS, no Strassen); np.exp is measured, not assumed",
+        },
+    }
+    print(
+        f"  containment: {sup.lower_bound:.4f} <= sup_Theta t_rel <= {sup.upper_bound:.4f} "
+        f"(h={sup.step:.3g}, {sup.n_points} points)"
+    )
+    stationary = _stationary_oracle(L, (0.3, 0.8, 1.5, 2.0))
+    print(
+        f"  stationary oracle: max|pi - ising1d| = {stationary['max_abs_err_distribution']:.2e}"
+        f" pass={stationary['pass']}"
+    )
+
+    if json_path:
+        payload = {
+            "phase": "7",
+            "title": "Exact TV mixing of the A-kernel + adaptive chain + containment",
+            "instance": f"1D repetition-code ring, L={L}, |X|=2^L={2**L}",
+            "oracles": {
+                "sandwich": "lambda_*^t/2 <= d(t) <= sqrt((1-pi_min)/pi_min) lambda_*^t/2 "
+                "(Levin/Peres/Wilmer 2017, ch. 12)",
+                "empirical_band": "|TV_emp - TV_exact| <= 1/2 sum sqrt(p(1-p)/n) "
+                "+ sqrt(ln(2 n_looks/family_delta)/(2n)) for ALL t=0..n_sweeps "
+                "simultaneously (Jensen + McDiarmid per look, Bonferroni over n_looks)",
+                "stationary": "ising1d.exact_distribution / mean_energy",
+            },
+            "kernels": kernels,
+            "stationary_oracle": stationary,
+            "empirical_sampler": empirical,
+            "adaptive_chain": adaptive,
+            "containment": containment,
+            "honest_scope": "exact only for 2^L <= 4096 states (1D ring); no statement "
+            "about 2D/RBIM mixing. WITHOUT a freeze (the pre-#51 sampler), summable "
+            "schedules converge to pi_{beta_inf}, which equals pi_{beta_target} only when "
+            "prod(1-a_t) is negligible; under the freeze contract (#51/#53) the chain is "
+            "time-homogeneous after freeze_at and converges to pi_{beta_target}.",
+            "seed": seed,
+        }
+        out_path = _resolve_json_path(json_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"  artifact -> {out_path}")
+    # Fail-closed: ein gerissenes Orakel / eine offene Containment-Schranke / ein Sampler,
+    # der den exakten Kern (Band) oder die Schrittzahl (Paritaet) verfehlt, ist kein
+    # erfolgreicher Evidenzlauf, auch wenn das Artefakt (zur Diagnose) geschrieben wurde.
+    failed = [
+        name
+        for name, ok in (
+            ("stationary oracle", stationary["pass"]),
+            ("containment bound", containment["pass"]),
+            ("sampler TV band", empirical["pass"]),
+            ("one-sweep parity", empirical["parity_step_check"]["pass"]),
+            # Dieselbe Klasse wie der Codex-Befund, gegen den eigenen Lauf gerichtet: auch der
+            # Freeze-Vertrag (#51/#53) steht als Evidenz im Artefakt und muss den Lauf tragen.
+            (
+                "freeze contract",
+                all(
+                    r["frozen_floor_tv"] == 0.0 and r["tv_to_target_end"] < 1e-10
+                    for r in adaptive
+                    if r["frozen"]
+                ),
+            ),
+        )
+        if not ok
+    ]
+    if failed:
+        print(f"  [FAIL] {', '.join(failed)}")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adaptiverg_qec",
@@ -1858,10 +2390,11 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         nargs="?",
         default="demo",
-        choices=["demo", "selftest", "phase5", "phase6"],
+        choices=["demo", "selftest", "phase5", "phase6", "phase7"],
         help=(
             "demo (default), selftest, phase5 (CLT + R-hat + manifest), "
-            "or phase6 (SNIS + surrogate-DA + checkpoint)"
+            "phase6 (SNIS + surrogate-DA + checkpoint), "
+            "or phase7 (exact TV mixing + adaptive chain + containment)"
         ),
     )
     parser.add_argument(
@@ -1906,6 +2439,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_selftest(args.json)
     if args.command == "phase6":
         return run_phase6(json_path=args.json)
+    if args.command == "phase7":
+        return run_phase7(json_path=args.json)
     if args.command == "phase5":
         return run_phase5(
             n_chains=args.n_chains,
