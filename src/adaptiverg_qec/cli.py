@@ -1531,20 +1531,52 @@ def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
     r_wrong = mixing.marginal_family_band_ratio(
         emp, mixing.sweep_kernel(_MIX_L, 1.2), family_delta=family_delta
     )
-    one = mixing.empirical_tv_curve(_MIX_L, 0.3, x0=21, n_chains=4000, n_sweeps=1, seed=7)
-    P1 = mixing.single_flip_kernel(_MIX_L, 0.3)
-    q = {
-        k: mixing.parity_band_ratio(one, np.linalg.matrix_power(P1, k), delta=1e-6)
-        for k in (_MIX_L - 1, _MIX_L, _MIX_L + 1)
-    }
-    steps_ok = q[_MIX_L] <= 1.0 and q[_MIX_L - 1] > 3.0 and q[_MIX_L + 1] > 3.0
-    ok = r_true <= 1.0 and r_wrong > 2.0 and steps_ok
+    par = _parity_step_check(seed=7)
+    ok = _empirical_band_accepts(r_true, r_wrong) and par["pass"]
     return ok, (
         f"family band ratio true-kernel={r_true:.3f} (<=1), "
         f"wrong beta=1.2 -> {r_wrong:.2f} (>2); "
-        f"1-sweep parity ratio L={q[_MIX_L]:.2f} (<=1), L-1={q[_MIX_L - 1]:.2f}, "
-        f"L+1={q[_MIX_L + 1]:.2f} (>3)"
+        f"1-sweep parity ratio L={par['ratio_L']:.2f} (<=1), "
+        f"L-1={par['ratio_L_minus_1']:.2f}, L+1={par['ratio_L_plus_1']:.2f} (>3)"
     )
+
+
+def _empirical_band_accepts(r_true: float, r_wrong: float) -> bool:
+    """Akzeptanz des familienweisen TV-Bands: G47 UND phase7 urteilen hiermit.
+
+    Codex P2 (PR #49, cli.py:2217): phase7 schrieb diese Zahlen ins Artefakt, urteilte
+    aber nicht darueber. Positiv formuliert, damit NaN durchfaellt.
+    """
+    return bool(r_true <= 1.0 and r_wrong > 2.0)
+
+
+def _parity_step_check(*, seed: int) -> dict:
+    """Ein-Sweep-Paritaetstest gegen L-1 / L / L+1 Einzelschritte (G47 und phase7).
+
+    Vom alternierenden Start x0=21 bei beta=0.3 nach EINEM Sweep: der echte Sampler muss
+    P_1^L treffen (ratio <= 1) und beide Nachbarkerne P_1^{L+-1} verwerfen (> 3),
+    Hoeffding delta=1e-6. Sieht nur ungerade Versaetze (L+-2 bleibt schwach).
+    """
+    beta, x0, n_chains, delta = 0.3, 21, 4000, 1e-6
+    one = mixing.empirical_tv_curve(_MIX_L, beta, x0=x0, n_chains=n_chains, n_sweeps=1, seed=seed)
+    P1 = mixing.single_flip_kernel(_MIX_L, beta)
+    q = {
+        k: mixing.parity_band_ratio(one, np.linalg.matrix_power(P1, k), delta=delta)
+        for k in (_MIX_L - 1, _MIX_L, _MIX_L + 1)
+    }
+    return {
+        "beta": beta,
+        "x0": x0,
+        "n_chains": n_chains,
+        "n_sweeps": 1,
+        "delta": delta,
+        "seed": seed,
+        "ratio_L": q[_MIX_L],
+        "ratio_L_minus_1": q[_MIX_L - 1],
+        "ratio_L_plus_1": q[_MIX_L + 1],
+        "acceptance": "ratio_L <= 1 and ratio_L_minus_1 > 3 and ratio_L_plus_1 > 3",
+        "pass": bool(q[_MIX_L] <= 1.0 and q[_MIX_L - 1] > 3.0 and q[_MIX_L + 1] > 3.0),
+    }
 
 
 def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
@@ -2100,10 +2132,22 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         "marginal_band_ratio_beta_1_2": mixing.marginal_family_band_ratio(
             emp, mixing.sweep_kernel(L, 1.2), family_delta=family_delta
         ),
+        "acceptance": "marginal_band_ratio_true_kernel <= 1 and marginal_band_ratio_beta_1_2 > 2",
     }
+    empirical["pass"] = _empirical_band_accepts(
+        empirical["marginal_band_ratio_true_kernel"], empirical["marginal_band_ratio_beta_1_2"]
+    )
+    # Codex P2 (PR #49, cli.py:2217): der Paritaetstest gehoert in DIESEN Lauf, nicht
+    # nur in den Selftest -- sonst besteht eine L+-1-Regression den Regenerationspfad.
+    empirical["parity_step_check"] = _parity_step_check(seed=seed)
+    par = empirical["parity_step_check"]
     print(
         f"  sampler vs exact kernel: band ratio {empirical['marginal_band_ratio_true_kernel']:.3f}"
-        f" (wrong beta: {empirical['marginal_band_ratio_beta_1_2']:.2f})"
+        f" (wrong beta: {empirical['marginal_band_ratio_beta_1_2']:.2f}) pass={empirical['pass']}"
+    )
+    print(
+        f"  1-sweep parity: L={par['ratio_L']:.2f} L-1={par['ratio_L_minus_1']:.2f} "
+        f"L+1={par['ratio_L_plus_1']:.2f} pass={par['pass']}"
     )
 
     cfg = MVPConfig(L=L, beta_min=0.1, beta_max=2.0)
@@ -2210,10 +2254,21 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
         print(f"  artifact -> {out_path}")
-    # Fail-closed: ein gerissenes Orakel / eine offene Containment-Schranke ist kein
+    # Fail-closed: ein gerissenes Orakel / eine offene Containment-Schranke / ein Sampler,
+    # der den exakten Kern (Band) oder die Schrittzahl (Paritaet) verfehlt, ist kein
     # erfolgreicher Evidenzlauf, auch wenn das Artefakt (zur Diagnose) geschrieben wurde.
-    if not stationary["pass"] or not sup.upper_bound < 25.0:
-        print("  [FAIL] stationary oracle or containment bound violated")
+    failed = [
+        name
+        for name, ok in (
+            ("stationary oracle", stationary["pass"]),
+            ("containment bound", sup.upper_bound < 25.0),
+            ("sampler TV band", empirical["pass"]),
+            ("one-sweep parity", empirical["parity_step_check"]["pass"]),
+        )
+        if not ok
+    ]
+    if failed:
+        print(f"  [FAIL] {', '.join(failed)}")
         return 1
     return 0
 

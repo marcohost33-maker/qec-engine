@@ -103,3 +103,83 @@ def test_phase7_fails_closed_when_stationary_oracle_breaks(tmp_path, monkeypatch
     assert cli.main(["phase7", "--json", str(path)]) == 1
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["stationary_oracle"]["pass"] is False
+
+
+def _phase7_with_regressed_sweep(tmp_path, monkeypatch, sweep) -> tuple[int, dict]:
+    """phase7 mit einem regredierten a_kernel._sweep (der echte Sampler-Pfad aendert sich)."""
+    from adaptiverg_qec import a_kernel
+
+    monkeypatch.setattr(a_kernel, "_sweep", sweep)
+    path = tmp_path / "phase7.json"
+    rc = cli.main(["phase7", "--json", str(path)])
+    return rc, json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_phase7_fails_closed_when_sweep_makes_l_plus_1_steps(tmp_path, monkeypatch) -> None:
+    """Codex P2 (PR #49, cli.py:2217): eine L+1-Regression laesst das 12-Sweep-Band gruen;
+    vorher schrieb phase7 trotzdem Evidenz und gab 0 zurueck. Der Paritaetstest gehoert
+    in den Lauf und macht ihn rot."""
+    import numpy as np
+
+    from adaptiverg_qec import a_kernel
+
+    orig = a_kernel._sweep
+
+    def sweep_l_plus_1(x, H, beta, rng):
+        H, acc = orig(x, H, beta, rng)
+        i = int(rng.integers(0, x.size))
+        dH = a_kernel._delta_H_flip(x, i)
+        if dH <= 0 or rng.random() < np.exp(-beta * dH):
+            x[i] = 1 - x[i]
+            H += dH
+            acc += 1
+        return H, acc
+
+    rc, payload = _phase7_with_regressed_sweep(tmp_path, monkeypatch, sweep_l_plus_1)
+    assert rc == 1
+    par = payload["empirical_sampler"]["parity_step_check"]
+    assert par["pass"] is False
+    assert par["ratio_L"] > 1.0
+    # Die uebrigen Urteile bleiben gruen: rot macht ihn GENAU die Paritaet.
+    assert payload["stationary_oracle"]["pass"] is True
+    assert payload["containment"]["sup_t_rel_on_theta"]["upper_bound_rigorous"] < 25.0
+
+
+def test_phase7_fails_closed_when_sweep_runs_a_different_kernel(tmp_path, monkeypatch) -> None:
+    """Codex P2 (PR #49, cli.py:2217): ratio_true_kernel > 1 (Sampler auf 1.5*beta) muss
+    den Lauf rot machen, nicht nur im Artefakt stehen."""
+    from adaptiverg_qec import a_kernel
+
+    orig = a_kernel._sweep
+    rc, payload = _phase7_with_regressed_sweep(
+        tmp_path, monkeypatch, lambda x, H, beta, rng: orig(x, H, 1.5 * beta, rng)
+    )
+    assert rc == 1
+    emp = payload["empirical_sampler"]
+    assert emp["marginal_band_ratio_true_kernel"] > 1.0
+    assert emp["pass"] is False
+
+
+def test_phase7_artifact_carries_sampler_verdicts(tmp_path) -> None:
+    path = tmp_path / "phase7.json"
+    assert cli.main(["phase7", "--json", str(path)]) == 0
+    emp = json.loads(path.read_text(encoding="utf-8"))["empirical_sampler"]
+    assert emp["pass"] is True
+    par = emp["parity_step_check"]
+    assert par["pass"] is True
+    assert par["ratio_L"] <= 1.0 < 3.0 < min(par["ratio_L_minus_1"], par["ratio_L_plus_1"])
+
+
+@pytest.mark.parametrize(
+    ("r_true", "r_wrong", "ok"),
+    [
+        (0.5, 3.0, True),
+        (1.0, 2.0 + 1e-12, True),
+        (1.0 + 1e-12, 3.0, False),
+        (0.5, 2.0, False),
+        (float("nan"), 3.0, False),
+        (0.5, float("nan"), False),
+    ],
+)
+def test_empirical_band_acceptance_edges(r_true: float, r_wrong: float, ok: bool) -> None:
+    assert cli._empirical_band_accepts(r_true, r_wrong) is ok
