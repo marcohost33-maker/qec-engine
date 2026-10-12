@@ -124,7 +124,29 @@ __all__ = [
 MAX_STATES = 4096
 """Obergrenze fuer 2^L (dichte 4096x4096-Matrix, ~128 MiB float64)."""
 
-_REVERSIBILITY_RTOL = 1e-12
+_SIMILARITY_ATOL = 1e-12
+"""Toleranz fuer max|A - A^T|, A = D^{1/2} P D^{-1/2} (skalenfreier Detailed-Balance-Test).
+
+Warum nicht der Fluss pi_x P_xy - pi_y P_yx: dessen Absolutbetrag skaliert mit pi. Bei
+pi_x ~ 1e-16 (beta=6, L=6) bleibt ein Fehler der BEDINGTEN Uebergangswkt von O(1)
+unter jeder festen Fluss-Schwelle (Codex P2, PR #49). A_xy - A_yx = (Fluss-Residuum) /
+sqrt(pi_x pi_y) misst denselben Defekt relativ zu den beteiligten Zustaenden, und
+||A - A^T|| ist genau die Groesse, um die das Symmetrisieren das Spektrum verschieben
+kann (Bauer-Fike fuer die normale Matrix (A+A^T)/2). Gemessen fuer echte Kerne
+(L<=10, beta<=20): max|A - A^T| <= 2.1e-16."""
+
+
+def _check_x0(x0: int, n_states: int) -> int:
+    """x0 muss ein nicht-boolscher Integer-Index in [0, n_states) sein (kein int()-Abschneiden).
+
+    Negative Indizes wuerden in NumPy still vom Ende zaehlen (x0=-1 -> Zustand 2^L-1),
+    Floats still abgeschnitten (Codex P2, PR #49).
+    """
+    if isinstance(x0, bool) or not isinstance(x0, (int, np.integer)):
+        raise ValueError(f"x0 must be an int state index, got {type(x0).__name__}")
+    if not 0 <= int(x0) < n_states:
+        raise ValueError(f"x0 must be a state index in [0, {n_states}), got {x0}")
+    return int(x0)
 
 
 def _check_L(L: int) -> int:
@@ -216,9 +238,11 @@ class SpectralSummary:
     relaxation_time: float
     """t_rel = 1 / gamma_* (inf, falls gamma_* <= gap_tol)."""
     reversibility_residual: float
-    """max |pi_x P_xy - pi_y P_yx| (Detailed-Balance-Check, muss ~eps sein)."""
+    """max |pi_x P_xy - pi_y P_yx| (absoluter Fluss; nur informativ, skaliert mit pi)."""
     geometrically_ergodic: bool
     """lambda_* < 1 - tol: der Kern mischt geometrisch (Guard)."""
+    similarity_asymmetry: float = 0.0
+    """max |A - A^T|, A = D^{1/2} P D^{-1/2}: der GEPRUEFTE, skalenfreie Detailed-Balance-Wert."""
 
 
 def spectral_summary(P: np.ndarray, pi: np.ndarray, *, gap_tol: float = 1e-10) -> SpectralSummary:
@@ -239,11 +263,15 @@ def spectral_summary(P: np.ndarray, pi: np.ndarray, *, gap_tol: float = 1e-10) -
         raise ValueError("P must be row-stochastic")
     flow = pi[:, None] * P
     residual = float(np.max(np.abs(flow - flow.T)))
-    if not (residual <= _REVERSIBILITY_RTOL):
-        raise ValueError(f"P is not reversible w.r.t. pi (residual {residual:.3e})")
     s = np.sqrt(pi)
     A = s[:, None] * P / s[None, :]
-    A = 0.5 * (A + A.T)  # entfernt nur Rundungsasymmetrie (residual ~ eps)
+    asymmetry = float(np.max(np.abs(A - A.T)))
+    if not (asymmetry <= _SIMILARITY_ATOL):  # positiv formuliert: NaN/inf fallen hier
+        raise ValueError(
+            f"P is not reversible w.r.t. pi (similarity asymmetry {asymmetry:.3e}, "
+            f"flow residual {residual:.3e})"
+        )
+    A = 0.5 * (A + A.T)  # entfernt nur Rundungsasymmetrie (asymmetry <= _SIMILARITY_ATOL)
     ev = np.linalg.eigvalsh(A)[::-1]
     # Eigenwert 1 genau einmal entfernen (der zu pi gehoerende). Ein ZWEITER
     # Eigenwert ~1 (reduzibel) bleibt drin und setzt lambda_* = 1.
@@ -260,6 +288,7 @@ def spectral_summary(P: np.ndarray, pi: np.ndarray, *, gap_tol: float = 1e-10) -
         relaxation_time=(1.0 / gap) if ergodic else math.inf,
         reversibility_residual=residual,
         geometrically_ergodic=ergodic,
+        similarity_asymmetry=asymmetry,
     )
 
 
@@ -276,12 +305,11 @@ def exact_tv_curve(P: np.ndarray, pi: np.ndarray, x0: int, n_steps: int) -> np.n
     """TV(delta_{x0} P^t, pi) fuer t = 0..n_steps (exakt, Vektor-Matrix-Iteration)."""
     P = np.asarray(P, dtype=np.float64)
     n = P.shape[0]
-    if not (0 <= int(x0) < n):
-        raise ValueError(f"x0 must be a state index in [0, {n}), got {x0}")
+    x0 = _check_x0(x0, n)
     if n_steps < 0:
         raise ValueError(f"n_steps must be >= 0, got {n_steps}")
     mu = np.zeros(n)
-    mu[int(x0)] = 1.0
+    mu[x0] = 1.0
     out = np.empty(n_steps + 1)
     for t in range(n_steps + 1):
         out[t] = tv_distance(mu, pi)
@@ -346,8 +374,7 @@ def empirical_tv_curve(
     beta = _check_beta(beta)
     if n_chains < 2 or n_sweeps < 1:
         raise ValueError(f"need n_chains >= 2 and n_sweeps >= 1, got {n_chains}/{n_sweeps}")
-    if not (0 <= int(x0) < 2**L):
-        raise ValueError(f"x0 must be in [0, 2^L), got {x0}")
+    x0 = _check_x0(x0, 2**L)
     if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
         raise ValueError(f"seed must be a non-negative int, got {seed!r}")
     if not (beta > 0.0):
@@ -399,7 +426,7 @@ def empirical_tv_band(
         raise ValueError(f"n_chains must be >= 1, got {n_chains}")
     P = np.asarray(P, dtype=np.float64)
     mu = np.zeros(P.shape[0])
-    mu[int(x0)] = 1.0
+    mu[_check_x0(x0, P.shape[0])] = 1.0
     # ln(2) - ln(delta) statt ln(2/delta): fuer delta < ~1.1e-308 (subnormal) laeuft
     # 2/delta nach inf ueber, das Band wuerde inf und JEDER Kern "vertraeglich" (GPT6-R2).
     mcd = math.sqrt((math.log(2.0) - math.log(delta)) / (2.0 * n_chains))
@@ -501,6 +528,13 @@ def adaptive_beta_schedule(
         raise ValueError(f"freeze_at must be an int, got {type(freeze_at).__name__}")
     if not 0 <= freeze_at <= a_t.size:
         raise ValueError(f"need 0 <= freeze_at <= {a_t.size}, got {freeze_at}")
+    # Codex P2 (PR #49): dieselbe Theta-Pruefung wie a_kernel.advance_chain/new_chain_state,
+    # BEVOR ein Schedule entsteht. Sonst clippt der Warm-up gegen ein ungueltiges Ziel bzw.
+    # der Freeze weist es wortgetreu zu, und NaN erzeugt eine NaN-Trajektorie -- Schedules,
+    # die der echte Kern nie laufen wuerde. Positiv formuliert: NaN faellt hier.
+    for name, b in (("beta_start", beta_start), ("beta_target", beta_target)):
+        if isinstance(b, bool) or not (cfg.beta_min <= float(b) <= cfg.beta_max):
+            raise ValueError(f"{name} {b!r} outside compact Theta [{cfg.beta_min}, {cfg.beta_max}]")
     beta = float(beta_start)
     out = np.empty(a_t.size)
     for t, a in enumerate(a_t):
@@ -552,6 +586,7 @@ def adaptive_exact_tv(
         raise ValueError("beta_target outside compact Theta (Containment violation)")
     if not (cfg.beta_min <= beta_start <= cfg.beta_max):
         raise ValueError("beta_start outside compact Theta")
+    x0 = _check_x0(x0, 2**L)  # vor jeder Matrixarbeit (Codex P2: x0=-1 lief still)
     betas = adaptive_beta_schedule(
         cfg, beta_start=beta_start, beta_target=beta_target, a_t=a_t, freeze_at=freeze_at
     )
@@ -559,7 +594,7 @@ def adaptive_exact_tv(
     pi_target = stationary_distribution(L, beta_target)
     pi_limit = stationary_distribution(L, b_inf)
     mu = np.zeros(2**L)
-    mu[int(x0)] = 1.0
+    mu[x0] = 1.0
     cache: dict[float, np.ndarray] = {}
     to_target = np.empty(betas.size + 1)
     to_limit = np.empty(betas.size + 1)

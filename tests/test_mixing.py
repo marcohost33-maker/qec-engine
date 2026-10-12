@@ -288,3 +288,83 @@ def test_band_stays_finite_for_subnormal_delta(tiny: float) -> None:
     assert np.all(np.isfinite(band))
     expected_mcd = math.sqrt((math.log(2.0) - math.log(tiny)) / (2.0 * 4000))
     assert band[0] == pytest.approx(expected_mcd, rel=1e-12)  # t=0: Punktmasse, Jensen-Term 0
+
+
+# --- Codex-P2-Runde PR #49 @b2e2341 -------------------------------------------
+
+
+def test_reversibility_check_is_scale_aware_for_rare_states() -> None:
+    """Codex P2 (mixing.py:236): bei beta=6 ist pi_min ~ 1e-16. Ein O(1)-Fehler der
+    BEDINGTEN Uebergangswkt eines seltenen Zustands (Haelfte von P[r, j] auf die Diagonale)
+    bleibt im absoluten Fluss unter 1e-12 und wurde als reversibel akzeptiert."""
+    beta = 6.0
+    pi = mx.stationary_distribution(L, beta)
+    P = mx.sweep_kernel(L, beta).copy()
+    r = int(np.argmin(pi))
+    off = P[r].copy()
+    off[r] = 0.0
+    j = int(np.argmax(off))
+    assert pi[r] < 1e-15 and P[r, j] > 0.05  # wirklich selten, wirklich O(1)
+    P[r, r] += 0.5 * P[r, j]
+    P[r, j] *= 0.5
+    flow = pi[:, None] * P
+    assert np.max(np.abs(flow - flow.T)) < 1e-12  # die alte Fluss-Schwelle sieht es nicht
+    with pytest.raises(ValueError, match="reversible"):
+        mx.spectral_summary(P, pi)
+
+
+@pytest.mark.parametrize("beta", [6.0, 10.0, 20.0])
+def test_scale_aware_check_accepts_genuine_high_beta_kernels(beta: float) -> None:
+    """Gegenprobe: die strengere Pruefung darf echte Kerne mit pi_min bis ~1e-53 nicht verwerfen."""
+    pi = mx.stationary_distribution(L, beta)
+    for P in (mx.single_flip_kernel(L, beta), mx.sweep_kernel(L, beta)):
+        spec = mx.spectral_summary(P, pi)
+        assert spec.similarity_asymmetry <= 1e-15
+        assert 0.0 < spec.lambda_star < 1.0
+
+
+_BAD_BETAS = [float("nan"), float("inf"), -float("inf"), 2.0 + 1e-9, 0.1 - 1e-9, -0.5, True]
+
+
+@pytest.mark.parametrize("bad", _BAD_BETAS)
+@pytest.mark.parametrize("which", ["beta_start", "beta_target"])
+def test_schedule_helper_rejects_beta_outside_theta(which: str, bad) -> None:
+    """Codex P2 (mixing.py:466): der exportierte Helfer lief mit Zielen, die
+    a_kernel.advance_chain vor jedem Sweep ablehnt (NaN-Trajektorie, Zuweisung ausserhalb Theta)."""
+    kw = {"beta_start": 0.1, "beta_target": 0.8, which: bad}
+    for freeze_at in (0, 3, 5):
+        with pytest.raises(ValueError, match="Theta"):
+            mx.adaptive_beta_schedule(_CFG, a_t=np.full(5, 0.1), freeze_at=freeze_at, **kw)
+
+
+def test_schedule_helper_accepts_theta_endpoints() -> None:
+    a = np.full(4, 0.5)
+    lo = mx.adaptive_beta_schedule(_CFG, beta_start=0.1, beta_target=2.0, a_t=a, freeze_at=2)
+    assert lo[-1] == 2.0 and np.all(np.isfinite(lo))
+
+
+@pytest.mark.parametrize("bad_x0", [-1, -64, 64, 1.5, 0.0, True, np.float64(3.0)])
+def test_x0_rejected_at_every_public_entry_point(bad_x0) -> None:
+    """Codex P2 (mixing.py:524): x0=-1 analysierte still den Zustand 2^L-1, 1.5 wurde zu 1."""
+    P = mx.sweep_kernel(L, 0.8)
+    pi = mx.stationary_distribution(L, 0.8)
+    with pytest.raises(ValueError, match="x0"):
+        mx.adaptive_exact_tv(
+            _CFG, beta_start=0.1, beta_target=0.8, a_t=np.full(3, 0.1), x0=bad_x0, freeze_at=1
+        )
+    with pytest.raises(ValueError, match="x0"):
+        mx.exact_tv_curve(P, pi, bad_x0, 3)
+    with pytest.raises(ValueError, match="x0"):
+        mx.empirical_tv_band(P, bad_x0, 3, 100, 1e-6)
+    with pytest.raises(ValueError, match="x0"):
+        mx.empirical_tv_curve(L, 0.8, x0=bad_x0, n_chains=2, n_sweeps=1, seed=1)
+
+
+def test_x0_numpy_integer_still_accepted() -> None:
+    r = mx.adaptive_exact_tv(
+        _CFG, beta_start=0.1, beta_target=0.8, a_t=np.full(3, 0.1), x0=np.int64(63), freeze_at=1
+    )
+    ref = mx.adaptive_exact_tv(
+        _CFG, beta_start=0.1, beta_target=0.8, a_t=np.full(3, 0.1), x0=63, freeze_at=1
+    )
+    np.testing.assert_array_equal(r.tv_to_target, ref.tv_to_target)
