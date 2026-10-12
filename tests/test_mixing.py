@@ -111,6 +111,36 @@ def test_empirical_marginals_reject_wrong_kernel() -> None:
     assert mx.marginal_band_ratio(emp, mx.sweep_kernel(L, 1.2), delta=1e-6) > 2.0
 
 
+def test_one_sweep_parity_detects_off_by_one_step_count() -> None:
+    """Codex P2 (test_mixing.py:102): ein _sweep mit L-1 oder L+1 Einzelschritten liess das
+    12-Sweep-Band gruen (0.76 / 0.81). Der Ein-Sweep-Paritaetstest vom alternierenden Start
+    trifft den echten Sampler (<= 1) und verwirft BEIDE Nachbarkerne P_1^{L+-1} (> 3)."""
+    one = mx.empirical_tv_curve(L, 0.3, x0=21, n_chains=4000, n_sweeps=1, seed=7)
+    P1 = mx.single_flip_kernel(L, 0.3)
+    ratio = {
+        k: mx.parity_band_ratio(one, np.linalg.matrix_power(P1, k), delta=1e-6)
+        for k in (L - 1, L, L + 1)
+    }
+    assert ratio[L] <= 1.0
+    assert ratio[L - 1] > 3.0
+    assert ratio[L + 1] > 3.0
+    # Konsistenz: P_1^L IST der Sweep-Kern, gegen den alle anderen Gates pruefen.
+    np.testing.assert_allclose(np.linalg.matrix_power(P1, L), mx.sweep_kernel(L, 0.3), atol=1e-15)
+
+
+def test_parity_band_ratio_rejects_bad_arguments() -> None:
+    one = mx.empirical_tv_curve(L, 0.3, x0=21, n_chains=10, n_sweeps=1, seed=1)
+    P = mx.sweep_kernel(L, 0.3)
+    for bad_t in (-1, 2, True, 1.0):
+        with pytest.raises(ValueError, match="t must"):
+            mx.parity_band_ratio(one, P, delta=1e-6, t=bad_t)
+    for bad_delta in (0.0, 1.0, float("nan")):
+        with pytest.raises(ValueError, match="delta"):
+            mx.parity_band_ratio(one, P, delta=bad_delta)
+    with pytest.raises(ValueError, match="shape"):
+        mx.parity_band_ratio(one, mx.sweep_kernel(4, 0.3), delta=1e-6)
+
+
 def test_empirical_tv_curve_reproducible_and_seed_sensitive() -> None:
     a = mx.empirical_tv_curve(L, 0.8, x0=5, n_chains=200, n_sweeps=4, seed=11)
     b = mx.empirical_tv_curve(L, 0.8, x0=5, n_chains=200, n_sweeps=4, seed=11)

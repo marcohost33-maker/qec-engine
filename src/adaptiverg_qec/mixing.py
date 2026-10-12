@@ -114,6 +114,7 @@ __all__ = [
     "empirical_tv_family_band",
     "marginal_band_ratio",
     "marginal_family_band_ratio",
+    "parity_band_ratio",
     "fit_geometric_rate",
     "adaptive_beta_schedule",
     "AdaptiveTV",
@@ -468,6 +469,41 @@ def marginal_family_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, family_delta:
     return worst
 
 
+def parity_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, delta: float, t: int = 1) -> float:
+    """|mean (-1)^{|X_t|} - (delta_x0 P^t) . s| / sqrt(2 ln(2/delta) / n)   (Hoeffding).
+
+    Direkter Test der SCHRITTZAHL je Sweep (Codex P2, PR #49): das 12-Sweep-TV-Band
+    (marginal_band_ratio) erkennt L-1 oder L+1 Einzelschritte je Sweep nicht (gemessen
+    0.76 / 0.81), weil die Randverteilung nach wenigen Sweeps das Startgedaechtnis
+    verliert. Hier: Paritaetsvorzeichen s(x) = (-1)^{#Einsen} nach t Sweeps. Vom
+    alternierenden Start (x0 = 0b010101 = 21, maximal viele Domaenenwaende) ist fast
+    jeder Vorschlag bergab und wird angenommen; jeder angenommene Flip kippt s. Damit
+    wechselt E[s] mit der Zahl der Einzelschritte das Vorzeichen, und ein falscher
+    Kern P_1^{L+-1} trifft das Vorzeichen falsch. s in [-1, 1] -> Hoeffding-Halbbreite
+    sqrt(2 ln(2/delta)/n) mit Wkt >= 1 - delta (eine Stelle t, kein Mehrfachvergleich).
+    <= 1 heisst vertraeglich. EHRLICHE GRENZE: Paritaet sieht nur UNGERADE Abweichungen
+    der Schrittzahl; L+-2 bleibt schwach (gemessen beta=0.3, n=4000: 2.35 / 1.52).
+    """
+    if not (0.0 < delta < 1.0):
+        raise ValueError(f"delta must be in (0,1), got {delta}")
+    T = emp.histograms.shape[0] - 1
+    if isinstance(t, bool) or not isinstance(t, (int, np.integer)) or not 0 <= t <= T:
+        raise ValueError(f"t must be an int in [0, {T}], got {t!r}")
+    P = np.asarray(P, dtype=np.float64)
+    n_states = emp.histograms.shape[1]
+    if P.shape != (n_states, n_states):
+        raise ValueError(f"P shape {P.shape} does not match {n_states} states")
+    k = np.arange(n_states, dtype=np.int64)
+    popcount = ((k[:, None] >> np.arange(emp.L)) & 1).sum(axis=1)
+    s = np.where(popcount % 2 == 0, 1.0, -1.0)
+    mu = np.zeros(n_states)
+    mu[emp.x0] = 1.0
+    for _ in range(int(t)):
+        mu = mu @ P
+    half = math.sqrt(2.0 * (math.log(2.0) - math.log(delta)) / emp.n_chains)
+    return abs(float(emp.histograms[int(t)] @ s) - float(mu @ s)) / half
+
+
 def marginal_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, delta: float) -> float:
     """max_t TV(p_hat_t, delta_{x0} P^t) / Band_t.
 
@@ -476,7 +512,8 @@ def marginal_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, delta: float) -> flo
     verglichen wird, nicht nur ihr Abstand zu pi. Trennschaerfe ehrlich begrenzt:
     bei n=4000 Ketten (L=6) faellt ein um 50 % falsches beta (1.2 statt 0.8) mit
     Faktor ~3.6 heraus, ein um 12 % falsches (0.9) oder L+-1 statt L Einzelschritte
-    je Sweep NICHT (gemessen 0.98 / 0.76 / 0.81).
+    je Sweep NICHT (gemessen 0.98 / 0.76 / 0.81). Die Schrittzahl prueft deshalb
+    parity_band_ratio direkt nach EINEM Sweep (G47 traegt beide Tests).
     """
     P = np.asarray(P, dtype=np.float64)
     T = emp.histograms.shape[0] - 1

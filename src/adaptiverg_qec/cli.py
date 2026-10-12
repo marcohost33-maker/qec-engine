@@ -1516,6 +1516,12 @@ def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
 
     The 13 looks t=0..12 share family_delta=1e-6 via Bonferroni/union bound.
     This is not an anytime-valid claim.
+
+    Second, separately budgeted test (Codex P2, PR #49): the step count per sweep.
+    The 12-sweep band cannot tell L-1 or L+1 single-flip steps from L; one sweep
+    from the alternating start x0=21 at beta=0.3 can, via the parity sign
+    (mixing.parity_band_ratio, Hoeffding delta=1e-6). Both tests together: false
+    alarm <= 2e-6.
     """
     emp = mixing.empirical_tv_curve(_MIX_L, 0.8, x0=0, n_chains=4000, n_sweeps=12, seed=7)
     family_delta = 1e-6
@@ -1525,9 +1531,19 @@ def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
     r_wrong = mixing.marginal_family_band_ratio(
         emp, mixing.sweep_kernel(_MIX_L, 1.2), family_delta=family_delta
     )
-    ok = r_true <= 1.0 and r_wrong > 2.0
+    one = mixing.empirical_tv_curve(_MIX_L, 0.3, x0=21, n_chains=4000, n_sweeps=1, seed=7)
+    P1 = mixing.single_flip_kernel(_MIX_L, 0.3)
+    q = {
+        k: mixing.parity_band_ratio(one, np.linalg.matrix_power(P1, k), delta=1e-6)
+        for k in (_MIX_L - 1, _MIX_L, _MIX_L + 1)
+    }
+    steps_ok = q[_MIX_L] <= 1.0 and q[_MIX_L - 1] > 3.0 and q[_MIX_L + 1] > 3.0
+    ok = r_true <= 1.0 and r_wrong > 2.0 and steps_ok
     return ok, (
-        f"family band ratio true-kernel={r_true:.3f} (<=1), wrong beta=1.2 -> {r_wrong:.2f} (>2)"
+        f"family band ratio true-kernel={r_true:.3f} (<=1), "
+        f"wrong beta=1.2 -> {r_wrong:.2f} (>2); "
+        f"1-sweep parity ratio L={q[_MIX_L]:.2f} (<=1), L-1={q[_MIX_L - 1]:.2f}, "
+        f"L+1={q[_MIX_L + 1]:.2f} (>3)"
     )
 
 
