@@ -151,13 +151,18 @@ def test_phase7_fails_closed_when_sweep_runs_a_different_kernel(tmp_path, monkey
     from adaptiverg_qec import a_kernel
 
     orig = a_kernel._sweep
-    rc, payload = _phase7_with_regressed_sweep(
-        tmp_path, monkeypatch, lambda x, H, beta, rng: orig(x, H, 1.5 * beta, rng)
-    )
+
+    def sweep_wrong_beta(x, H, beta, rng):
+        # Nur der Band-Lauf (beta=0.8) regrediert; der Paritaetslauf (beta=0.3) bleibt
+        # korrekt, damit rot GENAU vom Band-Urteil kommt (sonst waere der Test blind).
+        return orig(x, H, 1.5 * beta if beta > 0.5 else beta, rng)
+
+    rc, payload = _phase7_with_regressed_sweep(tmp_path, monkeypatch, sweep_wrong_beta)
     assert rc == 1
     emp = payload["empirical_sampler"]
     assert emp["marginal_band_ratio_true_kernel"] > 1.0
     assert emp["pass"] is False
+    assert emp["parity_step_check"]["pass"] is True
 
 
 def test_phase7_artifact_carries_sampler_verdicts(tmp_path) -> None:
