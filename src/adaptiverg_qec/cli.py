@@ -1636,16 +1636,24 @@ def _g49_containment_relaxation_time() -> tuple[bool, str]:
 
     Theta=[0.1, 2.0] -> sup t_rel < 25 Sweeps, als RIGOROSE Intervallschranke ueber das
     GANZE Theta (Weyl, mixing.relaxation_time_sup_bound, h=0.01), nicht nur auf Gitter-
-    punkten (Codex P2, PR #49: t_rel ist nicht monoton). Gegenrichtung: Richtung
-    kritischer Punkt (beta_c = inf fuer 1D) waechst t_rel unbeschraenkt (beta=6 -> > 1e4)
-    -- der Grund, warum Theta den kritischen Punkt ausschliessen muss (Spec 4.2).
+    punkten (Codex P2, PR #49: t_rel ist nicht monoton). Die Eigenwerte je Gitterpunkt
+    sind a posteriori eingeschlossen (Codex P2, mixing.py:686), keine feste Polsterung.
+    Gegenrichtung: Richtung kritischer Punkt (beta_c = inf fuer 1D) waechst t_rel
+    unbeschraenkt (beta=6 -> > 1e4) -- der Grund, warum Theta den kritischen Punkt
+    ausschliessen muss (Spec 4.2).
     """
     sup = mixing.relaxation_time_sup_bound(_MIX_L, 0.1, 2.0, step=0.01)
     far = mixing.relaxation_time_profile(_MIX_L, np.array([4.0, 6.0]))
-    ok = math.isfinite(sup.upper_bound) and sup.upper_bound < 25.0 and far[1] > 1e4
+    ok = (
+        math.isfinite(sup.upper_bound)
+        and sup.lower_bound <= sup.upper_bound < 25.0
+        and sup.eigen_radius_max < 1e-9
+        and far[1] > 1e4
+    )
     return ok, (
-        f"{sup.grid_max:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
-        f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}); "
+        f"{sup.lower_bound:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
+        f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}, "
+        f"certified eigen radius <= {sup.eigen_radius_max:.1e}); "
         f"t_rel(4)={far[0]:.0f}, t_rel(6)={far[1]:.0f} (diverges toward beta_c=inf)"
     )
 
@@ -2205,17 +2213,27 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         "t_rel_beyond_theta": mixing.relaxation_time_profile(L, far).tolist(),
         # Codex P2 (PR #49): ein Gittermaximum ist KEIN Supremum (t_rel nicht monoton).
         "sup_t_rel_on_theta": {
-            "lower_bound_grid_max": sup.grid_max,
+            # Codex P2 (mixing.py:686): beide Schranken mit zertifizierter Eigenwert-
+            # Einschliessung; grid_max_numerical ist die unzertifizierte Punktschaetzung.
+            "lower_bound_grid_max": sup.lower_bound,
+            "grid_max_numerical": sup.grid_max,
             "grid_argmax_beta": sup.grid_argmax,
             "upper_bound_rigorous": sup.upper_bound,
             "grid_step": sup.step,
             "n_grid_points": sup.n_points,
+            "eigen_enclosure_radius_max": sup.eigen_radius_max,
+            "exp_rel_err_max_measured": sup.exp_rel_err_max,
             "method": "Weyl eigenvalue perturbation on A_1(beta) with the monotone "
-            "entrywise |dA_1/dbeta| at the left interval end; t_rel = 1/(1-mu_*^L)",
+            "entrywise |dA_1/dbeta| at the left interval end; t_rel = 1/(1-mu_*^L); "
+            "mu_* at each grid point enclosed a posteriori (residual + orthogonality "
+            "defect of the computed eigenvectors, polar-decomposition/Weyl argument) "
+            "plus the matrix-construction error with np.exp measured against Decimal",
+            "assumptions": "IEEE-754 binary64 standard model (round-to-nearest; any "
+            "summation order in BLAS, no Strassen); np.exp is measured, not assumed",
         },
     }
     print(
-        f"  containment: {sup.grid_max:.4f} <= sup_Theta t_rel <= {sup.upper_bound:.4f} "
+        f"  containment: {sup.lower_bound:.4f} <= sup_Theta t_rel <= {sup.upper_bound:.4f} "
         f"(h={sup.step:.3g}, {sup.n_points} points)"
     )
     stationary = _stationary_oracle(L, (0.3, 0.8, 1.5, 2.0))

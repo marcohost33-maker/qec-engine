@@ -250,6 +250,106 @@ def test_sup_bound_dominates_t_rel_between_grid_points() -> None:
     assert sup.grid_max <= fine.upper_bound < sup.upper_bound
 
 
+def _scaled_eigensolver(monkeypatch, factor: float, *, vectors=None) -> None:
+    """Eigenloeser, der die Eigenwerte um `factor` skaliert (und ggf. falsche Vektoren gibt).
+
+    Beide LAPACK-Einstiege werden ersetzt (eigh: neuer Pfad, eigvalsh: alter Pfad), damit
+    derselbe Test den Vor-Fix-Stand an einer ZUSICHERUNG scheitern laesst.
+    """
+    eigh, eigvalsh = np.linalg.eigh, np.linalg.eigvalsh
+
+    def fake_eigh(a):
+        w, V = eigh(a)
+        return w * factor, (V if vectors is None else vectors(V))
+
+    monkeypatch.setattr(np.linalg, "eigh", fake_eigh)
+    monkeypatch.setattr(np.linalg, "eigvalsh", lambda a: eigvalsh(a) * factor)
+
+
+def test_sup_bound_stays_an_upper_bound_with_an_inaccurate_eigensolver(monkeypatch) -> None:
+    """Codex P2 (mixing.py:686): mit fester 1e-12-Polsterung macht ein Eigenloeser, der
+    um 1e-3 relativ unterschaetzt, die 'rigorose' Schranke still FALSCH (sie faellt unter
+    t_rel(2.0)). Mit a-posteriori-Einschliessung waechst der Radius, die Schranke bleibt
+    eine Schranke. Orakel: t_rel am Knoten 2.0 aus spectral_summary VOR dem Patch."""
+    true_t = float(mx.relaxation_time_profile(L, np.array([2.0]))[0])
+    honest = mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.005)
+    _scaled_eigensolver(monkeypatch, 1.0 - 1e-3)
+    bad = mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.005)
+    assert bad.upper_bound >= true_t
+    assert bad.upper_bound >= honest.upper_bound
+    assert bad.lower_bound <= true_t
+    assert bad.eigen_radius_max > 1e-3 * 0.9  # der Defekt ist im Radius sichtbar
+
+
+def test_sup_bound_fails_closed_for_a_garbage_eigensolver(monkeypatch) -> None:
+    """Halbierte Eigenwerte bzw. Einheitsvektoren statt Eigenvektoren: Radius >= 1/2,
+    mu_* + Radius >= 1 -> Schranke inf (fail-closed), statt einer erfundenen Zahl."""
+    _scaled_eigensolver(monkeypatch, 0.5)
+    assert mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.05).upper_bound == math.inf
+    monkeypatch.undo()
+    _scaled_eigensolver(monkeypatch, 1.0, vectors=lambda V: np.eye(V.shape[0]))
+    assert mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.05).upper_bound == math.inf
+
+
+def test_honest_sup_bound_reports_a_tiny_certified_radius() -> None:
+    sup = mx.relaxation_time_sup_bound(L, 0.1, 2.0, step=0.01)
+    assert 0.0 < sup.eigen_radius_max < 1e-10
+    assert 0.0 <= sup.exp_rel_err_max < 1e-15  # np.exp hier auf ~1 ulp gemessen
+    assert sup.lower_bound <= sup.grid_max <= sup.upper_bound
+    assert sup.grid_max - sup.lower_bound < 1e-6
+
+
+def test_eigen_enclosure_covers_known_eigenvalue_errors() -> None:
+    """Einheitsorakel fuer _sym_eigen_enclosure: verschiebt man ehrliche Eigenwerte um
+    bekannte delta_i, muss der Radius max|delta_i| decken (Restfehler von eigh ~1e-15)."""
+    rng = np.random.default_rng(3)
+    b = 1.3
+    S = mx.sweep_kernel(L, b)  # nur fuer die Groesse; Struktur aus dem Einzelschritt:
+    pi = mx.stationary_distribution(L, b)
+    s = np.sqrt(pi)
+    A = s[:, None] * mx.single_flip_kernel(L, b) / s[None, :]
+    A = 0.5 * (A + A.T)
+    n = S.shape[0]
+    idx = np.arange(n)
+    flips = [idx ^ (1 << i) for i in range(L)]
+    diag = np.diagonal(A).copy()
+    offs = [A[idx, j] for j in flips]
+    w, V = np.linalg.eigh(A)
+    honest = mx._sym_eigen_enclosure(w, V, diag, offs, flips)
+    assert 0.0 < honest < 1e-11
+    for scale in (1e-9, 1e-6, 1e-3):
+        delta = scale * rng.uniform(-1.0, 1.0, size=n)
+        r = mx._sym_eigen_enclosure(w + delta, V, diag, offs, flips)
+        assert r >= float(np.max(np.abs(delta)))
+    bad_V = V.copy()
+    bad_V[:, 0] *= 3.0  # Orthogonalitaetsdefekt alpha >= 1/2 -> fail-closed
+    assert mx._sym_eigen_enclosure(w, bad_V, diag, offs, flips) == math.inf
+    assert mx._sym_eigen_enclosure(w * np.nan, V, diag, offs, flips) == math.inf
+
+
+def test_certified_exp_measures_the_exp_error(monkeypatch) -> None:
+    ks = np.array([0, 2, 4])
+    vals, rho = mx._certified_exp(1.7, ks, 0.5)
+    np.testing.assert_array_equal(vals, np.exp(-1.7 * (ks * 0.5)))
+    assert rho < 1e-15
+    monkeypatch.setattr(mx, "_exp", lambda x: np.exp(x) * (1.0 + 1e-9))
+    _, rho_bad = mx._certified_exp(1.7, ks, 0.5)
+    assert rho_bad >= 0.99e-9
+    # Unterlauf (exp -> 0) ist kein Wert mit kleinem Fehler, sondern fail-closed.
+    monkeypatch.undo()
+    assert mx._certified_exp(1e6, np.array([4]), 1.0)[1] == math.inf
+    with pytest.raises(ValueError, match="scale"):
+        mx._certified_exp(1.0, ks, 2.0)
+
+
+def test_sup_bound_rejects_a_construction_that_drifts_from_the_kernel(monkeypatch) -> None:
+    """Ein exp, das um 1e-9 abweicht, laesst A_1 (geschlossen) und single_flip_kernel
+    auseinanderlaufen -> lauter Fehler statt einer Schranke fuer die falsche Matrix."""
+    monkeypatch.setattr(mx, "_exp", lambda x: np.exp(x) * (1.0 + 1e-9))
+    with pytest.raises(ValueError, match="disagrees"):
+        mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.05)
+
+
 @pytest.mark.parametrize(
     ("lo", "hi", "step"),
     [

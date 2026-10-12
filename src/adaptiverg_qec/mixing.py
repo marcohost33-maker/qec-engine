@@ -672,18 +672,122 @@ class RelaxationSupBound:
     """Eingrenzung von sup_{beta in [beta_lo, beta_hi]} t_rel(beta) (Containment, G49)."""
 
     grid_max: float
-    """max t_rel auf dem Gitter -- UNTERE Schranke des Supremums (Gitterpunkte liegen in Theta)."""
+    """max t_rel auf dem Gitter aus den NUMERISCHEN Eigenwerten (Punktschaetzung; die
+    zertifizierte untere Schranke ist lower_bound)."""
     grid_argmax: float
     """beta, an dem grid_max angenommen wird."""
     upper_bound: float
-    """Rigorose OBERE Schranke ueber das GANZE Intervall (Weyl, s. relaxation_time_sup_bound)."""
+    """Rigorose OBERE Schranke ueber das GANZE Intervall (Weyl + a-posteriori-Einschliessung
+    der Eigenwerte, s. relaxation_time_sup_bound)."""
     step: float
     """Tatsaechliche Gitterweite h (<= angefragte Weite)."""
     n_points: int
+    lower_bound: float
+    """Zertifizierte UNTERE Schranke des Supremums (Gitterpunkte liegen in Theta, Eigenwerte
+    um den Einschliessungsradius nach unten verschoben)."""
+    eigen_radius_max: float
+    """max ueber das Gitter: zertifizierter Radius |lambda_i(A_1) - w_i| (Eigenloeser +
+    Matrixaufbau), um den mu_* verschoben wird."""
+    exp_rel_err_max: float
+    """max gemessener relativer Fehler von np.exp gegen Decimal (120 Stellen) am exakten
+    Argument -- deckt Argument-Rundung UND libm/SIMD-Fehler dieser Plattform."""
 
 
 _SUP_BOUND_MAX_POINTS = 200_000
-_EIGEN_ROUNDOFF = 1e-12  # >> n*eps*||A|| fuer 2^L <= 4096, ||A||_2 <= 1
+_U = 2.0**-53
+"""Einheitsrundung binary64 (round-to-nearest)."""
+
+
+def _gamma(k: int) -> float:
+    """gamma_k = k u / (1 - k u) (Higham 2002, Lemma 3.1), mit Sicherheitsfaktor 2.
+
+    Faktor 2 schluckt die Rundung, mit der die Fehlerschranken SELBST ausgewertet werden
+    (Produkte/Summen nichtnegativer Groessen, je <= wenige u relativ).
+    """
+    ku = k * _U
+    if not ku < 0.01:
+        raise ValueError(f"gamma_{k}: k*u = {ku:.3e} too large for the a-priori bound")
+    return 2.0 * ku / (1.0 - ku)
+
+
+def _certified_exp(beta: float, ks: np.ndarray, scale: float) -> tuple[np.ndarray, float]:
+    """np.exp(-beta * k * scale) fuer ganze k >= 0, plus GEMESSENER relativer Fehler.
+
+    Referenz: Decimal-exp mit 120 Stellen am EXAKTEN Argument -beta*k*scale (beta ist eine
+    binary64-Zahl, Decimal(beta) exakt; scale in {0.5, 1}). Der Fehler deckt damit die
+    Rundung des Arguments UND die Genauigkeit von np.exp auf dieser Plattform -- keine
+    Annahme ueber libm/SIMD. Die zurueckgegebenen Werte sind GENAU die geprueften; der
+    Aufrufer verwendet sie per Index (kein zweites np.exp, das anders runden koennte).
+    """
+    import decimal
+
+    if scale not in (0.5, 1.0):
+        raise ValueError(f"scale must be 0.5 or 1.0, got {scale}")
+    vals = _exp(-beta * (ks.astype(np.float64) * scale))
+    rho = 0.0
+    with decimal.localcontext() as ctx:
+        ctx.prec = 120
+        d_beta = decimal.Decimal(beta)
+        d_scale = decimal.Decimal(scale)
+        for k, v in zip(ks.tolist(), vals.tolist(), strict=True):
+            if not (math.isfinite(v) and v > 0.0):
+                return vals, math.inf
+            exact = (-(d_beta * decimal.Decimal(int(k)) * d_scale)).exp()
+            rho = max(rho, float(abs(decimal.Decimal(v) - exact) / exact))
+    # float(...) rundet zum Naechsten -> um 2u aufrunden; 1e-100 deckt den Decimal-Fehler.
+    return vals, rho * (1.0 + 2.0 * _U) + 1e-100
+
+
+_exp = np.exp
+"""Einzige exp-Quelle der Schranke (Tests injizieren hier einen fehlerhaften Loeser)."""
+
+
+def _sym_eigen_enclosure(
+    w: np.ndarray, V: np.ndarray, diag: np.ndarray, offs: list[np.ndarray], flips: list
+) -> float:
+    """Zertifizierter Radius r mit |lambda_i(S) - w_i| <= r (beide aufsteigend sortiert).
+
+    S = diag(diag) + sum_i offs[i] e_x e_{x^(i)}^T ist die (exakt symmetrische) float-Matrix,
+    (w, V) das Ergebnis eines beliebigen Eigenloesers. Satz (Polarzerlegung V = QH, Q
+    orthogonal, alpha >= ||V^T V - I||_2 < 1, R = SV - VW):
+        Q^T S Q - W = Q^T R H^{-1} + ((H - I)W - W(H - I)) H^{-1}
+    ist symmetrisch, also nach Weyl
+        |lambda_i(S) - w_i| <= (||R||_2 + 2 alpha ||W||_2) / sqrt(1 - alpha),
+    denn ||H^{-1}||_2 <= 1/sqrt(1-alpha) und ||H - I||_2 <= alpha. ||R||_2 und alpha werden
+    nach oben abgeschaetzt: Frobenius-Norm des berechneten Residuums plus a-priori-Fehler
+    der Gleitkomma-Auswertung (Standardmodell, Higham 2002 Kap. 3: jedes Skalarprodukt der
+    Laenge k in beliebiger Summationsreihenfolge, auch mit FMA, hat Fehler <= gamma_k
+    sum|a_j b_j|; fuer V^T V gilt (|V|^T |V|)_jk <= ||v_j|| ||v_k|| nach Cauchy-Schwarz).
+    Fail-closed: nicht-endliche Werte oder alpha >= 1/2 -> inf.
+    """
+    n = w.size
+    if not (np.all(np.isfinite(w)) and np.all(np.isfinite(V))) or V.shape != (n, n):
+        return math.inf
+    absV = np.abs(V)
+    SV = diag[:, None] * V
+    T = np.abs(diag)[:, None] * absV
+    for off, j in zip(offs, flips, strict=True):
+        SV = SV + off[:, None] * V[j]
+        T = T + off[:, None] * absV[j]
+    R = SV - V * w[None, :]
+    T = T + absV * np.abs(w)[None, :]
+    k = len(offs) + 2  # Terme je Eintrag von R
+    R_bound = np.abs(R) + _gamma(k) * T
+    big = _gamma(n * n + 2)
+    norm_R = math.sqrt(float(np.sum(R_bound * R_bound))) * (1.0 + big)
+    G = V.T @ V
+    g_diag = np.diagonal(G).copy()
+    if not np.all((g_diag >= 0.5) & (g_diag <= 2.0)):
+        return math.inf
+    G[np.diag_indices(n)] = g_diag - 1.0  # exakt nach Sterbenz (g in [1/2, 2])
+    fro_V2 = float(np.sum(V * V)) * (1.0 + big)
+    alpha = (math.sqrt(float(np.sum(G * G))) * (1.0 + big) + _gamma(n) * fro_V2) * (1.0 + big)
+    if not (math.isfinite(alpha) and alpha < 0.5 and math.isfinite(norm_R)):
+        return math.inf
+    w_max = float(np.max(np.abs(w)))
+    return (
+        (norm_R + 2.0 * alpha * w_max) / math.sqrt((1.0 - alpha) * (1.0 - 4 * _U)) * (1.0 + 8 * _U)
+    )
 
 
 def relaxation_time_sup_bound(
@@ -706,6 +810,24 @@ def relaxation_time_sup_bound(
     Das Maximum dieser Intervall-Schranken ist eine OBERE Schranke des Supremums; das
     Gittermaximum eine untere (Gitterpunkte liegen in Theta). Fail-closed: erreicht
     mu_* + delta die 1, ist die Schranke inf.
+
+    Codex P2 (PR #49, mixing.py:686): mu_*(b_k) kam frueher aus np.linalg.eigvalsh plus
+    einer festen Polsterung 1e-12, begruendet nur mit einer n*eps-Faustregel -- das deckt
+    weder den Rueckwaertsfehler von LAPACK noch die Rundung beim Matrixaufbau noch
+    Plattformunterschiede. Jetzt wird JEDER Gitterpunkt zertifiziert:
+
+    1. Matrixaufbau: A_1 in geschlossener Form (exakt symmetrisch), die exp-Werte gegen
+       Decimal am exakten Argument GEMESSEN (_certified_exp, rho); daraus
+       ||A_1 - S||_2 <= ||.||_inf <= 2 rho + (2L+12) u (Diagonale: Summe von L Termen <= 1;
+       Nebendiagonale: Zeilensumme <= 1).
+    2. Eigenloeser: a-posteriori-Einschliessung aus Residuum und Orthogonalitaetsdefekt
+       der berechneten Eigenvektoren (_sym_eigen_enclosure), also unabhaengig davon, wie
+       genau eigh tatsaechlich war -- ein schlechter Loeser vergroessert den Radius,
+       statt die Schranke falsch zu machen.
+    3. Ableitungsschranke und Endformel mit nach oben gerundeten Faktoren (gamma_k).
+    Der Wahrheitsanspruch gilt im IEEE-754-binary64-Standardmodell (round-to-nearest,
+    beliebige Summationsreihenfolge in BLAS, kein Strassen); np.exp wird gemessen, nicht
+    angenommen. Untere Schranke analog mit mu_* - Radius (lower_bound).
     """
     L = _check_L(L)
     lo, hi = _check_beta(beta_lo), _check_beta(beta_hi)
@@ -725,29 +847,61 @@ def relaxation_time_sup_bound(
     H = hamiltonians(L)
     idx = np.arange(n, dtype=np.int64)
     flips = [idx ^ (1 << i) for i in range(L)]
-    dHs = [(H[j] - H[idx]).astype(np.float64) for j in flips]
-    mu_star = np.empty(grid.size)
-    deriv = np.empty(grid.size)
-    for k, b in enumerate(grid):
+    dHs = [H[j] - H[idx] for j in flips]  # ganzzahlig, exakt
+    abs_dHs = [np.abs(d) for d in dHs]
+    uniq = np.unique(np.concatenate(abs_dHs))
+    pos = [np.searchsorted(uniq, a) for a in abs_dHs]
+    mu_hat = np.empty(grid.size)
+    radius = np.empty(grid.size)
+    deriv_up = np.empty(grid.size)
+    rho_max = 0.0
+    for k, b in enumerate(grid.tolist()):
+        ex_half, rho_h = _certified_exp(b, uniq, 0.5)
+        ex_full, rho_f = _certified_exp(b, uniq, 1.0)
+        rho = max(rho_h, rho_f)
+        rho_max = max(rho_max, rho)
+        # A_1 geschlossen: Nebendiagonale (1/L) e^{-b|dH|/2},
+        # Diagonale 1 - (1/L) sum_i min(1, e^{-b dH_i}).
+        offs = [ex_half[p] / L for p in pos]
+        acc = np.zeros(n)
+        for d, p in zip(dHs, pos, strict=True):
+            acc = acc + np.where(d > 0, ex_full[p], 1.0)
+        diag = 1.0 - acc / L
+        S = np.zeros((n, n))
+        S[idx, idx] = diag
+        for off, j in zip(offs, flips, strict=True):
+            S[idx, j] = off
+        if not np.array_equal(S, S.T):
+            raise ValueError(f"closed-form A_1 not exactly symmetric at beta={b}")
+        # Konsistenz mit dem Sampler-Kern (traegt die Schranke nicht, bindet sie an P_1).
         pi = stationary_distribution(L, b)
         P1 = single_flip_kernel(L, b)
         s = np.sqrt(pi)
         A = s[:, None] * P1 / s[None, :]
         if not float(np.max(np.abs(A - A.T))) <= _SIMILARITY_ATOL:
             raise ValueError(f"single-flip kernel not reversible at beta={b}")
-        ev = np.linalg.eigvalsh(0.5 * (A + A.T))[::-1]
-        mu_star[k] = float(np.max(np.abs(ev[1:])))
-        # Zeilensumme von |dA_1/dbeta|(b): Nebendiagonale + Diagonale (beide >= 0 summiert).
+        if not float(np.max(np.abs(A - S))) <= _SIMILARITY_ATOL:
+            raise ValueError(f"closed-form A_1 disagrees with single_flip_kernel at beta={b}")
+        w, V = np.linalg.eigh(S)
+        r_eig = _sym_eigen_enclosure(w, V, diag, offs, flips)
+        e_constr = (2.0 * rho + (2 * L + 12) * _U) * (1.0 + 4 * _U)
+        radius[k] = (r_eig + e_constr) * (1.0 + 2 * _U)
+        # w aufsteigend; w[-1] gehoert zum Eigenwert 1 (Weyl paart sortiert).
+        mu_hat[k] = max(abs(float(w[-2])), abs(float(w[0])))
+        # Zeilensumme von |dA_1/dbeta|(b): Nebendiagonale + Diagonale (alle Terme >= 0).
         row = np.zeros(n)
-        for dH in dHs:
-            row += (np.abs(dH) / 2.0) * np.exp(-b * np.abs(dH) / 2.0) / L
-            row += np.where(dH > 0, dH * np.exp(-b * np.maximum(dH, 0.0)), 0.0) / L
-        deriv[k] = float(np.max(row))
-    lam = mu_star**L
+        for d, a, p in zip(dHs, abs_dHs, pos, strict=True):
+            row = row + (a / 2.0) * ex_half[p] / L
+            row = row + np.where(d > 0, d * ex_full[p], 0.0) / L
+        deriv_up[k] = float(np.max(row)) * (1.0 + rho) * (1.0 + _gamma(2 * L + 6))
+    lam = mu_hat**L
     t_rel = np.where(lam < 1.0, 1.0 / np.maximum(1.0 - lam, 1e-300), math.inf)
-    shifted = mu_star[:-1] + h * deriv[:-1] + _EIGEN_ROUNDOFF
-    lam_up = np.where(shifted < 1.0, shifted, 1.0) ** L
-    t_up = np.where(lam_up < 1.0, 1.0 / np.maximum(1.0 - lam_up, 1e-300), math.inf)
+    mu_up = (mu_hat + radius) * (1.0 + 2 * _U)
+    mu_lo = np.maximum((mu_hat - radius) * (1.0 - 2 * _U), 0.0)
+    widths = np.diff(grid) * (1.0 + 2 * _U)
+    shifted = (mu_up[:-1] + widths * deriv_up[:-1] * (1.0 + 2 * _U)) * (1.0 + 2 * _U)
+    t_up = _t_rel_from_mu(shifted, L, upper=True)
+    t_lo = _t_rel_from_mu(mu_lo, L, upper=False)
     k_max = int(np.argmax(t_rel))
     return RelaxationSupBound(
         grid_max=float(t_rel[k_max]),
@@ -755,4 +909,29 @@ def relaxation_time_sup_bound(
         upper_bound=float(np.max(t_up)),
         step=float(h),
         n_points=int(grid.size),
+        lower_bound=float(np.max(t_lo)),
+        eigen_radius_max=float(np.max(radius)),
+        exp_rel_err_max=float(rho_max),
     )
+
+
+def _t_rel_from_mu(mu: np.ndarray, L: int, *, upper: bool) -> np.ndarray:
+    """t_rel = 1/(1 - mu^L), nach oben (upper) bzw. unten gerundet; mu >= 1 -> inf.
+
+    mu^L per L-1 Multiplikationen (kein libm-pow), Fehler <= gamma_L; 1 - lam und die
+    Division je eine Rundung.
+    """
+    mu = np.asarray(mu, dtype=np.float64)
+    p = mu.copy()
+    for _ in range(L - 1):
+        p = p * mu
+    g = _gamma(L)
+    if upper:
+        lam = p * (1.0 + g)
+        with np.errstate(divide="ignore"):
+            t = 1.0 / ((1.0 - lam) * (1.0 - 2 * _U)) * (1.0 + 2 * _U)
+        return np.where((mu < 1.0) & (lam < 1.0), t, math.inf)
+    lam = np.minimum(p * (1.0 - g), 1.0)
+    with np.errstate(divide="ignore"):
+        t = 1.0 / (1.0 - lam) * (1.0 - 4 * _U)
+    return np.where(lam < 1.0, t, math.inf)
