@@ -57,7 +57,10 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   Containment-Profil `t_rel(β)`. Seit der Sol-/Codex-Runde (PR #49): familienweises Band
   (`empirical_sampler.family_delta`, `n_looks`, `per_look_delta`,
   `multiplicity_method`), gemessener Orakel-Fehler (`stationary_oracle`), rigorose
-  Eingrenzung `containment.sup_t_rel_on_theta` und je Kern `similarity_asymmetry`.
+  Eingrenzung `containment.sup_t_rel_on_theta` (mit `eigen_enclosure_radius_max`,
+  `exp_rel_err_max_measured`, `assumptions`) und je Kern `similarity_asymmetry`. Band und
+  Ein-Sweep-Parität tragen eigene Urteile (`empirical_sampler.pass`,
+  `empirical_sampler.parity_step_check`); `phase7` endet mit Exit 1, wenn eines reisst.
   Reproduzierbar via:
 
   ```bash

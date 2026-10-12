@@ -36,7 +36,8 @@ Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad
   MVP-Instanz exakt belegt — adaptive Randverteilung `μ_{t+1}=μ_t P_{β_t}` konvergiert unter
   WARM-UP → FREEZE (`β:=β*` per Zuweisung) exakt nach `π_{β*}`, selbst beim schlechtesten
   Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `18.85 ≤ sup_{β∈Θ} t_rel ≤ 19.50` Sweeps
-  (rigorose Weyl-Intervallschranke, nicht nur Gitter)
+  (rigorose Weyl-Intervallschranke, nicht nur Gitter; Eigenwerte a posteriori
+  eingeschlossen, IEEE-754-Standardmodell)
   (Containment), außerhalb Θ divergent (G48/G49). **Gegenrichtung (Defektklasse ohne Freeze,
   Sampler vor #53):** derselbe summierbare Schedule friert β bei
   `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
