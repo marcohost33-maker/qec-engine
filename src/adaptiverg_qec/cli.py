@@ -2264,6 +2264,16 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             ("containment bound", sup.upper_bound < 25.0),
             ("sampler TV band", empirical["pass"]),
             ("one-sweep parity", empirical["parity_step_check"]["pass"]),
+            # Dieselbe Klasse wie der Codex-Befund, gegen den eigenen Lauf gerichtet: auch der
+            # Freeze-Vertrag (#51/#53) steht als Evidenz im Artefakt und muss den Lauf tragen.
+            (
+                "freeze contract",
+                all(
+                    r["frozen_floor_tv"] == 0.0 and r["tv_to_target_end"] < 1e-10
+                    for r in adaptive
+                    if r["frozen"]
+                ),
+            ),
         )
         if not ok
     ]

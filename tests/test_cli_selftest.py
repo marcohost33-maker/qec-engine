@@ -188,3 +188,22 @@ def test_phase7_artifact_carries_sampler_verdicts(tmp_path) -> None:
 )
 def test_empirical_band_acceptance_edges(r_true: float, r_wrong: float, ok: bool) -> None:
     assert cli._empirical_band_accepts(r_true, r_wrong) is ok
+
+
+def test_phase7_fails_closed_when_the_freeze_contract_breaks(tmp_path, monkeypatch) -> None:
+    """Gleiche Klasse wie Codex P2 (cli.py:2217): ein Freeze, der nicht greift (freeze_at
+    ignoriert -> Defektklasse vor #51), darf keinen gruenen phase7-Lauf ergeben."""
+    from adaptiverg_qec import mixing
+
+    orig = mixing.adaptive_exact_tv
+
+    def no_freeze(cfg, **kw):
+        kw["freeze_at"] = kw["a_t"].size
+        return orig(cfg, **kw)
+
+    monkeypatch.setattr(mixing, "adaptive_exact_tv", no_freeze)
+    path = tmp_path / "phase7.json"
+    assert cli.main(["phase7", "--json", str(path)]) == 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["empirical_sampler"]["pass"] is True
+    assert any(r["frozen"] and r["frozen_floor_tv"] > 0.05 for r in payload["adaptive_chain"])
