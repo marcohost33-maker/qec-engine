@@ -1631,19 +1631,36 @@ def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
     )
 
 
-def _containment_accepts(sup: mixing.RelaxationSupBound, *, t_rel_beta_6: float) -> bool:
+def _containment_accepts(
+    sup: mixing.RelaxationSupBound, *, betas_far: np.ndarray, t_rel_far: np.ndarray
+) -> bool:
     """Containment-Urteil: G49 UND phase7 urteilen hiermit (eine Stelle, ein Praedikat).
 
     Codex P2 (PR #49, cli.py:2282): phase7 pruefte nur ``upper_bound < 25``; ein
     invertiertes Intervall, ein zu grosser Eigenwert-Einschliessungsradius oder eine
-    nicht mehr greifende Kontrolle ausserhalb Theta ergaben trotzdem Exit 0. Positiv
-    formuliert, damit NaN in jedem Feld zufaellt.
+    nicht mehr greifende Kontrolle ausserhalb Theta ergaben trotzdem Exit 0.
+
+    Ausserhalb Theta (Codex P2, cli.py:1651): die DIVERGENZ fuer beta -> inf ist bewiesen
+    (mixing.relaxation_time_divergence_lower_bound, t_rel >= e^{2 beta}/(2 N m)), nicht
+    gemessen. Geprueft wird hier, dass die exakten Werte diese Schranke an jedem
+    ausgewerteten beta einhalten (sonst ist der analysierte Kern nicht der berechnete)
+    und, als gemessene endliche Verlangsamung, t_rel(6) > 1e4. Positiv formuliert, damit
+    NaN in jedem Feld zufaellt.
     """
+    betas_far = np.asarray(betas_far, dtype=np.float64)
+    t_rel_far = np.asarray(t_rel_far, dtype=np.float64)
+    at_6 = t_rel_far[betas_far == 6.0]
+    above_proven = all(
+        t >= mixing.relaxation_time_divergence_lower_bound(_MIX_L, b)
+        for b, t in zip(betas_far, t_rel_far, strict=True)
+    )
     return bool(
         math.isfinite(sup.upper_bound)
         and sup.lower_bound <= sup.upper_bound < 25.0
         and sup.eigen_radius_max < 1e-9
-        and t_rel_beta_6 > 1e4
+        and at_6.size == 1
+        and at_6[0] > 1e4
+        and above_proven
     )
 
 
@@ -1655,17 +1672,23 @@ def _g49_containment_relaxation_time() -> tuple[bool, str]:
     punkten (Codex P2, PR #49: t_rel ist nicht monoton). Die Eigenwerte je Gitterpunkt
     sind a posteriori eingeschlossen (Codex P2, mixing.py:686), keine feste Polsterung.
     Gegenrichtung: Richtung kritischer Punkt (beta_c = inf fuer 1D) waechst t_rel
-    unbeschraenkt (beta=6 -> > 1e4) -- der Grund, warum Theta den kritischen Punkt
-    ausschliessen muss (Spec 4.2).
+    unbeschraenkt -- BEWIESEN ueber die Engpass-Schranke t_rel >= e^{2 beta}/120 (L=6,
+    mixing.relaxation_time_divergence_lower_bound; Codex P2, cli.py:1651), die exakten
+    Werte bei beta=4, 6 halten sie ein, gemessen t_rel(6) > 1e4 -- der Grund, warum Theta
+    den kritischen Punkt ausschliessen muss (Spec 4.2).
     """
     sup = mixing.relaxation_time_sup_bound(_MIX_L, 0.1, 2.0, step=0.01)
-    far = mixing.relaxation_time_profile(_MIX_L, np.array([4.0, 6.0]))
-    ok = _containment_accepts(sup, t_rel_beta_6=float(far[1]))
+    betas_far = np.array([4.0, 6.0])
+    far = mixing.relaxation_time_profile(_MIX_L, betas_far)
+    ok = _containment_accepts(sup, betas_far=betas_far, t_rel_far=far)
+    proven = [mixing.relaxation_time_divergence_lower_bound(_MIX_L, b) for b in betas_far]
     return ok, (
         f"{sup.lower_bound:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
         f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}, "
         f"certified eigen radius <= {sup.eigen_radius_max:.1e}); "
-        f"t_rel(4)={far[0]:.0f}, t_rel(6)={far[1]:.0f} (diverges toward beta_c=inf)"
+        f"t_rel(4)={far[0]:.0f} >= {proven[0]:.0f}, t_rel(6)={far[1]:.0f} >= {proven[1]:.0f} "
+        f"(proven t_rel >= e^(2beta)/{2 * math.comb(_MIX_L, _MIX_L // 2 + 1) * (_MIX_L // 2 + 1)}"
+        f" -> inf as beta -> beta_c=inf; Cheeger, LPW Thm 13.10)"
     )
 
 
@@ -2224,7 +2247,16 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         "beta_beyond_theta": far.tolist(),
         "t_rel_beyond_theta": t_rel_far.tolist(),
         # Codex P2 (cli.py:2282): dasselbe vollstaendige Urteil wie G49, nicht nur upper<25.
-        "pass": _containment_accepts(sup, t_rel_beta_6=float(t_rel_far[far == 6.0][0])),
+        "pass": _containment_accepts(sup, betas_far=far, t_rel_far=t_rel_far),
+        # Codex P2 (cli.py:1651): die Divergenz ist bewiesen, nicht aus t_rel(6) gefolgert.
+        "divergence_lower_bound_beyond_theta": [
+            mixing.relaxation_time_divergence_lower_bound(L, b) for b in far
+        ],
+        "divergence_proof": "t_rel(beta) >= e^(2 beta) / (2 N m), m = floor(L/2)+1, "
+        "N = C(L, m); bottleneck S = {more than L/2 ones}, Phi(S) <= N (m/L) e^(-2 beta), "
+        "1 - lambda_2(P_1) <= 2 Phi (Levin/Peres/Wilmer 2017, Thm 13.10), "
+        "lambda_*(P_1^L) >= lambda_2(P_1)^L; hence t_rel -> inf as beta -> inf. The "
+        "exact t_rel_beyond_theta must lie above it (checked in pass).",
         # Codex P2 (PR #49): ein Gittermaximum ist KEIN Supremum (t_rel nicht monoton).
         "sup_t_rel_on_theta": {
             # Codex P2 (mixing.py:686): beide Schranken mit zertifizierter Eigenwert-

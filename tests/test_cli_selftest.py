@@ -229,20 +229,27 @@ def _sup(**changes):
 
 
 @pytest.mark.parametrize(
-    ("changes", "t_rel_6", "ok"),
+    ("changes", "betas", "t_rel", "ok"),
     [
-        ({}, 5e4, True),
-        ({"lower_bound": 23.0}, 5e4, False),  # invertiertes Intervall
-        ({"eigen_radius_max": 1e-9}, 5e4, False),  # Grenze selbst ist zu
-        ({"upper_bound": 25.0}, 5e4, False),
-        ({"upper_bound": float("nan")}, 5e4, False),
-        ({"eigen_radius_max": float("nan")}, 5e4, False),
-        ({}, 1e4, False),  # Kontrolle ausserhalb Theta greift nicht mehr
-        ({}, float("nan"), False),
+        ({}, (4.0, 6.0), (994.0, 5e4), True),
+        ({"lower_bound": 23.0}, (4.0, 6.0), (994.0, 5e4), False),  # invertiertes Intervall
+        ({"eigen_radius_max": 1e-9}, (4.0, 6.0), (994.0, 5e4), False),  # Grenze selbst ist zu
+        ({"upper_bound": 25.0}, (4.0, 6.0), (994.0, 5e4), False),
+        ({"upper_bound": float("nan")}, (4.0, 6.0), (994.0, 5e4), False),
+        ({"eigen_radius_max": float("nan")}, (4.0, 6.0), (994.0, 5e4), False),
+        ({}, (4.0, 6.0), (994.0, 1e4), False),  # Kontrolle ausserhalb Theta greift nicht mehr
+        ({}, (4.0, 6.0), (994.0, float("nan")), False),
+        # Codex P2 (cli.py:1651): unter der BEWIESENEN Schranke e^8/120 = 24.8 bei beta=4
+        # ist der berechnete nicht der analysierte Kern -- auch wenn t_rel(6) > 1e4.
+        ({}, (4.0, 6.0), (24.0, 5e4), False),
+        ({}, (4.0,), (994.0,), False),  # ohne beta=6 kein Urteil
     ],
 )
-def test_containment_acceptance_edges(changes, t_rel_6, ok) -> None:
-    assert cli._containment_accepts(_sup(**changes), t_rel_beta_6=t_rel_6) is ok
+def test_containment_acceptance_edges(changes, betas, t_rel, ok) -> None:
+    accepted = cli._containment_accepts(
+        _sup(**changes), betas_far=np.array(betas), t_rel_far=np.array(t_rel)
+    )
+    assert accepted is ok
 
 
 @pytest.mark.parametrize("regression", ["inverted", "eigen_radius", "no_divergence_control"])

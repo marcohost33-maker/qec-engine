@@ -120,6 +120,7 @@ __all__ = [
     "AdaptiveTV",
     "adaptive_exact_tv",
     "relaxation_time_profile",
+    "relaxation_time_divergence_lower_bound",
     "RelaxationSupBound",
     "relaxation_time_sup_bound",
 ]
@@ -665,6 +666,44 @@ def relaxation_time_profile(L: int, betas: np.ndarray) -> np.ndarray:
             for b in np.asarray(betas, dtype=np.float64)
         ]
     )
+
+
+def relaxation_time_divergence_lower_bound(L: int, beta: float) -> float:
+    """Rigorose untere Schranke t_rel(beta) >= e^{2 beta} / (2 N m) fuer jedes beta >= 0.
+
+    Mit m = floor(L/2) + 1 und N = C(L, m). Daraus folgt t_rel(beta) -> inf fuer
+    beta -> inf (Codex P2, PR #49, cli.py:1651: ``t_rel(6) > 1e4`` allein belegt nur eine
+    endliche Verlangsamung, keine Divergenz).
+
+    Beweis (Engpass-/Cheeger-Schranke, Levin/Peres/Wilmer 2017, Thm 13.10: fuer einen
+    reversiblen Kern gilt 1 - lambda_2 <= 2 Phi_*, Phi_* = min_{pi(S) <= 1/2} Q(S, S^c)/pi(S)):
+
+    1. S = {x : #Einsen(x) > L/2}. Die Spin-Flip-Symmetrie bildet S auf die disjunkte
+       Menge {#Einsen < L/2} ab, pi_beta ist invariant: pi(S) <= 1/2.
+    2. P_1 aendert genau ein Bit: aus S nach S^c fuehren nur Zustaende x mit genau m
+       Einsen (N Stueck), und nur ueber eines ihrer m Einsen-Bits:
+       P_1(x, S^c) <= m/L. x ist nicht konstant (1 <= m <= L-1 fuer L >= 3), auf dem Ring
+       also H(x) >= 2 Domaenenwaende, waehrend 1^L in S liegt mit H = 0:
+       pi(x) <= e^{-2 beta} pi(1^L) <= e^{-2 beta} pi(S).
+       Also Phi(S) = Q(S, S^c)/pi(S) <= N (m/L) e^{-2 beta} =: Phi_bar.
+    3. lambda_2(P_1) >= 1 - 2 Phi(S); lambda_2^L ist Eigenwert des Sweep-Kerns P = P_1^L
+       und != 1 (P_1 irreduzibel fuer endliches beta), also lambda_*(P) >= lambda_2^L.
+       Fuer 2 Phi <= 1: t_rel = 1/(1 - lambda_*(P)) >= 1/(1 - (1 - 2 Phi)^L) >= 1/(2 L Phi)
+       (Bernoulli). Fuer 2 Phi > 1 ist 1/(2 L Phi) < 1 <= t_rel. In beiden Faellen
+       t_rel >= 1/(2 L Phi) >= 1/(2 L Phi_bar) = e^{2 beta}/(2 N m).
+
+    Scope: Schranke fuer den Sweep-Kern dieses Moduls (zufaellige Stelle, Metropolis,
+    Ring). Sie ist um einen konstanten Faktor lose (L=6: ~1/40 der exakten Werte bei
+    beta=4,6), hat aber die richtige Rate e^{2 beta}. Gleitkomma: e^{2 beta} via math.exp,
+    um 1e-12 relativ nach unten gesetzt (nie anti-konservativ).
+    """
+    L = _check_L(L)
+    beta = _check_beta(beta)
+    m = L // 2 + 1
+    n_boundary = math.comb(L, m)
+    if 2.0 * beta > 700.0:  # e^{2 beta} jenseits binary64: Schranke ist unbeschraenkt gross
+        return math.inf
+    return math.exp(2.0 * beta) / (2.0 * n_boundary * m) * (1.0 - 1e-12)
 
 
 @dataclass(frozen=True)

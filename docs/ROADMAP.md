@@ -38,7 +38,8 @@ Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad
   Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `18.85 ≤ sup_{β∈Θ} t_rel ≤ 19.50` Sweeps
   (rigorose Weyl-Intervallschranke, nicht nur Gitter; Eigenwerte a posteriori
   eingeschlossen, IEEE-754-Standardmodell)
-  (Containment), außerhalb Θ divergent (G48/G49). **Gegenrichtung (Defektklasse ohne Freeze,
+  (Containment), außerhalb Θ divergent (G49; bewiesen über die Engpass-Schranke
+  `t_rel(β) ≥ e^{2β}/120`, LPW Thm 13.10 — nicht aus dem Messwert bei β=6 gefolgert). **Gegenrichtung (Defektklasse ohne Freeze,
   Sampler vor #53):** derselbe summierbare Schedule friert β bei
   `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
   zuerst beziffert, Issue #51/PR #53 hat ihn im Sampler geschlossen.

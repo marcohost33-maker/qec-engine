@@ -229,6 +229,41 @@ def test_containment_relaxation_time_bounded_on_theta_unbounded_toward_beta_c() 
     assert far[1] > 30 * far[0]
 
 
+@pytest.mark.parametrize("ring", [3, 4, 5, 6, 7, 8])
+def test_divergence_lower_bound_holds_step_by_step_against_the_exact_kernel(ring: int) -> None:
+    """Codex P2 (cli.py:1651): die Divergenz ist bewiesen, nicht aus t_rel(6) > 1e4 gefolgert.
+
+    Unabhaengiges Orakel fuer JEDEN Beweisschritt aus dem exakten Kern: pi(S) <= 1/2,
+    Phi(S) exakt aus Q(S,S^c) <= Phi_bar, Cheeger 1 - lambda_2 <= 2 Phi (Eigenwerte der
+    symmetrisierten Matrix), und am Ende t_rel des Sweep-Kerns >= Schranke."""
+    in_s = mx.all_states(ring).sum(axis=1) > ring / 2
+    m = ring // 2 + 1
+    for beta in (0.25, 1.0, 2.0, 3.0, 4.0, 6.0):
+        P1 = mx.single_flip_kernel(ring, beta)
+        pi = mx.stationary_distribution(ring, beta)
+        assert pi[in_s].sum() <= 0.5 + 1e-15
+        phi = float((pi[in_s, None] * P1[np.ix_(in_s, ~in_s)]).sum() / pi[in_s].sum())
+        assert phi <= math.comb(ring, m) * (m / ring) * math.exp(-2 * beta) * (1 + 1e-12)
+        A = np.sqrt(pi)[:, None] * P1 / np.sqrt(pi)[None, :]
+        lam2 = np.sort(np.linalg.eigvalsh((A + A.T) / 2))[-2]
+        assert 1 - lam2 <= 2 * phi + 1e-12
+        t_rel = float(mx.relaxation_time_profile(ring, np.array([beta]))[0])
+        assert t_rel >= mx.relaxation_time_divergence_lower_bound(ring, beta)
+
+
+def test_divergence_lower_bound_is_unbounded_and_rejects_bad_input() -> None:
+    lb = [mx.relaxation_time_divergence_lower_bound(L, b) for b in (0.0, 5.0, 10.0, 50.0)]
+    assert all(a < b for a, b in zip(lb, lb[1:], strict=False))
+    assert lb[0] == pytest.approx(1 / 120)  # L=6: 2 * C(6,4) * 4 = 120
+    assert lb[-1] > 1e40
+    assert mx.relaxation_time_divergence_lower_bound(L, 400.0) == math.inf
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            mx.relaxation_time_divergence_lower_bound(L, bad)
+    with pytest.raises(ValueError):
+        mx.relaxation_time_divergence_lower_bound(2, 1.0)
+
+
 def test_t_rel_is_not_monotone_on_theta() -> None:
     """Warum ein Endpunkt-/Monotonie-Argument NICHT reicht: fuer kleine beta dominiert der
     Paritaets-Eigenwert nahe -1, t_rel faellt zuerst und steigt dann."""
