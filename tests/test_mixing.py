@@ -194,6 +194,69 @@ def test_freeze_contract_converges_to_target_even_with_summable_warmup() -> None
     assert r.tv_to_target[-1] < 1e-10
 
 
+def _reference_tv(betas: np.ndarray, pi_target: np.ndarray) -> np.ndarray:
+    """Ungecachter Referenzpfad: jeder Sweep baut seinen Kern neu."""
+    mu = np.zeros(2**L)
+    mu[0] = 1.0
+    out = [mx.tv_distance(mu, pi_target)]
+    for b in betas:
+        mu = mu @ mx.sweep_kernel(L, float(b))
+        out.append(mx.tv_distance(mu, pi_target))
+    return np.array(out)
+
+
+def test_kernel_cache_is_bounded_by_bytes_not_by_count(monkeypatch) -> None:
+    """Codex P2 (PR #49, mixing.py:647): 512 Kerne a 128 MiB (L=12) waeren ~64 GiB.
+
+    Mit einem Budget von drei Kernen haelt der Cache bei 400 verschiedenen beta nie mehr
+    als drei; das Ergebnis ist bit-identisch zum ungecachten Pfad."""
+    one = mx.sweep_kernel(L, 0.5).nbytes
+    monkeypatch.setattr(mx, "_KERNEL_CACHE_MAX_BYTES", 3 * one)
+    caches = []
+
+    class Recording(mx._KernelCache):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
+            caches.append(self)
+
+    monkeypatch.setattr(mx, "_KernelCache", Recording)
+    a = a_kernel.diminishing_step_sizes(400, 0.5, 1.0)
+    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=a.size)
+    assert len(np.unique(r.beta_traj)) > 300  # lauter einmalige Warm-up-Werte
+    (cache,) = caches
+    assert cache.peak_nbytes <= 3 * one
+    assert len(cache._kernels) <= 3
+    pi_target = mx.stationary_distribution(L, 0.8)
+    assert np.array_equal(r.tv_to_target, _reference_tv(r.beta_traj, pi_target))
+
+
+def test_kernel_cache_reuses_the_frozen_kernel(monkeypatch) -> None:
+    calls = []
+    orig = mx.sweep_kernel
+
+    def counting(L_, beta):
+        calls.append(beta)
+        return orig(L_, beta)
+
+    monkeypatch.setattr(mx, "sweep_kernel", counting)
+    a = a_kernel.diminishing_step_sizes(400, 0.5, 1.0)
+    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=30)
+    assert len(calls) == len(np.unique(r.beta_traj)) <= 31
+    assert calls.count(0.8) == 1  # 370 eingefrorene Sweeps, ein Kern
+
+
+def test_kernel_cache_budget_edges() -> None:
+    # Ein dichter Kern am Rand MAX_STATES passt genau einmal ins Default-Budget.
+    assert mx._KERNEL_CACHE_MAX_BYTES == mx.MAX_STATES**2 * 8
+    zero = mx._KernelCache(L, 0)
+    P = zero.kernel(0.5)
+    assert np.array_equal(P, mx.sweep_kernel(L, 0.5))
+    assert zero.nbytes == zero.peak_nbytes == 0 and not zero._kernels
+    for bad in (-1, 1.5, True, None):
+        with pytest.raises(ValueError):
+            mx._KernelCache(L, bad)
+
+
 def test_default_schedule_adaptive_chain_converges_to_target() -> None:
     a = a_kernel.diminishing_step_sizes(300, 0.5, 100.0)
     r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=300)

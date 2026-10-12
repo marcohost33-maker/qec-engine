@@ -603,6 +603,48 @@ class AdaptiveTV:
     """||pi_{beta_inf} - pi_{beta_target}||_TV: nicht unterschreitbarer Boden."""
 
 
+_KERNEL_CACHE_MAX_BYTES = 128 * 2**20
+"""Byte-Budget des Kern-Caches von adaptive_exact_tv (= genau ein dichter 4096x4096-Kern).
+
+Codex P2 (PR #49, mixing.py:647): vorher begrenzte nur die ANZAHL (512 Kerne); bei L=12
+(128 MiB je Kern) haette ein Warm-up mit lauter verschiedenen beta bis ~64 GiB gehalten.
+Wiederverwendet wird praktisch nur der eingefrorene Kern (bzw. ein geclippter Wert), die
+Warm-up-Werte sind einmalig. Das Budget begrenzt den CACHE; die Temporaries von
+matrix_power und der gerade benutzte Kern kommen hinzu."""
+
+
+class _KernelCache:
+    """LRU-Cache der Sweep-Kerne je beta, begrenzt durch ``max_bytes`` statt durch Anzahl.
+
+    Ergebnisse sind bit-identisch zum ungecachten Pfad (derselbe sweep_kernel-Aufruf);
+    ein Kern groesser als das Budget wird nie gehalten.
+    """
+
+    def __init__(self, L: int, max_bytes: int) -> None:
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 0:
+            raise ValueError(f"max_bytes must be an int >= 0, got {max_bytes!r}")
+        self.L = L
+        self.max_bytes = max_bytes
+        self.nbytes = 0
+        self.peak_nbytes = 0
+        self._kernels: dict[float, np.ndarray] = {}
+
+    def kernel(self, beta: float) -> np.ndarray:
+        P = self._kernels.pop(beta, None)
+        if P is None:
+            P = sweep_kernel(self.L, beta)
+            if P.nbytes > self.max_bytes:
+                return P
+            self.nbytes += P.nbytes
+            # Aelteste zuerst verdraengen (dict haelt Einfuegeordnung = LRU-Ordnung).
+            while self.nbytes > self.max_bytes:
+                oldest = next(iter(self._kernels))
+                self.nbytes -= self._kernels.pop(oldest).nbytes
+        self._kernels[beta] = P  # (wieder) als juengsten eintragen
+        self.peak_nbytes = max(self.peak_nbytes, self.nbytes)
+        return P
+
+
 def adaptive_exact_tv(
     cfg: MVPConfig,
     *,
@@ -613,7 +655,7 @@ def adaptive_exact_tv(
     freeze_at: int,
     beta_limit: float | None = None,
 ) -> AdaptiveTV:
-    """mu_{t+1} = mu_t P_{beta_{t+1}} exakt; Kerne je beta gecacht.
+    """mu_{t+1} = mu_t P_{beta_{t+1}} exakt; Kerne je beta gecacht (byte-begrenzt, LRU).
 
     Args:
         freeze_at: Freeze-Sweep wie in a_kernel.advance_chain; a_t.size = kein Freeze.
@@ -635,18 +677,13 @@ def adaptive_exact_tv(
     pi_limit = stationary_distribution(L, b_inf)
     mu = np.zeros(2**L)
     mu[x0] = 1.0
-    cache: dict[float, np.ndarray] = {}
+    cache = _KernelCache(L, _KERNEL_CACHE_MAX_BYTES)
     to_target = np.empty(betas.size + 1)
     to_limit = np.empty(betas.size + 1)
     to_target[0] = tv_distance(mu, pi_target)
     to_limit[0] = tv_distance(mu, pi_limit)
     for t, b in enumerate(betas):
-        P = cache.get(b)
-        if P is None:
-            P = sweep_kernel(L, b)
-            if len(cache) < 512:
-                cache[b] = P
-        mu = mu @ P
+        mu = mu @ cache.kernel(float(b))
         to_target[t + 1] = tv_distance(mu, pi_target)
         to_limit[t + 1] = tv_distance(mu, pi_limit)
     return AdaptiveTV(
