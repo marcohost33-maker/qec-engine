@@ -210,13 +210,28 @@ def test_summable_schedule_freezes_adaptation_measurable_floor() -> None:
     """
     c, T0 = 0.5, 1.0
     a = a_kernel.diminishing_step_sizes(400, c, T0)
-    r = mx.adaptive_exact_tv(_CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=a.size)
     closed = 0.8 + (0.1 - 0.8) * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
-    assert abs(r.beta_limit - closed) < 1e-3
+    # Codex P2 (cli.py:1615): gegen den Grenzwert der UNENDLICHEN Schedule messen.
+    r = mx.adaptive_exact_tv(
+        _CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=a.size, beta_limit=closed
+    )
+    assert r.beta_limit == closed
     assert abs(r.beta_limit - 0.8) > 0.2
     assert r.frozen_floor > 0.05
-    assert r.tv_to_limit[-1] < 1e-6
+    beta_n = float(r.beta_traj[-1])
+    assert 1e-4 < closed - beta_n < 1e-3  # die endliche Schedule ist noch nicht am Grenzwert
+    drift = mx.tv_distance(
+        mx.stationary_distribution(L, beta_n), mx.stationary_distribution(L, closed)
+    )
+    assert drift - 1e-6 <= r.tv_to_limit[-1] <= drift + 1e-6
     assert r.tv_to_target[-1] >= r.frozen_floor - r.tv_to_limit[-1] - 1e-12
+    # Der alte Default (letzter endlicher Wert) meldete Konvergenz < 1e-6 -- gegen den
+    # falschen Grenzwert; gegen den richtigen liegt der Abstand bei ~1e-4.
+    proxy = mx.adaptive_exact_tv(
+        _CFG, beta_start=0.1, beta_target=0.8, a_t=a, x0=0, freeze_at=a.size
+    )
+    assert proxy.beta_limit == beta_n
+    assert proxy.tv_to_limit[-1] < 1e-6 < 1e-5 < r.tv_to_limit[-1]
 
 
 def test_containment_relaxation_time_bounded_on_theta_unbounded_toward_beta_c() -> None:

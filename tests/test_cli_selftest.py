@@ -210,6 +210,25 @@ def test_phase7_fails_closed_when_the_freeze_contract_breaks(tmp_path, monkeypat
     assert any(r["frozen"] and r["frozen_floor_tv"] > 0.05 for r in payload["adaptive_chain"])
 
 
+def test_g48_no_freeze_is_measured_against_the_infinite_schedule_limit() -> None:
+    """Codex P2 (PR #49, cli.py:1615): beta_limit muss der Grenzwert der unendlichen
+    Schedule sein (0.549268), nicht beta_400 = 0.548955."""
+    ok, detail = cli._g48_adaptive_chain_exact_tv()
+    assert ok, detail
+    assert "beta_inf=0.549268 (closed form; beta_400=0.548955)" in detail
+
+
+def test_phase7_records_the_infinite_schedule_limit(tmp_path) -> None:
+    path = tmp_path / "phase7.json"
+    assert cli.main(["phase7", "--json", str(path)]) == 0
+    rows = json.loads(path.read_text(encoding="utf-8"))["adaptive_chain"]
+    for row in rows:
+        assert row["beta_limit_used"] == row["beta_limit_closed_form_1e6"]
+    t0_1 = next(r for r in rows if not r["frozen"] and r["adapt_c"] == 0.5 and r["adapt_T0"] == 1.0)
+    assert t0_1["beta_limit_used"] - t0_1["beta_limit_schedule_end"] > 1e-4
+    assert t0_1["tv_to_limit_end"] > 1e-5
+
+
 def _sup(**changes):
     import dataclasses
 

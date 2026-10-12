@@ -1609,25 +1609,51 @@ def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
     frozen_ok = mixing.adaptive_exact_tv(
         cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=warm
     )
-    no_freeze = mixing.adaptive_exact_tv(
-        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=n
-    )
+    # Codex P2 (PR #49, cli.py:1615): ohne beta_limit misst adaptive_exact_tv gegen den
+    # LETZTEN endlichen Schedule-Wert (beta_400 = 0.54896), nicht gegen den Grenzwert der
+    # unendlichen Schedule (0.54927). Erst den Grenzwert (geschlossene Produktformel, ohne
+    # Clip gueltig: beta waechst monoton in Theta) bestimmen und durchreichen.
     closed = 0.8 - 0.7 * float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, 0.5, 1.0)))
+    no_freeze = mixing.adaptive_exact_tv(
+        cfg, beta_start=0.1, beta_target=0.8, a_t=a_t, x0=0, freeze_at=n, beta_limit=closed
+    )
+    longer = mixing.adaptive_exact_tv(
+        cfg,
+        beta_start=0.1,
+        beta_target=0.8,
+        a_t=a_kernel.diminishing_step_sizes(10 * n, 0.5, 1.0),
+        x0=0,
+        freeze_at=10 * n,
+        beta_limit=closed,
+    )
+    pi_inf = mixing.stationary_distribution(_MIX_L, closed)
+    drift = mixing.tv_distance(
+        mixing.stationary_distribution(_MIX_L, float(no_freeze.beta_traj[-1])), pi_inf
+    )
     exact_after_freeze = bool(np.all(frozen_ok.beta_traj[warm:] == 0.8))
     ok = (
         identical
         and exact_after_freeze
         and frozen_ok.frozen_floor == 0.0
         and frozen_ok.tv_to_target[-1] < 1e-10
-        and abs(no_freeze.beta_limit - closed) < 1e-3
+        and no_freeze.beta_limit == closed
+        and abs(float(longer.beta_traj[-1]) - closed) < abs(float(no_freeze.beta_traj[-1]) - closed)
+        # Boden gegen den WAHREN Grenzwert, nicht gegen beta_400.
         and no_freeze.frozen_floor > 0.05
-        and no_freeze.tv_to_limit[-1] < 1e-6
+        # Nach n Sweeps trennt mu_n von pi_{beta_inf} nur noch die unvollendete Schedule
+        # (TV(pi_{beta_n}, pi_{beta_inf}) -> 0, weil beta_n -> beta_inf); die Kette selbst
+        # folgt ihrem momentanen Kern bis auf 1e-6 ...
+        and no_freeze.tv_to_limit[-1] <= drift + 1e-6
+        # ... und der Abstand zum WAHREN Grenzwert faellt mit dem Horizont (O(1/n)).
+        and longer.tv_to_limit[-1] < no_freeze.tv_to_limit[-1] / 5
+        and no_freeze.tv_to_limit[-1] < 0.01 * no_freeze.frozen_floor
     )
     return ok, (
         f"schedule bit-identical={identical}; freeze@{warm}: beta exact={exact_after_freeze}, "
         f"TV_end={frozen_ok.tv_to_target[-1]:.1e}; no freeze: "
-        f"beta_inf={no_freeze.beta_limit:.4f} (closed {closed:.4f}), "
-        f"floor={no_freeze.frozen_floor:.4f}"
+        f"beta_inf={closed:.6f} (closed form; beta_{n}={no_freeze.beta_traj[-1]:.6f}), "
+        f"floor={no_freeze.frozen_floor:.4f}, TV(mu_t, pi_beta_inf) at t={n}: "
+        f"{no_freeze.tv_to_limit[-1]:.1e}, t={10 * n}: {longer.tv_to_limit[-1]:.1e}"
     )
 
 
@@ -2202,6 +2228,12 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         (0.5, 1.0, 400, 30),
         (0.05, 1.0, 400, 30),
     ):
+        prod = float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
+        # Codex P2 (cli.py:1615), gleiche Klasse: ohne Freeze ist der Grenzwert der
+        # UNENDLICHEN Schedule (geschlossene Produktformel) das Ziel von tv_to_limit und
+        # frozen_floor, nicht der letzte endliche Schedule-Wert. Mit Freeze ist der letzte
+        # Wert beta_target selbst -- greift der Freeze nicht, zeigt der Boden genau das.
+        closed = 0.8 - 0.7 * prod if freeze_at >= n else 0.8
         r = mixing.adaptive_exact_tv(
             cfg,
             beta_start=0.1,
@@ -2209,8 +2241,8 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             a_t=a_kernel.diminishing_step_sizes(n, c, T0),
             x0=0,
             freeze_at=freeze_at,
+            beta_limit=closed if freeze_at >= n else None,
         )
-        prod = float(np.prod(1 - a_kernel.diminishing_step_sizes(10**6, c, T0)))
         adaptive.append(
             {
                 "adapt_c": c,
@@ -2220,9 +2252,11 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
                 "frozen": freeze_at < n,
                 "beta_start": 0.1,
                 "beta_target": 0.8,
-                "beta_limit_schedule_end": r.beta_limit,
+                "beta_limit_schedule_end": float(r.beta_traj[-1]),
                 # Ohne Freeze: geschlossene Produktformel; mit Freeze: exakt beta_target.
-                "beta_limit_closed_form_1e6": 0.8 - 0.7 * prod if freeze_at >= n else 0.8,
+                # tv_to_limit_end und frozen_floor_tv beziehen sich auf DIESEN Wert.
+                "beta_limit_closed_form_1e6": closed,
+                "beta_limit_used": r.beta_limit,
                 "frozen_floor_tv": r.frozen_floor,
                 "tv_to_target_end": float(r.tv_to_target[-1]),
                 "tv_to_limit_end": float(r.tv_to_limit[-1]),
@@ -2232,7 +2266,7 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             }
         )
         print(
-            f"  adaptive c={c} T0={T0} freeze_at={freeze_at}: beta_inf={r.beta_limit:.4f} "
+            f"  adaptive c={c} T0={T0} freeze_at={freeze_at}: beta_inf={r.beta_limit:.6f} "
             f"floor={r.frozen_floor:.4f} TV_end={r.tv_to_target[-1]:.2e}"
         )
 
