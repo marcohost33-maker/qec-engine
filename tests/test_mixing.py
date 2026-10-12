@@ -190,13 +190,51 @@ def test_summable_schedule_freezes_adaptation_measurable_floor() -> None:
 
 
 def test_containment_relaxation_time_bounded_on_theta_unbounded_toward_beta_c() -> None:
-    grid = np.linspace(_CFG.beta_min, _CFG.beta_max, 12)
-    t_rel = mx.relaxation_time_profile(L, grid)
-    assert np.all(np.isfinite(t_rel))
-    assert float(np.max(t_rel)) < 25.0
+    """Codex P2 (cli.py:1557): die Schranke gilt fuer das GANZE Theta, nicht fuer 12 Punkte."""
+    sup = mx.relaxation_time_sup_bound(L, _CFG.beta_min, _CFG.beta_max, step=0.01)
+    assert math.isfinite(sup.upper_bound)
+    assert sup.grid_max <= sup.upper_bound < 25.0
     far = mx.relaxation_time_profile(L, np.array([4.0, 6.0]))
     assert far[1] > 1e4
     assert far[1] > 30 * far[0]
+
+
+def test_t_rel_is_not_monotone_on_theta() -> None:
+    """Warum ein Endpunkt-/Monotonie-Argument NICHT reicht: fuer kleine beta dominiert der
+    Paritaets-Eigenwert nahe -1, t_rel faellt zuerst und steigt dann."""
+    t = mx.relaxation_time_profile(L, np.array([0.1, 0.3, 2.0]))
+    assert t[0] > t[1] < t[2]
+
+
+def test_sup_bound_dominates_t_rel_between_grid_points() -> None:
+    """Orakel: t_rel an Punkten ZWISCHEN den Gitterknoten (direkt aus dem Sweep-Kern)
+    muss unter der Intervallschranke liegen. Auf [1.9, 2.0] steigt t_rel; eine Schranke,
+    die nur die Knoten nimmt (delta=0), laege unter den Zwischenwerten."""
+    sup = mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.05)
+    assert sup.n_points == 3
+    between = mx.relaxation_time_profile(L, np.array([1.91, 1.93, 1.96, 1.99, 2.0]))
+    assert np.all(between <= sup.upper_bound)
+    assert sup.grid_max == pytest.approx(float(between[-1]), rel=1e-12)  # Knoten 2.0
+    # Konvergenz: feineres Gitter -> engere Schranke, nie unter dem Gittermaximum.
+    fine = mx.relaxation_time_sup_bound(L, 1.9, 2.0, step=0.005)
+    assert sup.grid_max <= fine.upper_bound < sup.upper_bound
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "step"),
+    [
+        (0.5, 0.5, 0.1),
+        (1.0, 0.5, 0.1),
+        (0.1, 2.0, 0.0),
+        (0.1, 2.0, -0.1),
+        (0.1, 2.0, float("nan")),
+        (0.1, float("nan"), 0.1),
+        (0.1, 2.0, 1e-7),
+    ],
+)
+def test_sup_bound_rejects_bad_interval(lo: float, hi: float, step: float) -> None:
+    with pytest.raises(ValueError):
+        mx.relaxation_time_sup_bound(L, lo, hi, step=step)
 
 
 # --- Silent-Failure-Gate ------------------------------------------------------

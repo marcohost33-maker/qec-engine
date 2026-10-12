@@ -86,3 +86,20 @@ def test_phase7_writes_artifact(tmp_path) -> None:
     assert all(r["frozen_floor_tv"] > 0.05 for r in no_freeze)
     # Freeze-Vertrag: exakt beta_target, TV zu pi_target verschwindet.
     assert all(r["frozen_floor_tv"] == 0.0 and r["tv_to_target_end"] < 1e-10 for r in freeze)
+    # Codex P2 (README:281): die publizierte 1e-15-Zahl steht GEMESSEN im Artefakt.
+    stat = payload["stationary_oracle"]
+    assert stat["pass"] is True
+    assert stat["max_abs_err_distribution"] <= stat["tol_distribution"] == 1e-15
+    assert {r["beta"] for r in stat["per_beta"]} == {0.3, 0.8, 1.5, 2.0}
+    # Codex P2 (cli.py:1557): Supremum eingegrenzt, nicht nur Gittermaximum.
+    sup = payload["containment"]["sup_t_rel_on_theta"]
+    assert sup["lower_bound_grid_max"] <= sup["upper_bound_rigorous"] < 25.0
+
+
+def test_phase7_fails_closed_when_stationary_oracle_breaks(tmp_path, monkeypatch) -> None:
+    """Vorher gab phase7 IMMER 0 zurueck; ein gerissenes Orakel muss den Lauf rot machen."""
+    monkeypatch.setattr(cli, "_STATIONARY_TOL_DIST", 0.0)  # gemessene Fehler sind ~5e-17 > 0
+    path = tmp_path / "phase7.json"
+    assert cli.main(["phase7", "--json", str(path)]) == 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["stationary_oracle"]["pass"] is False

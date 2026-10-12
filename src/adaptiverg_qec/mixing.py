@@ -119,6 +119,8 @@ __all__ = [
     "AdaptiveTV",
     "adaptive_exact_tv",
     "relaxation_time_profile",
+    "RelaxationSupBound",
+    "relaxation_time_sup_bound",
 ]
 
 MAX_STATES = 4096
@@ -625,4 +627,95 @@ def relaxation_time_profile(L: int, betas: np.ndarray) -> np.ndarray:
             spectral_summary(sweep_kernel(L, b), stationary_distribution(L, b)).relaxation_time
             for b in np.asarray(betas, dtype=np.float64)
         ]
+    )
+
+
+@dataclass(frozen=True)
+class RelaxationSupBound:
+    """Eingrenzung von sup_{beta in [beta_lo, beta_hi]} t_rel(beta) (Containment, G49)."""
+
+    grid_max: float
+    """max t_rel auf dem Gitter -- UNTERE Schranke des Supremums (Gitterpunkte liegen in Theta)."""
+    grid_argmax: float
+    """beta, an dem grid_max angenommen wird."""
+    upper_bound: float
+    """Rigorose OBERE Schranke ueber das GANZE Intervall (Weyl, s. relaxation_time_sup_bound)."""
+    step: float
+    """Tatsaechliche Gitterweite h (<= angefragte Weite)."""
+    n_points: int
+
+
+_SUP_BOUND_MAX_POINTS = 200_000
+_EIGEN_ROUNDOFF = 1e-12  # >> n*eps*||A|| fuer 2^L <= 4096, ||A||_2 <= 1
+
+
+def relaxation_time_sup_bound(
+    L: int, beta_lo: float, beta_hi: float, *, step: float
+) -> RelaxationSupBound:
+    """Untere UND rigorose obere Schranke fuer sup t_rel(beta) ueber [beta_lo, beta_hi].
+
+    Codex P2 (PR #49, cli.py:1557): 12 Gitterpunkte als "sup_Theta" zu etikettieren
+    beweist nichts zwischen den Punkten -- und t_rel(beta) ist NICHT monoton (fuer kleine
+    beta dominiert der Paritaets-Eigenwert nahe -1, t_rel faellt erst, dann steigt es).
+
+    Verfahren: A_1(beta) = D^{1/2} P_1 D^{-1/2} ist symmetrisch mit Eintraegen
+    A_1(x, x^(i)) = (1/L) exp(-beta |dH_i|/2) und A_1(x,x) = 1 - (1/L) sum_i min(1, e^{-beta dH_i}).
+    Beide |d/dbeta| fallen monoton in beta, also gilt fuer beta in [b_k, b_k + h]
+        ||A_1(beta) - A_1(b_k)||_2 <= h * || |dA_1/dbeta|(b_k) ||_inf
+    (symmetrisch: ||.||_2 <= ||.||_inf),
+    und nach Weyl verschiebt sich JEDER sortierte Eigenwert mu_i um hoechstens diesen
+    Betrag. Weil der Sweep-Kern A_1^L ist, gilt lambda_*(beta) = max_{i>=2} |mu_i|^L <=
+    (mu_*(b_k) + delta_k)^L und damit t_rel(beta) <= 1 / (1 - (mu_*(b_k) + delta_k)^L).
+    Das Maximum dieser Intervall-Schranken ist eine OBERE Schranke des Supremums; das
+    Gittermaximum eine untere (Gitterpunkte liegen in Theta). Fail-closed: erreicht
+    mu_* + delta die 1, ist die Schranke inf.
+    """
+    L = _check_L(L)
+    lo, hi = _check_beta(beta_lo), _check_beta(beta_hi)
+    if not lo < hi:
+        raise ValueError(f"need beta_lo < beta_hi, got [{lo}, {hi}]")
+    step = float(step)
+    if not (math.isfinite(step) and step > 0.0):
+        raise ValueError(f"step must be finite and > 0, got {step}")
+    # -1e-9: (2.0-1.9)/0.05 = 2.0000000000000018 soll 2 Intervalle geben, nicht 3. Die
+    # Schranke rechnet ohnehin mit der TATSAECHLICHEN Weite h, bleibt also gueltig.
+    m = max(1, math.ceil((hi - lo) / step - 1e-9))
+    if m + 1 > _SUP_BOUND_MAX_POINTS:
+        raise ValueError(f"{m + 1} grid points exceed {_SUP_BOUND_MAX_POINTS}; increase step")
+    grid = np.linspace(lo, hi, m + 1)
+    h = (hi - lo) / m
+    n = 2**L
+    H = hamiltonians(L)
+    idx = np.arange(n, dtype=np.int64)
+    flips = [idx ^ (1 << i) for i in range(L)]
+    dHs = [(H[j] - H[idx]).astype(np.float64) for j in flips]
+    mu_star = np.empty(grid.size)
+    deriv = np.empty(grid.size)
+    for k, b in enumerate(grid):
+        pi = stationary_distribution(L, b)
+        P1 = single_flip_kernel(L, b)
+        s = np.sqrt(pi)
+        A = s[:, None] * P1 / s[None, :]
+        if not float(np.max(np.abs(A - A.T))) <= _SIMILARITY_ATOL:
+            raise ValueError(f"single-flip kernel not reversible at beta={b}")
+        ev = np.linalg.eigvalsh(0.5 * (A + A.T))[::-1]
+        mu_star[k] = float(np.max(np.abs(ev[1:])))
+        # Zeilensumme von |dA_1/dbeta|(b): Nebendiagonale + Diagonale (beide >= 0 summiert).
+        row = np.zeros(n)
+        for dH in dHs:
+            row += (np.abs(dH) / 2.0) * np.exp(-b * np.abs(dH) / 2.0) / L
+            row += np.where(dH > 0, dH * np.exp(-b * np.maximum(dH, 0.0)), 0.0) / L
+        deriv[k] = float(np.max(row))
+    lam = mu_star**L
+    t_rel = np.where(lam < 1.0, 1.0 / np.maximum(1.0 - lam, 1e-300), math.inf)
+    shifted = mu_star[:-1] + h * deriv[:-1] + _EIGEN_ROUNDOFF
+    lam_up = np.where(shifted < 1.0, shifted, 1.0) ** L
+    t_up = np.where(lam_up < 1.0, 1.0 / np.maximum(1.0 - lam_up, 1e-300), math.inf)
+    k_max = int(np.argmax(t_rel))
+    return RelaxationSupBound(
+        grid_max=float(t_rel[k_max]),
+        grid_argmax=float(grid[k_max]),
+        upper_bound=float(np.max(t_up)),
+        step=float(h),
+        n_points=int(grid.size),
     )

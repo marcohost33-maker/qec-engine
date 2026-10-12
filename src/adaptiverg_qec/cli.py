@@ -1447,6 +1447,34 @@ def _g45_checkpoint_lock_and_tamper() -> tuple[bool, str]:
 # --- Phase-7: exakte TV-Mischung (Phase-1/2-Akzeptanz) ------------------------
 
 _MIX_L = 6
+_STATIONARY_TOL_DIST = 1e-15
+_STATIONARY_TOL_ENERGY = 1e-12
+
+
+def _stationary_oracle(L: int, betas: tuple[float, ...]) -> dict:
+    """pi_beta (mixing) gegen das separat geschriebene ising1d-Orakel, GEMESSEN.
+
+    Codex P2 (PR #49, README:281): die README nannte "1e-15" als Phase-7-Evidenz, das
+    Artefakt trug aber nur den Orakel-NAMEN. Jetzt stehen gemessener Fehler, Toleranz und
+    Urteil im Artefakt (und G46 haengt am selben Urteil). ising1d verlangt beta > 0.
+    """
+    rows = []
+    for beta in betas:
+        pi = mixing.stationary_distribution(L, beta)
+        err_d = float(np.max(np.abs(pi - np.asarray(ising1d.exact_distribution(beta, L)))))
+        err_e = abs(float(pi @ mixing.hamiltonians(L)) - ising1d.mean_energy(beta, L))
+        rows.append({"beta": beta, "max_abs_err_distribution": err_d, "abs_err_mean_energy": err_e})
+    max_d = max(r["max_abs_err_distribution"] for r in rows)
+    max_e = max(r["abs_err_mean_energy"] for r in rows)
+    return {
+        "oracle": "ising1d.exact_distribution / ising1d.mean_energy (independent enumeration)",
+        "per_beta": rows,
+        "max_abs_err_distribution": max_d,
+        "max_abs_err_mean_energy": max_e,
+        "tol_distribution": _STATIONARY_TOL_DIST,
+        "tol_mean_energy": _STATIONARY_TOL_ENERGY,
+        "pass": bool(max_d <= _STATIONARY_TOL_DIST and max_e <= _STATIONARY_TOL_ENERGY),
+    }
 
 
 def _g46_tv_spectral_sandwich() -> tuple[bool, str]:
@@ -1475,7 +1503,12 @@ def _g46_tv_spectral_sandwich() -> tuple[bool, str]:
     flagged = (not spec0.geometrically_ergodic) and (
         mixing.exact_tv_curve(P0, pi0, 0, 50)[-1] >= 0.49
     )
-    return ok and flagged, "; ".join(details) + f"; beta=0 flagged={flagged}"
+    stat = _stationary_oracle(_MIX_L, (0.3, 0.8, 1.5))
+    return ok and flagged and stat["pass"], (
+        "; ".join(details)
+        + f"; beta=0 flagged={flagged}; pi vs ising1d max err "
+        + f"{stat['max_abs_err_distribution']:.1e} (<= {_STATIONARY_TOL_DIST:.0e})"
+    )
 
 
 def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
@@ -1553,16 +1586,18 @@ def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
 def _g49_containment_relaxation_time() -> tuple[bool, str]:
     """Containment: sup_{beta in Theta} t_rel(beta) endlich; ausserhalb divergent.
 
-    Theta=[0.1, 2.0] -> max t_rel < 25 Sweeps. Gegenrichtung: Richtung kritischer
-    Punkt (beta_c = inf fuer 1D) waechst t_rel unbeschraenkt (beta=6 -> > 1e4) --
-    der Grund, warum Theta den kritischen Punkt ausschliessen muss (Spec 4.2).
+    Theta=[0.1, 2.0] -> sup t_rel < 25 Sweeps, als RIGOROSE Intervallschranke ueber das
+    GANZE Theta (Weyl, mixing.relaxation_time_sup_bound, h=0.01), nicht nur auf Gitter-
+    punkten (Codex P2, PR #49: t_rel ist nicht monoton). Gegenrichtung: Richtung
+    kritischer Punkt (beta_c = inf fuer 1D) waechst t_rel unbeschraenkt (beta=6 -> > 1e4)
+    -- der Grund, warum Theta den kritischen Punkt ausschliessen muss (Spec 4.2).
     """
-    grid = np.linspace(0.1, 2.0, 12)
-    t_rel = mixing.relaxation_time_profile(_MIX_L, grid)
+    sup = mixing.relaxation_time_sup_bound(_MIX_L, 0.1, 2.0, step=0.01)
     far = mixing.relaxation_time_profile(_MIX_L, np.array([4.0, 6.0]))
-    ok = bool(np.all(np.isfinite(t_rel))) and float(np.max(t_rel)) < 25.0 and far[1] > 1e4
+    ok = math.isfinite(sup.upper_bound) and sup.upper_bound < 25.0 and far[1] > 1e4
     return ok, (
-        f"sup t_rel on Theta={float(np.max(t_rel)):.2f} sweeps; "
+        f"{sup.grid_max:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
+        f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}); "
         f"t_rel(4)={far[0]:.0f}, t_rel(6)={far[1]:.0f} (diverges toward beta_c=inf)"
     )
 
@@ -2100,13 +2135,33 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
 
     grid = np.round(np.linspace(0.1, 2.0, 20), 6)
     far = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
+    sup = mixing.relaxation_time_sup_bound(L, 0.1, 2.0, step=0.002)
     containment = {
         "theta": [0.1, 2.0],
         "beta_grid": grid.tolist(),
         "t_rel_sweeps": mixing.relaxation_time_profile(L, grid).tolist(),
         "beta_beyond_theta": far.tolist(),
         "t_rel_beyond_theta": mixing.relaxation_time_profile(L, far).tolist(),
+        # Codex P2 (PR #49): ein Gittermaximum ist KEIN Supremum (t_rel nicht monoton).
+        "sup_t_rel_on_theta": {
+            "lower_bound_grid_max": sup.grid_max,
+            "grid_argmax_beta": sup.grid_argmax,
+            "upper_bound_rigorous": sup.upper_bound,
+            "grid_step": sup.step,
+            "n_grid_points": sup.n_points,
+            "method": "Weyl eigenvalue perturbation on A_1(beta) with the monotone "
+            "entrywise |dA_1/dbeta| at the left interval end; t_rel = 1/(1-mu_*^L)",
+        },
     }
+    print(
+        f"  containment: {sup.grid_max:.4f} <= sup_Theta t_rel <= {sup.upper_bound:.4f} "
+        f"(h={sup.step:.3g}, {sup.n_points} points)"
+    )
+    stationary = _stationary_oracle(L, (0.3, 0.8, 1.5, 2.0))
+    print(
+        f"  stationary oracle: max|pi - ising1d| = {stationary['max_abs_err_distribution']:.2e}"
+        f" pass={stationary['pass']}"
+    )
 
     if json_path:
         payload = {
@@ -2122,6 +2177,7 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
                 "stationary": "ising1d.exact_distribution / mean_energy",
             },
             "kernels": kernels,
+            "stationary_oracle": stationary,
             "empirical_sampler": empirical,
             "adaptive_chain": adaptive,
             "containment": containment,
@@ -2137,6 +2193,11 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
         print(f"  artifact -> {out_path}")
+    # Fail-closed: ein gerissenes Orakel / eine offene Containment-Schranke ist kein
+    # erfolgreicher Evidenzlauf, auch wenn das Artefakt (zur Diagnose) geschrieben wurde.
+    if not stationary["pass"] or not sup.upper_bound < 25.0:
+        print("  [FAIL] stationary oracle or containment bound violated")
+        return 1
     return 0
 
 
