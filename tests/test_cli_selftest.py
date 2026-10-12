@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 
+import numpy as np
 import pytest
 
 from adaptiverg_qec import cli
@@ -207,3 +208,75 @@ def test_phase7_fails_closed_when_the_freeze_contract_breaks(tmp_path, monkeypat
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["empirical_sampler"]["pass"] is True
     assert any(r["frozen"] and r["frozen_floor_tv"] > 0.05 for r in payload["adaptive_chain"])
+
+
+def _sup(**changes):
+    import dataclasses
+
+    from adaptiverg_qec import mixing
+
+    base = mixing.RelaxationSupBound(
+        grid_max=19.0,
+        grid_argmax=2.0,
+        upper_bound=22.0,
+        step=0.01,
+        n_points=191,
+        lower_bound=18.8,
+        eigen_radius_max=1e-12,
+        exp_rel_err_max=1e-16,
+    )
+    return dataclasses.replace(base, **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "t_rel_6", "ok"),
+    [
+        ({}, 5e4, True),
+        ({"lower_bound": 23.0}, 5e4, False),  # invertiertes Intervall
+        ({"eigen_radius_max": 1e-9}, 5e4, False),  # Grenze selbst ist zu
+        ({"upper_bound": 25.0}, 5e4, False),
+        ({"upper_bound": float("nan")}, 5e4, False),
+        ({"eigen_radius_max": float("nan")}, 5e4, False),
+        ({}, 1e4, False),  # Kontrolle ausserhalb Theta greift nicht mehr
+        ({}, float("nan"), False),
+    ],
+)
+def test_containment_acceptance_edges(changes, t_rel_6, ok) -> None:
+    assert cli._containment_accepts(_sup(**changes), t_rel_beta_6=t_rel_6) is ok
+
+
+@pytest.mark.parametrize("regression", ["inverted", "eigen_radius", "no_divergence_control"])
+def test_phase7_applies_the_full_containment_verdict(tmp_path, monkeypatch, regression) -> None:
+    """Codex P2 (PR #49, cli.py:2282): phase7 akzeptierte Containment allein ueber
+    upper_bound < 25. Jede Regression laesst upper_bound < 25 stehen -- rot kommt also
+    GENAU vom vollstaendigen G49-Praedikat."""
+    import dataclasses
+
+    from adaptiverg_qec import mixing
+
+    orig_sup = mixing.relaxation_time_sup_bound
+    orig_profile = mixing.relaxation_time_profile
+
+    def sup_bound(*args, **kw):
+        sup = orig_sup(*args, **kw)
+        if regression == "inverted":
+            return dataclasses.replace(sup, lower_bound=sup.upper_bound + 1.0)
+        if regression == "eigen_radius":
+            return dataclasses.replace(sup, eigen_radius_max=1e-8)
+        return sup
+
+    def profile(L, betas):
+        out = orig_profile(L, betas)
+        if regression == "no_divergence_control":
+            out = np.where(np.asarray(betas) == 6.0, 5000.0, out)
+        return out
+
+    monkeypatch.setattr(mixing, "relaxation_time_sup_bound", sup_bound)
+    monkeypatch.setattr(mixing, "relaxation_time_profile", profile)
+    path = tmp_path / "phase7.json"
+    assert cli.main(["phase7", "--json", str(path)]) == 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    cont = payload["containment"]
+    assert cont["sup_t_rel_on_theta"]["upper_bound_rigorous"] < 25.0
+    assert cont["pass"] is False
+    assert payload["empirical_sampler"]["pass"] is True

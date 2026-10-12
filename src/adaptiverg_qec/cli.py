@@ -1631,6 +1631,22 @@ def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
     )
 
 
+def _containment_accepts(sup: mixing.RelaxationSupBound, *, t_rel_beta_6: float) -> bool:
+    """Containment-Urteil: G49 UND phase7 urteilen hiermit (eine Stelle, ein Praedikat).
+
+    Codex P2 (PR #49, cli.py:2282): phase7 pruefte nur ``upper_bound < 25``; ein
+    invertiertes Intervall, ein zu grosser Eigenwert-Einschliessungsradius oder eine
+    nicht mehr greifende Kontrolle ausserhalb Theta ergaben trotzdem Exit 0. Positiv
+    formuliert, damit NaN in jedem Feld zufaellt.
+    """
+    return bool(
+        math.isfinite(sup.upper_bound)
+        and sup.lower_bound <= sup.upper_bound < 25.0
+        and sup.eigen_radius_max < 1e-9
+        and t_rel_beta_6 > 1e4
+    )
+
+
 def _g49_containment_relaxation_time() -> tuple[bool, str]:
     """Containment: sup_{beta in Theta} t_rel(beta) endlich; ausserhalb divergent.
 
@@ -1644,12 +1660,7 @@ def _g49_containment_relaxation_time() -> tuple[bool, str]:
     """
     sup = mixing.relaxation_time_sup_bound(_MIX_L, 0.1, 2.0, step=0.01)
     far = mixing.relaxation_time_profile(_MIX_L, np.array([4.0, 6.0]))
-    ok = (
-        math.isfinite(sup.upper_bound)
-        and sup.lower_bound <= sup.upper_bound < 25.0
-        and sup.eigen_radius_max < 1e-9
-        and far[1] > 1e4
-    )
+    ok = _containment_accepts(sup, t_rel_beta_6=float(far[1]))
     return ok, (
         f"{sup.lower_bound:.2f} <= sup t_rel on Theta <= {sup.upper_bound:.2f} sweeps "
         f"(grid max at beta={sup.grid_argmax:.2f}; Weyl bound h={sup.step:.3g}, "
@@ -2205,12 +2216,15 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
     grid = np.round(np.linspace(0.1, 2.0, 20), 6)
     far = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
     sup = mixing.relaxation_time_sup_bound(L, 0.1, 2.0, step=0.002)
+    t_rel_far = mixing.relaxation_time_profile(L, far)
     containment = {
         "theta": [0.1, 2.0],
         "beta_grid": grid.tolist(),
         "t_rel_sweeps": mixing.relaxation_time_profile(L, grid).tolist(),
         "beta_beyond_theta": far.tolist(),
-        "t_rel_beyond_theta": mixing.relaxation_time_profile(L, far).tolist(),
+        "t_rel_beyond_theta": t_rel_far.tolist(),
+        # Codex P2 (cli.py:2282): dasselbe vollstaendige Urteil wie G49, nicht nur upper<25.
+        "pass": _containment_accepts(sup, t_rel_beta_6=float(t_rel_far[far == 6.0][0])),
         # Codex P2 (PR #49): ein Gittermaximum ist KEIN Supremum (t_rel nicht monoton).
         "sup_t_rel_on_theta": {
             # Codex P2 (mixing.py:686): beide Schranken mit zertifizierter Eigenwert-
@@ -2279,7 +2293,7 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
         name
         for name, ok in (
             ("stationary oracle", stationary["pass"]),
-            ("containment bound", sup.upper_bound < 25.0),
+            ("containment bound", containment["pass"]),
             ("sampler TV band", empirical["pass"]),
             ("one-sweep parity", empirical["parity_step_check"]["pass"]),
             # Dieselbe Klasse wie der Codex-Befund, gegen den eigenen Lauf gerichtet: auch der
