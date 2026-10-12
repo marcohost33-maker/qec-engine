@@ -4,7 +4,7 @@
   "n_pass": 49,
   "n_total": 49,
   "all_pass": true,
-  "elapsed_s": 738.291,
+  "elapsed_s": 396.82,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -244,12 +244,43 @@
     {
       "gate": "G48 adaptive chain exact TV: freeze -> pi_target; no freeze -> floor",
       "pass": true,
-      "detail": "schedule bit-identical=True; freeze@30: beta exact=True, TV_end=2.8e-14; no freeze: beta_inf=0.5490 (closed 0.5493), floor=0.0880"
+      "detail": "schedule bit-identical=True; freeze@30: beta exact=True, TV_end=2.8e-14; no freeze: beta_inf=0.549268 (closed form; beta_400=0.548955), floor=0.0879, TV(mu_t, pi_beta_inf) at t=400: 1.3e-04, t=4000: 1.3e-05"
     },
     {
       "gate": "G49 containment: t_rel bounded on Theta, diverges out",
       "pass": true,
-      "detail": "18.85 <= sup t_rel on Theta <= 22.69 sweeps (grid max at beta=2.00; Weyl bound h=0.01); t_rel(4)=994, t_rel(6)=54252 (diverges toward beta_c=inf)"
+      "detail": "18.85 <= sup t_rel on Theta <= 22.69 sweeps (grid max at beta=2.00; Weyl bound h=0.01, certified eigen radius <= 1.9e-12); t_rel(4)=994 >= 25, t_rel(6)=54252 >= 1356 (proven t_rel >= e^(2beta)/120 -> inf as beta -> beta_c=inf; Cheeger, LPW Thm 13.10)"
     }
-  ]
+  ],
+  "assembly": {
+    "note": "same gate functions and per-gate rule as run_selftest, run in consecutive slices (one process each); elapsed_s is the sum of the slices",
+    "slices": [
+      [
+        0,
+        12,
+        5.013
+      ],
+      [
+        12,
+        20,
+        145.134
+      ],
+      [
+        20,
+        30,
+        184.362
+      ],
+      [
+        30,
+        45,
+        54.053
+      ],
+      [
+        45,
+        49,
+        8.258
+      ]
+    ],
+    "source_head": "c7176184606105196f3b0092e72544769ac14c10"
+  }
 }
