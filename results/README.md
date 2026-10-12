@@ -54,7 +54,11 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   im Spektral-Sandwich, echter Sampler im TV-Band des exakten Kerns, exakte
   Randverteilung der adaptiven Kette (ohne Freeze: eingefrorene summierbare Adaption als
   Defektklasse; mit Freeze-Vertrag #51: Konvergenz nach π_target) und
-  Containment-Profil `t_rel(β)`. Reproduzierbar via:
+  Containment-Profil `t_rel(β)`. Seit der Sol-/Codex-Runde (PR #49): familienweises Band
+  (`empirical_sampler.family_delta`, `n_looks`, `per_look_delta`,
+  `multiplicity_method`), gemessener Orakel-Fehler (`stationary_oracle`), rigorose
+  Eingrenzung `containment.sup_t_rel_on_theta` und je Kern `similarity_asymmetry`.
+  Reproduzierbar via:
 
   ```bash
   adaptiverg-qec phase7 --json results/phase7-mixing-tv.json

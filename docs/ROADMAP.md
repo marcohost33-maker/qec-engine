@@ -35,7 +35,8 @@ Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad
 - **Stand (Phase 7, 2026-09-27; nachgezogen auf den Freeze-Vertrag 2026-10-07):** für die
   MVP-Instanz exakt belegt — adaptive Randverteilung `μ_{t+1}=μ_t P_{β_t}` konvergiert unter
   WARM-UP → FREEZE (`β:=β*` per Zuweisung) exakt nach `π_{β*}`, selbst beim schlechtesten
-  Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `sup_{β∈Θ} t_rel = 18.9` Sweeps
+  Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `18.85 ≤ sup_{β∈Θ} t_rel ≤ 19.50` Sweeps
+  (rigorose Weyl-Intervallschranke, nicht nur Gitter)
   (Containment), außerhalb Θ divergent (G48/G49). **Gegenrichtung (Defektklasse ohne Freeze,
   Sampler vor #53):** derselbe summierbare Schedule friert β bei
   `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
@@ -200,7 +201,9 @@ results/phase7-mixing-tv.json`):
 2. **Spektral-Sandwich** (Levin/Peres/Wilmer 2017, Kap. 12): `λ*^t/2 ≤ d(t) ≤
    √((1−π_min)/π_min)·λ*^t/2`, Fit-Rate = λ* (<1 %). Gegenrichtung: β=0 → λ*=1, geflaggt.
 3. **Echter Sampler im TV-Band** des exakten Kerns (4000 Ketten, Jensen+McDiarmid, δ=1e-6):
-   Ratio 0.56; falscher Kern (β=1.2) 3.6. Trennschärfe-Grenze dokumentiert (β±12 %, L±1 nicht erkannt).
+   familienweise über alle 13 Looks (Bonferroni, Sol-P0): Ratio 0.54; falscher Kern (β=1.2)
+   3.42. L±1 Einzelschritte je Sweep erkennt seit der Codex-Runde ein Ein-Sweep-Paritätstest
+   (8.63 / 6.81); Trennschärfe-Grenze dokumentiert (β±12 %, gerade Abweichungen L±2 schwach).
 4. **Adaptive Kette exakt**, Containment-Profil `t_rel(β)`, eingefrorene summierbare Adaption
    (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088).
 

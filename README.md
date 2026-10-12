@@ -110,7 +110,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **Run-Manifest (`manifest.py` + CLI `phase5`, Phase-5)** | **real** — JSON mit Seeds/Parametern/Versionen/git-SHA/Plattform; `--from-manifest` reproduziert **byte-identisch** (SHA-256). **Beidseitig:** Round-trip == identischer Hash; geänderter Seed → anderer Hash |
 | **Surrogate-DA + Drift-Guard (`surrogate.py`, Phase-6)** | **real** — Delayed-Acceptance-Metropolis (Christen & Fox 2005), Surrogat `β̃=β(1+γ)`: γ=0 **bit-identisch** zum Metropolis-A-Kernel; absichtlich miskalibriertes Surrogat (γ=±0.25/0.3) bleibt exakt vs Transfer-Matrix-Orakel (\|err\|<0.05); 34–42 % weniger Stufe-2-Auswertungen (Accounting-Größe, kein gemessener Speedup im 1D-Toy); Drift-Guard hält (γ=0) und feuert (γ groß) — beidseitig |
 | **Checkpoint/Restart + Lockfile (`checkpoint.py`, Phase-6)** | **real** — Philox-State-Serialisierung + gemeinsamer Sweep-/Postprocess-Code-Pfad: Interrupt (auch mehrfach) + Resume ⇒ **byte-identischer** `result_hash` wie der ununterbrochene Lauf; O_EXCL-Lockfile gegen konkurrierende Writer (über Laden+Lauf gehalten); SHA-256-Integritäts-Hash weist korrumpierte Checkpoints LAUT ab (unkeyed — Korruptions-Erkennung, keine krypt. Authentifizierung) |
-| **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt im rigorosen TV-Band des exakten Kerns (Ratio 0.56), β=1.2 fällt heraus (3.6); β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `sup_Θ t_rel = 18.9` Sweeps, außerhalb divergent (β=6: 5.4·10⁴). **Befund:** ohne Freeze friert ein summierbarer Schedule mit kleinem T0 β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) — seit #51/#53 geschlossen: mit Freeze TV_end < 1e-10 auch bei T0=1 (G48) |
+| **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt für ALLE 13 Looks simultan im familienweisen TV-Band des exakten Kerns (Bonferroni, Ratio 0.54), β=1.2 fällt heraus (3.42); ein Ein-Sweep-Paritätstest verwirft L±1 Einzelschritte je Sweep; β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `18.85 ≤ sup_Θ t_rel ≤ 19.50` Sweeps (rigorose Weyl-Intervallschranke), außerhalb divergent (β=6: 5.4·10⁴). **Befund:** ohne Freeze friert ein summierbarer Schedule mit kleinem T0 β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) — seit #51/#53 geschlossen: mit Freeze TV_end < 1e-10 auch bei T0=1 (G48) |
 | MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
 ### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
@@ -277,25 +277,37 @@ Orakeln statt Plots (Evidenz: `results/phase7-mixing-tv.json`, regenerierbar via
 
 1. **Exakter Kern.** Der MVP-Ring hat den endlichen Zustandsraum `{0,1}^L`. Für L=6 wird die
    Übergangsmatrix eines Sweeps (`P = P_1^L`, identisch zu `a_kernel._sweep`) vollständig
-   aufgestellt; die Zielverteilung trifft das separat geschriebene `ising1d`-Orakel auf 1e-15.
-   Reversibilität wird geprüft (Residuum ~1e-18) und ist Vorbedingung, sonst fail-closed.
+   aufgestellt; die Zielverteilung trifft das separat geschriebene `ising1d`-Orakel auf
+   ≤ 1e-15 (gemessen max 5.6e-17 über β∈{0.3, 0.8, 1.5, 2.0}; Feld `stationary_oracle` im
+   Artefakt, G46 und `phase7` scheitern, wenn es reißt). Reversibilität wird **skalenfrei**
+   geprüft — `D^{1/2} P D^{-1/2}` muss bis 1e-12 symmetrisch sein (gemessen ≤ 7e-17), nicht
+   nur der absolute Fluss, der bei seltenen Zuständen (π ~ 1e-16) jeden bedingten Fehler
+   verschluckt — und ist Vorbedingung, sonst fail-closed.
 2. **Spektral-Sandwich (Levin/Peres/Wilmer 2017, Kap. 12).** Die exakte Worst-Case-Distanz
    `d(t)` liegt für β∈{0.3, 0.8, 1.5} zwischen `λ*^t/2` und `√((1−π_min)/π_min)·λ*^t/2`; die
    gefittete Zerfallsrate trifft λ* auf <1 %. **Gegenrichtung:** bei β=0 (jeder Flip akzeptiert,
    L gerade) erhält ein Sweep die Parität — λ*=1, TV bleibt ≥0.49, Guard flaggt „nicht geometrisch ergodisch".
 3. **Der echte Sampler trägt diesen Kern.** 4000 unabhängige Ketten durch `advance_chain`: die
-   empirische Randverteilung nach t Sweeps liegt im rigorosen Band
-   `½Σ√(p(1−p)/n) + √(ln(2/δ)/(2n))` (Jensen + McDiarmid, δ=1e-6) um `δ_{x0}P^t`
-   (Ratio 0.56); gegen den Kern bei β=1.2 geprüft fällt sie heraus (3.6). **Ehrliche
-   Trennschärfe:** ein um 12 % falsches β oder L±1 Einzelschritte je Sweep erkennt das Band
-   bei n=4000 nicht.
+   empirische Randverteilung liegt für **alle** t=0..12 **simultan** im Band
+   `½Σ√(p(1−p)/n) + √(ln(2K/δ)/(2n))` um `δ_{x0}P^t` (Jensen + McDiarmid je Look,
+   Bonferroni über K=13 Looks, Familien-δ=1e-6; vorab fixierte endliche Familie, nicht
+   anytime-gültig) — Ratio 0.54 (G47: 0.51); gegen den Kern bei β=1.2 fällt sie heraus
+   (3.42 / G47: 3.39). **Schrittzahl je Sweep direkt:** nach EINEM Sweep vom alternierenden
+   Start (x0=21, β=0.3) kippt fast jeder angenommene Flip das Paritätsvorzeichen; gegen
+   `P_1^L` 0.05, gegen `P_1^{L−1}` 8.63, gegen `P_1^{L+1}` 6.81 (Hoeffding, δ=1e-6).
+   **Ehrliche Trennschärfe:** ein um 12 % falsches β erkennt das Band bei n=4000 nicht; die
+   Parität sieht nur ungerade Schrittzahl-Abweichungen (L±2: 2.35 / 1.52, schwach).
 4. **Adaptive Kette exakt.** Weil der MVP β deterministisch adaptiert, ist die Randverteilung
    `μ_{t+1} = μ_t P_{β_{t+1}}` exakt berechenbar (Schedule bit-identisch zu
    `run_adaptive_mcmc(warmup_steps=W)`, geprüft für W ∈ {0, 1, 30, 79}). **Freeze-Vertrag
    (#51/#53):** ab dem Freeze ist β bit-gleich β_target und die Kette zeithomogen; selbst beim
    schlechtesten Warm-up-Schedule (c=0.5, T0=1, Freeze nach 30 Sweeps) ist TV zu π_target am
-   Ende < 1e-10 (G48). **Containment:** `sup_{β∈Θ} t_rel = 18.9`
-   Sweeps; Richtung kritischer Punkt (β_c=∞) wächst t_rel ungebremst (β=4: 994, β=6: 54 252).
+   Ende < 1e-10 (G48). **Containment:** `18.85 ≤ sup_{β∈Θ} t_rel ≤ 19.50` Sweeps — untere
+   Grenze = Gittermaximum (bei β=2.0), obere = rigorose Weyl-Intervallschranke über das
+   GANZE Θ (`mixing.relaxation_time_sup_bound`, h=0.002; G49 nutzt h=0.01 → ≤ 22.69 < 25).
+   Ein Gitter allein reicht nicht: t_rel ist auf Θ nicht monoton (für kleine β dominiert der
+   Paritäts-Eigenwert nahe −1). Richtung kritischer Punkt (β_c=∞) wächst t_rel ungebremst
+   (β=4: 994, β=6: 54 252).
 5. **Befund ([LÜCKE], beziffert; seit #51/#53 im Sampler geschlossen).** OHNE Freeze — so lief
    der Sampler bis #53 — friert ein summierbarer Schedule (Σa_t<∞) die Adaption ein: `β_∞ − β_target = (β_0 − β_target)·Π(1−a_t)`. Mit T0=1 endet β bei 0.549 statt 0.8, und
    die Kette konvergiert exakt nach π_{β_∞} — der TV-Abstand zu π_target bleibt bei 0.088.

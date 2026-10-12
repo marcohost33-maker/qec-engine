@@ -4,7 +4,7 @@
   "n_pass": 49,
   "n_total": 49,
   "all_pass": true,
-  "elapsed_s": 481.765,
+  "elapsed_s": 738.291,
   "gates": [
     {
       "gate": "G1 Analytic-Oracle (MCMC vs Transfer-Matrix)",
@@ -234,12 +234,12 @@
     {
       "gate": "G46 exact TV in spectral sandwich + beta=0 flagged",
       "pass": true,
-      "detail": "b=0.3: lam*=0.2457 fit=0.2451; b=0.8: lam*=0.5712 fit=0.5707; b=1.5: lam*=0.8640 fit=0.8628; beta=0 flagged=True"
+      "detail": "b=0.3: lam*=0.2457 fit=0.2451; b=0.8: lam*=0.5712 fit=0.5707; b=1.5: lam*=0.8640 fit=0.8628; beta=0 flagged=True; pi vs ising1d max err 5.6e-17 (<= 1e-15)"
     },
     {
       "gate": "G47 real sampler within TV band of exact kernel",
       "pass": true,
-      "detail": "family band ratio true-kernel=0.511 (<=1), wrong beta=1.2 -> 3.39 (>2)"
+      "detail": "family band ratio true-kernel=0.511 (<=1), wrong beta=1.2 -> 3.39 (>2); 1-sweep parity ratio L=0.05 (<=1), L-1=8.63, L+1=6.81 (>3)"
     },
     {
       "gate": "G48 adaptive chain exact TV: freeze -> pi_target; no freeze -> floor",
@@ -249,7 +249,7 @@
     {
       "gate": "G49 containment: t_rel bounded on Theta, diverges out",
       "pass": true,
-      "detail": "sup t_rel on Theta=18.85 sweeps; t_rel(4)=994, t_rel(6)=54252 (diverges toward beta_c=inf)"
+      "detail": "18.85 <= sup t_rel on Theta <= 22.69 sweeps (grid max at beta=2.00; Weyl bound h=0.01); t_rel(4)=994, t_rel(6)=54252 (diverges toward beta_c=inf)"
     }
   ]
 }

@@ -2055,6 +2055,7 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
             else None,
             "geometrically_ergodic": spec.geometrically_ergodic,
             "reversibility_residual": spec.reversibility_residual,
+            "similarity_asymmetry": spec.similarity_asymmetry,
             "d_t": [float(v) for v in d[:16]],
             "lower_t": [float(v) for v in lower[:16]],
             "upper_t": [float(v) for v in upper[:16]],
