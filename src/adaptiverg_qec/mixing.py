@@ -45,6 +45,11 @@ EMPIRISCHE SEITE (der ECHTE Sampler, kein Nachbau):
   mit Wkt >= 1 - delta je t. Dieselbe Schranke gilt fuer TV(p_hat_t, p_t)
   selbst (marginal_band_ratio, schaerfer). Faellt der Sampler aus dem Band, ist
   er NICHT der Kern, den die Spektralanalyse beschreibt.
+  FAMILIENWEISE (Sol-P0, PR #49): ein Gate, das max_t ueber K = n_steps+1 Looks
+  nimmt, behauptet "ALLE t im Band" -- das braucht den Union-Bound
+  P(exists t: TV_t > B_t(delta/K)) <= delta (keine Unabhaengigkeit der Looks noetig;
+  empirical_tv_family_band / marginal_family_band_ratio). Vorab fixierte endliche
+  Familie, KEINE anytime-gueltige Konfidenzsequenz.
 
 ADAPTIVE KETTE (Phase 2, Freeze-Vertrag aus Issue #51):
   a_kernel bewegt beta DETERMINISTISCH: im Warm-up (t < freeze_at) gilt
@@ -106,7 +111,9 @@ __all__ = [
     "EmpiricalTV",
     "empirical_tv_curve",
     "empirical_tv_band",
+    "empirical_tv_family_band",
     "marginal_band_ratio",
+    "marginal_family_band_ratio",
     "fit_geometric_rate",
     "adaptive_beta_schedule",
     "AdaptiveTV",
@@ -393,12 +400,43 @@ def empirical_tv_band(
     P = np.asarray(P, dtype=np.float64)
     mu = np.zeros(P.shape[0])
     mu[int(x0)] = 1.0
-    mcd = math.sqrt(math.log(2.0 / delta) / (2.0 * n_chains))
+    # ln(2) - ln(delta) statt ln(2/delta): fuer delta < ~1.1e-308 (subnormal) laeuft
+    # 2/delta nach inf ueber, das Band wuerde inf und JEDER Kern "vertraeglich" (GPT6-R2).
+    mcd = math.sqrt((math.log(2.0) - math.log(delta)) / (2.0 * n_chains))
     out = np.empty(n_steps + 1)
     for t in range(n_steps + 1):
         out[t] = 0.5 * float(np.sum(np.sqrt(mu * (1.0 - mu) / n_chains))) + mcd
         mu = mu @ P
     return out
+
+
+def empirical_tv_family_band(
+    P: np.ndarray, x0: int, n_steps: int, n_chains: int, family_delta: float
+) -> np.ndarray:
+    """Simultaneous band for the predeclared finite family t=0..n_steps.
+
+    Bonferroni/union bound; no independence between looks is assumed.
+    This is not an anytime-valid confidence sequence.
+    """
+    if not (0.0 < family_delta < 1.0):
+        raise ValueError(f"family_delta must be in (0,1), got {family_delta}")
+    if isinstance(n_steps, bool) or not isinstance(n_steps, (int, np.integer)) or n_steps < 0:
+        raise ValueError(f"n_steps must be a non-negative int, got {n_steps!r}")
+    return empirical_tv_band(P, x0, int(n_steps), n_chains, family_delta / (int(n_steps) + 1))
+
+
+def marginal_family_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, family_delta: float) -> float:
+    """Worst marginal discrepancy divided by the simultaneous finite-family band."""
+    P = np.asarray(P, dtype=np.float64)
+    T = emp.histograms.shape[0] - 1
+    band = empirical_tv_family_band(P, emp.x0, T, emp.n_chains, family_delta)
+    mu = np.zeros(P.shape[0])
+    mu[emp.x0] = 1.0
+    worst = 0.0
+    for t in range(T + 1):
+        worst = max(worst, tv_distance(emp.histograms[t], mu) / band[t])
+        mu = mu @ P
+    return worst
 
 
 def marginal_band_ratio(emp: EmpiricalTV, P: np.ndarray, *, delta: float) -> float:

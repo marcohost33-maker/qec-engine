@@ -1479,17 +1479,23 @@ def _g46_tv_spectral_sandwich() -> tuple[bool, str]:
 
 
 def _g47_sampler_carries_exact_kernel() -> tuple[bool, str]:
-    """Der ECHTE A-Kernel-Sampler (advance_chain) ist mit dem analysierten Kern vertraeglich.
+    """Sampler-vs-kernel gate with a predeclared finite-family error budget.
 
-    4000 unabhaengige Ketten, Randverteilung nach t Sweeps gegen delta_x0 P^t im
-    rigorosen TV-Band (Jensen + McDiarmid, delta=1e-6). Gegenrichtung: dieselben
-    Ketten gegen den Kern bei beta=1.2 fallen aus dem Band.
+    The 13 looks t=0..12 share family_delta=1e-6 via Bonferroni/union bound.
+    This is not an anytime-valid claim.
     """
     emp = mixing.empirical_tv_curve(_MIX_L, 0.8, x0=0, n_chains=4000, n_sweeps=12, seed=7)
-    r_true = mixing.marginal_band_ratio(emp, mixing.sweep_kernel(_MIX_L, 0.8), delta=1e-6)
-    r_wrong = mixing.marginal_band_ratio(emp, mixing.sweep_kernel(_MIX_L, 1.2), delta=1e-6)
+    family_delta = 1e-6
+    r_true = mixing.marginal_family_band_ratio(
+        emp, mixing.sweep_kernel(_MIX_L, 0.8), family_delta=family_delta
+    )
+    r_wrong = mixing.marginal_family_band_ratio(
+        emp, mixing.sweep_kernel(_MIX_L, 1.2), family_delta=family_delta
+    )
     ok = r_true <= 1.0 and r_wrong > 2.0
-    return ok, f"band ratio true-kernel={r_true:.3f} (<=1), wrong beta=1.2 -> {r_wrong:.2f} (>2)"
+    return ok, (
+        f"family band ratio true-kernel={r_true:.3f} (<=1), wrong beta=1.2 -> {r_wrong:.2f} (>2)"
+    )
 
 
 def _g48_adaptive_chain_exact_tv() -> tuple[bool, str]:
@@ -2018,19 +2024,29 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
     )
     P = mixing.sweep_kernel(L, beta_emp)
     pi = mixing.stationary_distribution(L, beta_emp)
-    band = mixing.empirical_tv_band(P, 0, n_sweeps, n_chains, 1e-6)
+    family_delta = 1e-6
+    n_looks = n_sweeps + 1
+    per_look_delta = family_delta / n_looks
+    band = mixing.empirical_tv_family_band(P, 0, n_sweeps, n_chains, family_delta)
     empirical = {
+        "evidence_semantics_version": 2,
         "beta": beta_emp,
         "n_chains": n_chains,
         "n_sweeps": n_sweeps,
         "x0": 0,
-        "delta": 1e-6,
+        "family_delta": family_delta,
+        "n_looks": n_looks,
+        "per_look_delta": per_look_delta,
+        "multiplicity_method": "bonferroni_union_bound_v1",
+        "scope_note": "predeclared finite family t=0..n_sweeps; not anytime-valid",
         "tv_empirical": [float(v) for v in emp.tv],
         "tv_exact": [float(v) for v in mixing.exact_tv_curve(P, pi, 0, n_sweeps)],
         "band_halfwidth": [float(v) for v in band],
-        "marginal_band_ratio_true_kernel": mixing.marginal_band_ratio(emp, P, delta=1e-6),
-        "marginal_band_ratio_beta_1_2": mixing.marginal_band_ratio(
-            emp, mixing.sweep_kernel(L, 1.2), delta=1e-6
+        "marginal_band_ratio_true_kernel": mixing.marginal_family_band_ratio(
+            emp, P, family_delta=family_delta
+        ),
+        "marginal_band_ratio_beta_1_2": mixing.marginal_family_band_ratio(
+            emp, mixing.sweep_kernel(L, 1.2), family_delta=family_delta
         ),
     }
     print(
@@ -2101,7 +2117,8 @@ def run_phase7(*, json_path: str | None = None, seed: int = 20260927) -> int:
                 "sandwich": "lambda_*^t/2 <= d(t) <= sqrt((1-pi_min)/pi_min) lambda_*^t/2 "
                 "(Levin/Peres/Wilmer 2017, ch. 12)",
                 "empirical_band": "|TV_emp - TV_exact| <= 1/2 sum sqrt(p(1-p)/n) "
-                "+ sqrt(ln(2/delta)/(2n)) (Jensen + McDiarmid)",
+                "+ sqrt(ln(2 n_looks/family_delta)/(2n)) for ALL t=0..n_sweeps "
+                "simultaneously (Jensen + McDiarmid per look, Bonferroni over n_looks)",
                 "stationary": "ising1d.exact_distribution / mean_energy",
             },
             "kernels": kernels,

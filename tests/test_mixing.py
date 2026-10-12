@@ -249,3 +249,42 @@ def test_adaptive_rejects_target_outside_theta() -> None:
         mx.adaptive_exact_tv(
             _CFG, beta_start=0.1, beta_target=3.0, a_t=np.ones(3), x0=0, freeze_at=3
         )
+
+
+# --- finite-family error budget for G47 ---------------------------------------
+
+
+def test_family_band_is_pointwise_band_with_allocated_error() -> None:
+    P = mx.sweep_kernel(L, 0.8)
+    family = mx.empirical_tv_family_band(P, 0, 12, 4000, 1e-6)
+    allocated = mx.empirical_tv_band(P, 0, 12, 4000, 1e-6 / 13)
+    np.testing.assert_array_equal(family, allocated)
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, -1e-6, float("nan")])
+def test_family_band_rejects_invalid_family_delta(bad: float) -> None:
+    with pytest.raises(ValueError, match="family_delta"):
+        mx.empirical_tv_family_band(mx.sweep_kernel(L, 0.8), 0, 12, 4000, bad)
+
+
+def test_familywise_sampler_gate_discriminates_wrong_kernel() -> None:
+    emp = mx.empirical_tv_curve(L, 0.8, x0=0, n_chains=4000, n_sweeps=12, seed=7)
+    assert mx.marginal_family_band_ratio(emp, mx.sweep_kernel(L, 0.8), family_delta=1e-6) <= 1.0
+    assert mx.marginal_family_band_ratio(emp, mx.sweep_kernel(L, 1.2), family_delta=1e-6) > 2.0
+
+
+def test_family_band_is_wider_than_pointwise_band() -> None:
+    """Bonferroni darf das Band nur VERBREITERN (delta/K < delta), nie verengen."""
+    P = mx.sweep_kernel(L, 0.8)
+    family = mx.empirical_tv_family_band(P, 0, 12, 4000, 1e-6)
+    pointwise = mx.empirical_tv_band(P, 0, 12, 4000, 1e-6)
+    assert np.all(family > pointwise)
+
+
+@pytest.mark.parametrize("tiny", [1e-300, 1e-309, 1e-320, 5e-324])
+def test_band_stays_finite_for_subnormal_delta(tiny: float) -> None:
+    """ln(2/delta) lief fuer delta < ~1.1e-308 nach inf -> Band inf -> jeder Kern 'vertraeglich'."""
+    band = mx.empirical_tv_band(mx.sweep_kernel(L, 0.8), 0, 3, 4000, tiny)
+    assert np.all(np.isfinite(band))
+    expected_mcd = math.sqrt((math.log(2.0) - math.log(tiny)) / (2.0 * 4000))
+    assert band[0] == pytest.approx(expected_mcd, rel=1e-12)  # t=0: Punktmasse, Jensen-Term 0
