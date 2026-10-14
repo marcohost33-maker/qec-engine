@@ -1,10 +1,23 @@
 # AdaptiveRG-QEC Engine
 
+**English summary:** AdaptiveRG-QEC is a research prototype of a Monte-Carlo /
+Monte-Carlo-renormalization-group (MCRG) verification harness for
+quantum-error-correction thresholds. Each component is checked against an
+independent closed-form or exact oracle, and runs are bit-reproducible from a
+run manifest. It is not a frontier threshold tool and not release-ready. The
+documentation is in German; see [Schnellstart](#schnellstart) to run it.
+
+> **Status (Stand 2026-10-12):** Prototyp eines MCMC/MCRG-Verifikations-Harness für QEC-Schwellen —
+> orakel-geprüft, bit-reproduzierbar, kein Frontier-Tool. Umgesetzt sind die Inkremente Phase 1 bis 7
+> und die QEC-Diagnostik (Inkrement 1 bis 3) in begrenzter, orakel-validierter Form; der Selftest
+> umfasst 49 Gates. Offen sind u. a. MMD-Drift und Defensive Mixture (Tabelle unten).
+> Entwicklungsstand `0.5.0.dev0`, letztes Release `v0.4.0` (2026-06-19). **Schnellstart:** [unten](#schnellstart).
+
 **Spec + Phase-1-MVP.** Eine *Adaptive Renormalization-Group + Quantum-Error-Correction* Simulation-Engine:
 integriert stochastische Dynamik, adaptive Steuerung, Sampling, RG-Analyse, Surrogate-Beschleunigung und
 Stabilitäts-Guards. Coworker-Research Säule 3 (Physik/Methodik).
 
-> **Ehrlicher Status (2026-06-18):** Die gehärtete Theorie (`spec/`) liegt vor; ein **bounded Phase-1-MVP**
+> **Ausgangsstand Phase 1 (2026-06-18, historisch):** Die gehärtete Theorie (`spec/`) liegt vor; ein **bounded Phase-1-MVP**
 > (`src/adaptiverg_qec/`, Version = `adaptiverg_qec.__version__`, einzige Quelle) implementiert den MCMC-A-Kernel mit Foster-Lyapunov-Guard
 > einen MCRG-C-Kernel und einen Swendsen-MCRG-Schätzer (skalare sample-geschätzte R̂). Reifegrad **dev/Prototyp** — nicht release-fertig, nicht selbst-zertifiziert.
 > Was MVP-real vs. offen ist, steht unten und in `src/adaptiverg_qec/mvp_instance.py`.
@@ -49,12 +62,12 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
   **keinen endlichen Threshold** und keinen nicht-trivialen 2D-Exponenten. Das MVP demonstriert die
   **Korrektheit der Maschinerie** gegen geschlossene analytische Orakel — es liefert **keinen** physikalischen
   Frontier-Wert.
-- **Phase-3b (NEU) bringt das 2D-Ising-Modell** (`T_c = 2/ln(1+√2) ≈ 2.269`, nicht-trivialer Fixpunkt) und
+- **Phase-3b bringt das 2D-Ising-Modell** (`T_c = 2/ln(1+√2) ≈ 2.269`, nicht-trivialer Fixpunkt) und
   die volle **Multi-Operator-Swendsen-MATRIX**. Der thermische Exponent `y_t` wird gegen das **exakte
   Onsager-Orakel `y_t = 1`** geprüft — aber **auf Plausibilitäts-Niveau, NICHT als Frontier-Wert**:
   Single-Spin-Metropolis nahe T_c hat kritisches Slowing-Down, kleines L + 1 RG-Stufe → `y_t` ist GROB
   (`y_t ≈ 0.97 ± 0.01`, |err| ≈ 0.035).
-- **Phase-4 (NEU) adressiert die drei vom Cross-Family-Review benannten Präzisions-Schwächen:**
+- **Phase-4 adressiert die drei vom Cross-Family-Review benannten Präzisions-Schwächen:**
   (1) **Wolff-Single-Cluster-Sampler** (`wolff2d.py`, `P_add = 1−e^{−2K}`) schlägt das kritische
   Slowing-Down — `τ_int(Wolff) ≪ τ_int(Metropolis)` (gemessen `×12–16` bei L=32);
   (2) **mehrere iterierte RG-Stufen** (`mcrg_multirg.py`) → `y_t` rückt näher an den Fixpunkt:
@@ -63,7 +76,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
   bester Iterationswert `|y_h − 15/8| ≈ 0.002`, tiefste-Iter `≈ 0.003`. **Ehrlich:** „best" = Minimum
   über Iterationen (proximity-selektiert, optimistisch; NICHT die tiefste Stufe — bei kleinem L kein klarer
   Plateau, alle Iterationen geloggt); Rest-finite-Size-Systematik bleibt, **keine** `L→∞`-FSS, **kein** Frontier-Wert.
-- **ROADMAP-Inkr.4 (NEU) — die RBIM-Nishimori ↔ MCRG/QEC-Brücke (Architektur-Schlussstein).**
+- **ROADMAP-Inkr.4 — die RBIM-Nishimori ↔ MCRG/QEC-Brücke (Architektur-Schlussstein).**
   `rbim_nishimori.py` implementiert das **±J random-bond Ising-Modell (RBIM) auf der Nishimori-Linie**
   (`p = 1/(1+e^{2β})`) mit DERSELBEN Maschinerie (Wolff-Cluster aus `wolff2d.py`-Idee, RBIM-generalisiert:
   `P_add = 1−e^{−2β·J_ij·s_i·s_j}` auf befriedigten Bonds, hybridisiert mit gewichteten Metropolis-Sweeps
@@ -81,7 +94,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
   Nishimori-`p_c`-Claim bleibt bis Multi-L-FSS + Bootstrap/Disorder-CI in Issue #43 offen.
   Die gemeinsame Repo-Architektur bleibt durch das **exakte RBIM↔QEC-Mapping** fachlich kohärent,
   wird aber nicht mehr aus dem kleinen `p*`-Scan als „empirisch bestätigt" bezeichnet.
-- **Phase-6 (NEU) schließt die drei dokumentierten Phase-4/5-Lücken:** SNIS mit geschlossenem
+- **Phase-6 schließt die drei dokumentierten Phase-4/5-Lücken:** SNIS mit geschlossenem
   χ²-Orakel (`snis.py`), Surrogate-Beschleunigung als Delayed-Acceptance (`surrogate.py`,
   Christen & Fox 2005) und Checkpoint/Restart mit Lockfile (`checkpoint.py`) — alle in **bounded,
   orakel-validierter** Form (s. Abschnitt Phase-6). **Weiterhin offen:** Defensive Mixture,
@@ -99,7 +112,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | Analytisches Transfer-Matrix-Orakel (`ising1d.py`) | **real** (machine-precision gegen Brute-Force) |
 | Selftest-Gates (`cli.py --selftest`, 49 Gates, JSON-Log) | **real** (49/49 [PASS], exit 0) |
 | **SNIS mit χ²-Varianz-Bound (`snis.py`, Phase-6)** | **real** — offene 1D-Ising-Kette: χ² GESCHLOSSEN `[cosh(2K_t−K_p)cosh(K_p)/cosh²(K_t)]^{L−1}−1`; ESS/N trifft `1/(1+χ²)` (\|diff\|<0.005); gemessener Bias trifft den geschlossenen O(1/N)-Koeffizienten `(1+χ²)(tanh K_t−tanh(2K_t−K_p))` (bias·N/c ≈ 0.97 @ N=100); MSE ≤ `4(1+χ²)/N` (Agapiou et al. 2017); ESS-Kollaps-Guard beidseitig. **Offen:** Defensive Mixture, 2D/RBIM-Targets |
-| Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a (NEU): aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
+| Swendsen-MCRG-Schätzer (skalare stochastische R̂ aus Samples, Spec §6) | **real** — `T̂=⟨S'S⟩_c/⟨S'S'⟩_c` vs `tanh(2K)`. Phase-2: exakt-i.i.d.-Sampler (≤0.54σ, Bias↓ mit 1/√N). **Phase-3a: aus dem korrelierten A-Kernel-MCMC mit autokorrelations-bewussten Fehlerbalken** (s.u.) |
 | **Autokorr-bewusste Fehler (`autocorr.py`, Phase-3a)** | **real** — FFT-ρ (Wiener-Khinchin), τ_int + Wolff-g-Windowing, Binning-Cross-Check, Block-Jackknife für das Verhältnis. Validiert gegen AR(1)-Orakel + Γ==Binning-Plateau |
 | **Multi-Operator-Swendsen-MATRIX (`ising2d.py` + `mcrg_matrix.py`, Phase-3b)** | **real** — 2D-Ising-Checkerboard-Metropolis (vektorisiert) + Majority-Rule-Blocking b=2; ≥2 gerade Operatoren (NN/NNN/Plaquette); `T = A·B⁻¹` via `np.linalg.solve`; Eigenwerte → `y_t = ln λ_max/ln 2`; Block-Jackknife-Fehler. Gegen Onsager `y_t=1` (**grob**: `y_t≈0.97±0.01`, kritisches Slowing-Down) |
 | **Wolff-Single-Cluster-Sampler (`wolff2d.py`, Phase-4)** | **real** — `P_add = 1−e^{−2K}`, vektorisierter BFS-Cluster, rejection-free. Energie gegen exakte L=4-Enumeration (\|err\|<0.008); `τ_int(Wolff) ≪ τ_int(Metropolis)` belegt (×12–16 @ L=32) |
@@ -113,7 +126,7 @@ zeigen, dass die Brücke nicht trägt, wird der Split neu bewertet (Pre-Mortem d
 | **Exakte TV-Mischung + adaptive Kette (`mixing.py`, Phase-7)** | **real** — exakte Übergangsmatrix des A-Kernels (Ring L=6, 64 Zustände): d(t) liegt im Spektral-Sandwich `λ*^t/2 ≤ d(t) ≤ √((1−π_min)/π_min)·λ*^t/2` und fällt mit Rate λ* (Fit <1 %); der **echte** Sampler (4000 Ketten) liegt für ALLE 13 Looks simultan im familienweisen TV-Band des exakten Kerns (Bonferroni, Ratio 0.54), β=1.2 fällt heraus (3.42); ein Ein-Sweep-Paritätstest verwirft L±1 Einzelschritte je Sweep; `phase7` endet fail-closed (Exit 1), wenn Band, Parität, Freeze-Vertrag, stationäres Orakel oder Containment reissen; β=0 als nicht geometrisch ergodisch geflaggt. Adaptive Kette exakt (`μ_{t+1}=μ_t P_{β_t}`); Containment: `18.85 ≤ sup_Θ t_rel ≤ 19.50` Sweeps (rigorose Weyl-Intervallschranke; Eigenwerte je Gitterpunkt a posteriori eingeschlossen, Radius ≤ 1.9·10⁻¹², IEEE-754-Standardmodell), außerhalb divergent — **bewiesen** über die Engpass-Schranke `t_rel(β) ≥ e^{2β}/120` (L=6; Cheeger, LPW 2017 Thm 13.10; `mixing.relaxation_time_divergence_lower_bound`), die exakten Werte halten sie ein (β=6: 5.4·10⁴ ≥ 1356). **Befund:** ohne Freeze friert ein summierbarer Schedule mit kleinem T0 β bei β_∞≠β_target ein (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088) — seit #51/#53 geschlossen: mit Freeze TV_end < 1e-10 auch bei T0=1 (G48) |
 | MMD-Drift + Defensive Mixture (Spec §8/§5) | **offen** (NICHT erledigt) |
 
-### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler (NEU)
+### Phase-3a: korrelierter A-Kernel als Sample-Quelle + autokorr-Fehler
 
 Phase-2 nutzte einen exakten **i.i.d.**-Sampler (sauberer 1/√N-Test). Phase-3a verdrahtet die **echte**
 Sample-Quelle — die korrelierte Markov-Kette des adaptiven A-Kernels — und ersetzt die naiven Fehlerbalken
@@ -138,7 +151,7 @@ korrekte Verhältnis-Inflation direkt. K≤0.7 wird gegen das L→∞-Orakel geg
 **K=0.9 ist ein Autokorrelations-Diagnostik-Punkt** — am Rand von Θ wird die endliche-L-Systematik
 vergleichbar mit dem Fehlerbalken (kein sauberer 3σ-Treffer behauptet).
 
-### Phase-3b: 2D-Ising + Multi-Operator-Swendsen-MATRIX (NEU)
+### Phase-3b: 2D-Ising + Multi-Operator-Swendsen-MATRIX
 
 Phase-2/3a war **skalar** (1D-Ising, `T_c=0` → kein nicht-trivialer Exponent, nur die Schätz-Maschinerie
 prüfbar). Phase-3b bringt das **2D-Ising-Modell** (echter Fixpunkt bei `T_c ≈ 2.269`) und die volle
@@ -227,7 +240,7 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
 > ein apples-to-apples Threshold braucht ein exakt abgeglichenes Literaturmodell + FSS/Sinter-Sweep.
 > Der in Inkr.2 verworfene hand-gerollte Spacetime-Matcher bleibt ersetzt; kein Eigen-Decoder.
 
-## Phase-6: SNIS + Surrogate-DA + Checkpoint/Restart-Lockfile (NEU)
+## Phase-6: SNIS + Surrogate-DA + Checkpoint/Restart-Lockfile
 
 Schließt die drei seit Phase-4/5 dokumentierten Lücken — jede Komponente gegen ein
 **unabhängiges, geschlossenes** Orakel (Evidenz: `results/phase6-snis-surrogate-checkpoint.json`,
@@ -268,7 +281,7 @@ Jeffreys-regularisierte Standardfehler (Null-Ereignis-Zellen sind jetzt falsifiz
 konstante Ketten mit verschiedenen Mitteln als nicht-konvergiert, Manifest-Validierung an der
 Vertrauensgrenze, `rg_map`-dtype-Härtung.
 
-## Phase-7: exakte TV-Mischung + adaptive Kette (NEU)
+## Phase-7: exakte TV-Mischung + adaptive Kette
 
 Schließt die zwei ältesten offenen Akzeptanzkriterien der ROADMAP — Phase 1 „TV-Distanz fällt
 (geometrische Ergodizität)" und Phase 2 „Mischzeiten beschränkt (Containment)" — mit **exakten**
@@ -365,7 +378,16 @@ python -m adaptiverg_qec.mcrg_multirg   # schreibt results/phase4-wolff-multirg.
   Bibliothek selbst pinnt NICHT, s. pyproject.toml).
 
 ## Provenance
-Quellen + Drive-IDs: siehe `SOURCES.md`. Code-frei verifiziert 2026-06-02 (G:-weit kein `.py` zu QEC/AdaptiveRG).
+Provenienz der Spezifikations-Dokumente: `SOURCES.md` (SHA-256 je Spec-Datei). Die dort genannten
+Drive-Orte und Drive-IDs verweisen auf die interne Projektablage und sind nicht öffentlich abrufbar.
+Vor Projektbeginn (2026-06-02) wurde geprüft, dass in dieser internen Ablage kein bestehender Code zu
+QEC/AdaptiveRG lag.
+
+## Zitieren
+
+Die Zitier-Metadaten stehen in [`CITATION.cff`](CITATION.cff); GitHub zeigt daraus in der
+Seitenleiste **"Cite this repository"** (APA, BibTeX). Bitte Version bzw. Commit-SHA mit angeben
+und Zahlen nur zusammen mit ihrem Gate-Log in `results/` zitieren.
 
 ## Lizenz
 Apache-2.0. Attribution: Coworker Research / Coworkerz (keine Einzelnamen).

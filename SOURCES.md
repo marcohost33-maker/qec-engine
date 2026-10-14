@@ -5,7 +5,12 @@ Simulation Engine. Coworker-Research Säule 3 (Physik/Methodik).
 **Typ:** Spec/Theorie-Repo **+ Phase-1-MVP-Code** (seit PR#4, 2026-06-18; `src/adaptiverg_qec/`, Diagnostik-/Verifikations-Harness). Ursprünglich Spec-only (kein `.py`); Code-Lineage im Append unten.
 
 ## Kanonische Quellen (gestaged in `spec/`)
-| Datei | Drive-Ort | Drive-ID | Größe |
+
+> Hinweis für Aussenstehende: Drive-Ort und Drive-ID bezeichnen die interne Projektablage und sind
+> nicht öffentlich abrufbar. Massgeblich für die Integrität der Dateien in `spec/` sind die SHA-256-Werte
+> weiter unten.
+
+| Datei | Drive-Ort (intern) | Drive-ID (intern, nicht öffentlich) | Größe |
 |---|---|---|---|
 | `AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` | `0Hex  HQST  U2\` | `1OE5Yr9VXz1eXNTbdYdiKeS5WJ7Uup9pw` | 26287 B |
 | `AdaptiveRG-QEC_ProofBlock_v1.1_KernelSpec_v1.2.docx` | `0Hex  HQST  U2\` | `1JaE9LG5cK7FB-rPjvOHPBKS-0gvZC488` | 21088 B |
