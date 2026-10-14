@@ -8,7 +8,8 @@ Simulation Engine. Coworker-Research Säule 3 (Physik/Methodik).
 
 > Hinweis für Aussenstehende: Drive-Ort und Drive-ID bezeichnen die interne Projektablage und sind
 > nicht öffentlich abrufbar. Massgeblich für die Integrität der Dateien in `spec/` sind die SHA-256-Werte
-> weiter unten.
+> weiter unten; für die Spec-PDF gilt die Korrektur vom 2026-10-14 am Ende dieser Datei (der am
+> 2026-06-18 notierte Wert passt nicht zur committeten Datei).
 
 | Datei | Drive-Ort (intern) | Drive-ID (intern, nicht öffentlich) | Größe |
 |---|---|---|---|
@@ -432,3 +433,22 @@ Branch `claude/qec-engine-next-steps-coapze` (Agent: Claude).
 - **Gepaarter Bootstrap**: Multinomial über die 2×2-Tafel == Resampling der Shot-Indizes (Efron &
   Tibshirani 1993, *An Introduction to the Bootstrap*); getestet gegen explizites Index-Resampling.
 - Methodik übernommen aus dem Wissenstransfer 2026-10-04 (§5.4 „Gepaartes Decoder-A/B", P1-A).
+
+---
+
+## Lineage-Append (append-only) — 2026-10-14: SHA-256-Korrektur Spec-PDF
+
+Der Wert in der Tabelle vom 2026-06-18 für `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf`
+(`c074af55…104d`) passt nicht zur committeten Datei. Die Datei ist seit dem Initial-Commit `87deca5`
+unverändert (`git log -- <pdf>` zeigt nur diesen Commit; 26287 B wie in der Tabelle oben). Der
+notierte Wert stimmte also schon am 2026-06-18 nicht mit der committeten Datei überein; woher er
+stammt, ist aus dem Repo nicht nachvollziehbar. Die Zeile oben bleibt als Lineage stehen; massgeblich
+für die committete Datei ist dieser Wert:
+
+| Datei | SHA-256 |
+|---|---|
+| `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` | `723bbddb778c6a53a287f0557e9f78ee496ad472c34df6aedcf37fe77b12c766` |
+
+Nachprüfbar mit `sha256sum spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` (Arbeitsbaum) bzw.
+`git cat-file blob HEAD:spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf | sha256sum`. Der
+`.docx`-Wert der Tabelle (`c45d806f…59d5c`) stimmt.

@@ -2,14 +2,18 @@
 
 **English summary:** AdaptiveRG-QEC is a research prototype of a Monte-Carlo /
 Monte-Carlo-renormalization-group (MCRG) verification harness for
-quantum-error-correction thresholds. Each component is checked against an
-independent closed-form or exact oracle, and runs are bit-reproducible from a
-run manifest. It is not a frontier threshold tool and not release-ready. The
+quantum-error-correction thresholds. Some gates compare against an independent
+closed-form or exact oracle (for example the Onsager exponents, a transfer-matrix
+or exact total-variation reference, scipy's exact binomial test); others are
+consistency checks, directional negative/positive controls or empirical
+comparisons. The Phase-5 run and the QEC manifest-v2 path replay bit-identically
+from a run manifest. It is not a frontier threshold tool and not release-ready. The
 documentation is in German; see [Schnellstart](#schnellstart) to run it.
 
 > **Status (Stand 2026-10-12):** Prototyp eines MCMC/MCRG-Verifikations-Harness für QEC-Schwellen —
-> orakel-geprüft, bit-reproduzierbar, kein Frontier-Tool. Umgesetzt sind die Inkremente Phase 1 bis 7
-> und die QEC-Diagnostik (Inkrement 1 bis 3) in begrenzter, orakel-validierter Form; der Selftest
+> teils gegen exakte Orakel geprüft, teils über Konsistenz-, Kontroll- und empirische Gates;
+> Phase-5- und Manifest-v2-Läufe bit-reproduzierbar; kein Frontier-Tool. Umgesetzt sind die Inkremente
+> Phase 1 bis 7 und die QEC-Diagnostik (Inkrement 1 bis 3) in begrenzter, gate-geprüfter Form; der Selftest
 > umfasst 49 Gates. Offen sind u. a. MMD-Drift und Defensive Mixture (Tabelle unten).
 > Entwicklungsstand `0.5.0.dev0`, letztes Release `v0.4.0` (2026-06-19). **Schnellstart:** [unten](#schnellstart).
 
