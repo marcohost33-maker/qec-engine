@@ -1,5 +1,10 @@
 # AdaptiveRG-QEC Engine
 
+[![ci](https://github.com/marcohost33-maker/qec-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marcohost33-maker/qec-engine/actions/workflows/ci.yml)
+[![pip-audit](https://github.com/marcohost33-maker/qec-engine/actions/workflows/pip-audit.yml/badge.svg?branch=main)](https://github.com/marcohost33-maker/qec-engine/actions/workflows/pip-audit.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python >= 3.12](https://img.shields.io/badge/python-%E2%89%A5%203.12-blue.svg)](pyproject.toml)
+
 **English summary:** AdaptiveRG-QEC is a research prototype of a Monte-Carlo /
 Monte-Carlo-renormalization-group (MCRG) verification harness for
 quantum-error-correction thresholds. Some gates compare against an independent
