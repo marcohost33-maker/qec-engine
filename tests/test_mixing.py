@@ -595,7 +595,9 @@ def test_reversibility_check_is_scale_aware_for_rare_states() -> None:
 
 
 @pytest.mark.parametrize(("beta", "gap_resolvable"), [(6.0, True), (10.0, True), (20.0, False)])
-def test_scale_aware_check_accepts_genuine_high_beta_kernels(beta: float, gap_resolvable: bool) -> None:
+def test_scale_aware_check_accepts_genuine_high_beta_kernels(
+    beta: float, gap_resolvable: bool
+) -> None:
     """Gegenprobe: die strengere Pruefung darf echte Kerne mit pi_min bis ~1e-53 nicht verwerfen.
 
     Bei beta=20 ist die Spektralluecke 1 - lambda* nur 4.4e-16 (single) bzw. 8.9e-16 (sweep),
