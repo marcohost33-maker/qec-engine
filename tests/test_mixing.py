@@ -594,14 +594,24 @@ def test_reversibility_check_is_scale_aware_for_rare_states() -> None:
         mx.spectral_summary(P, pi)
 
 
-@pytest.mark.parametrize("beta", [6.0, 10.0, 20.0])
-def test_scale_aware_check_accepts_genuine_high_beta_kernels(beta: float) -> None:
-    """Gegenprobe: die strengere Pruefung darf echte Kerne mit pi_min bis ~1e-53 nicht verwerfen."""
+@pytest.mark.parametrize(("beta", "gap_resolvable"), [(6.0, True), (10.0, True), (20.0, False)])
+def test_scale_aware_check_accepts_genuine_high_beta_kernels(
+    beta: float, gap_resolvable: bool
+) -> None:
+    """Gegenprobe: die strengere Pruefung darf echte Kerne mit pi_min bis ~1e-53 nicht verwerfen.
+
+    Bei beta=20 ist die Spektralluecke 1 - lambda* nur 4.4e-16 (single) bzw. 8.9e-16 (sweep),
+    also 2-4 ULP unter 1.0: ob der Eigenwertloeser exakt 1.0 liefert, haengt von der BLAS-
+    Rundung ab (Linux-CI 1.0, Windows 1 - 2 ULP). Dort ist nur lambda* <= 1 belastbar; die
+    strikte Ungleichung pruefen wir, wo die Luecke weit ueber der Maschinengenauigkeit liegt.
+    """
     pi = mx.stationary_distribution(L, beta)
     for P in (mx.single_flip_kernel(L, beta), mx.sweep_kernel(L, beta)):
         spec = mx.spectral_summary(P, pi)
         assert spec.similarity_asymmetry <= 1e-15
-        assert 0.0 < spec.lambda_star < 1.0
+        assert 0.0 < spec.lambda_star <= 1.0
+        if gap_resolvable:
+            assert spec.lambda_star < 1.0 - 1e-12
 
 
 _BAD_BETAS = [float("nan"), float("inf"), -float("inf"), 2.0 + 1e-9, 0.1 - 1e-9, -0.5, True]
