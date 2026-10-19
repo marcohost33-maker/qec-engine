@@ -253,10 +253,16 @@ def build_evidence(*, quick: bool = False) -> dict:
         round(r["p_logical"] * r["shots"]) == c["baseline"]["failures"] and r["seed"] == c["seed"]
         for r, c in zip(direct, ab["cells"], strict=True)
     )
+    # v2 binds the bit count; v1 alone confuses [1] with [1, 0] (byte padding)
     shot_identical = all(
-        a["baseline_failures_sha256"] == b["baseline_failures_sha256"]
-        and a["candidate_failures_sha256"] == b["candidate_failures_sha256"]
+        a[k] == b[k]
         for a, b in zip(ab["cells"], again["cells"], strict=True)
+        for k in (
+            "baseline_failures_sha256",
+            "candidate_failures_sha256",
+            "baseline_failures_sha256_v2",
+            "candidate_failures_sha256_v2",
+        )
     )
     q10 = (
         base_match

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 import pytest
 from scipy import stats
@@ -241,6 +243,33 @@ def test_failures_digest_is_shot_exact():
     assert ab.failures_digest(a) != ab.failures_digest(b)
     # Laenge zaehlt (packbits polstert auf Byte-Grenzen).
     assert ab.failures_digest(a[:8]) != ab.failures_digest(np.append(a[:8], False))
+
+
+def test_failures_digest_v1_collides_within_a_byte_and_v2_does_not():
+    """packbits pads to whole bytes; v1 binds only the BYTE count, so a
+    trailing passing shot inside the same byte is invisible (007acc2 R2)."""
+    pairs = [([1], [1, 0]), ([0, 0, 0], [0] * 8), ([1, 0, 1], [1, 0, 1, 0, 0])]
+    for x, y in pairs:
+        # documented legacy collision
+        assert ab.failures_digest(np.array(x)) == ab.failures_digest(np.array(y))
+        assert ab.failures_digest_v2(np.array(x)) != ab.failures_digest_v2(np.array(y))
+    a = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1], dtype=bool)
+    assert ab.failures_digest_v2(a) == ab.failures_digest_v2(a.astype(int))  # 0/1 == bool
+    assert ab.failures_digest_v2(a) != ab.failures_digest_v2(a[::-1])
+
+
+@pytest.mark.parametrize("bad", [[], [[1, 0]], [0, 2], [0.5, 1.0]])
+def test_failures_digest_v2_rejects_empty_nd_and_non_binary(bad):
+    with pytest.raises(ValueError):
+        ab.failures_digest_v2(np.array(bad))
+
+
+def test_failures_digest_v1_is_frozen_for_the_committed_evidence():
+    """Legacy values must stay byte-identical (committed results use them)."""
+    v = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1], dtype=bool)
+    packed = np.packbits(v)
+    want = hashlib.sha256(packed.tobytes() + str(packed.size).encode()).hexdigest()
+    assert ab.failures_digest(v) == want
 
 
 @pytest.mark.parametrize("version,ok", [("2.4.0", True), ("2.3rc1", True), ("2.2.9", False)])
