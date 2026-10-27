@@ -175,9 +175,33 @@ def _as_failure_vector(name: str, v) -> np.ndarray:
 
 
 def failures_digest(failures: np.ndarray) -> str:
-    """SHA-256 des bit-gepackten Fehlvektors: Shot-genaue Identitaet zweier Laeufe."""
+    """LEGACY v1: SHA-256 of the bit-packed failure vector plus its BYTE count.
+
+    Not injective over the bit count: packbits pads to whole bytes, so ``[1]``
+    and ``[1, 0]`` (or three and eight passing shots) give the same digest.
+    Kept byte-identical so the committed evidence stays verifiable; new
+    comparisons use :func:`failures_digest_v2`.
+    """
     packed = np.packbits(np.asarray(failures, dtype=bool))
     return hashlib.sha256(packed.tobytes() + str(packed.size).encode()).hexdigest()
+
+
+_FAILURES_DIGEST_V2_DOMAIN = b"adaptiverg-qec/failures-digest/v2|"
+
+
+def failures_digest_v2(failures: np.ndarray) -> str:
+    """Shot-exact identity of a failure vector: domain tag, the BIT count as
+    uint64 big-endian, then the big-endian bit-packed vector. Accepts only a
+    non-empty 1-D vector of bools or exact 0/1."""
+    if np.asarray(failures).ndim != 1:
+        raise ValueError("failures must be a 1-D vector")
+    bits = _as_failure_vector("digest", failures)
+    if bits.size == 0:
+        raise ValueError("failures must not be empty")
+    packed = np.packbits(bits, bitorder="big")
+    return hashlib.sha256(
+        _FAILURES_DIGEST_V2_DOMAIN + int(bits.size).to_bytes(8, "big") + packed.tobytes()
+    ).hexdigest()
 
 
 def independent_pairing_table(counts: PairedCounts) -> PairedCounts:
@@ -332,6 +356,8 @@ def paired_decoder_ab(
                 "decisions_identical": bool(np.array_equal(pred_base, pred_cand)),
                 "baseline_failures_sha256": failures_digest(fail_base),
                 "candidate_failures_sha256": failures_digest(fail_cand),
+                "baseline_failures_sha256_v2": failures_digest_v2(fail_base),
+                "candidate_failures_sha256_v2": failures_digest_v2(fail_cand),
                 "table": asdict(counts),
                 "baseline": {
                     "failures": counts.baseline_failures,
