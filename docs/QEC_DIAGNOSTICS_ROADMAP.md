@@ -169,6 +169,54 @@ keine Uebertragung auf Hardware oder andere Noise-Konventionen.
 **Naechster Schritt:** Sweep-Engine mit fester vorregistrierter p×d-Matrix (fixed shots) und
 Bootstrap-FSS; A/B ueber das ganze Gitter; Sinter erst nach Issue #42.
 
+## Inkrement 3.4 — vorregistrierte p×d-Sweep-Engine + Wilson/Jeffreys + Bootstrap-FSS  [DONE 2026-11-03]
+
+Gate-Log `results/qec-sweep-fss.json` (`python -m adaptiverg_qec.qec_sweep --json results/qec-sweep-fss.json`,
+~75 s); CI-Job `surface` faehrt es fail-closed. Statistik-Kern `qec_fss.py` (reines numpy/scipy),
+Sweep-Engine `qec_sweep.py` (Stim DEM -> PyMatching).
+
+- **Vorregistrierung:** `SweepPlan` friert p-Gitter, Distanzen, rounds=d, Shot-Budget
+  (`fixed-shots`, kein datenabhaengiges Stoppen), FSS-Modell, Bootstrap-Groesse und Seed ein;
+  SHA-256-Fingerprint im Ergebnis, `verify_result` weist editiertes Gitter, fehlende Zellen,
+  abweichende Shots und fremde Seeds ab. Zell-Seeds per SHA-256 aus Plan + (d, p).
+- **[KORREKTUR] Noise-Konvention:** Stims `before_round_data_depolarization=p` ist DEPOLARIZE1(p)
+  mit X-Marginale 2p/3 und daher NICHT der Kanal der Literatur-Schwelle 2.9 %
+  (Wang/Harrington/Preskill 2003: unabhaengige Bitflips p + Messfehler q=p). Der neue Kanal
+  `phenomenological-bitflip` ersetzt DEPOLARIZE1(p) durch X_ERROR(p). Gate S1 belegt beide
+  Richtungen: bit-flip(q) ~ Stim-depol(Daten 3q/2, Mess q) (|z|=1.2), Stim-depol(q) ist ein
+  anderer Kanal (z=27.6). Verbleibende Modellabweichung: Stim flippt auch die finale
+  Datenmessung (WHP: letzte Runde perfekt) -> Zeitrand-, keine Kanal-Abweichung.
+- **Intervalle:** Wilson, Jeffreys (Brown/Cai/DasGupta 2001), Clopper-Pearson je Zelle;
+  `exact_coverage` summiert die Binomial-pmf (kein MC).
+- **FSS:** `p_L = A + Bx + Cx^2`, `x=(p-p_th)d^{1/nu}` (WHP 2003), gewichtete LS mit
+  Variable Projection (A,B,C linear eliminiert), Multi-Start, chi^2-Guete; parametrischer
+  Zell-Bootstrap (gueltig wegen unabhaengiger Zellen) fuer p_th, nu und paarweise Kreuzungen.
+
+| Gate | Pruefung | Gemessen |
+|---|---|---|
+| F1 | Wilson == Score-Test-Wurzeln, Jeffreys == Beta-Quantile | max diff 6.7e-16 |
+| F2 | exakte Coverage n=20000, p∈[2e-5,2e-3] | Wilson 0.951, Jeffreys 0.956, CP min 0.953; **Wald 0.798 (min 0.33)** |
+| F3 | Repetition-Orakel: CI deckt exaktes p_th=1/2 und exaktes nu_eff=2.070 | ja, chi^2-p > 0.01 |
+| F4 | Bootstrap-Coverage ueber 100 Replikate | p_th 0.97, nu 0.93 (Schwelle 0.95−3SD=0.885) |
+| F5 | Negativkontrolle ohne Kreuzung | keine Kreuzung, Fit am Rand geflaggt |
+| S1 | Konventions-Aequivalenz + Falle (s.o.) | z=−1.18 / z=27.6 |
+| S2 | Gitter klammert die Schwelle (p=0.024 faellt, p=0.034 steigt mit d) | ja |
+| S3 | Fit adaequat, p_th + CI im Fenster, >= 99 % Refits | **p_th = 0.02912, 95 %-CI [0.02890, 0.02933]**, nu = 1.19 [1.11, 1.27], chi^2/dof = 0.78 (p=0.73) |
+| S4 | externer Anker |p_th − 0.029| <= 0.002 (vorab), CI < 0.033 (optimal) | abs_err = 1.2e-4 |
+| S5 | Fingerprint vor Lauf; Replay bitgleich; base_seed+1 anders; Manipulation abgewiesen | ja |
+
+Paarweise Kreuzungen (5,7) 0.0292, (7,9) 0.0294, (9,11) 0.0288 — Finite-Size-Drift bei
+d<=11 und 50k Shots/Zelle nicht aufgeloest (CIs ~±0.001).
+
+**Ehrlich zur Vorregistrierung:** Gitter und S4-Toleranz wurden vor dem 50k-Lauf festgelegt,
+aber nach einem 20k-Shot-Vorlauf an zwei p-Punkten (Kreuzung zwischen 0.026 und 0.030).
+Das ist eine Fensterwahl, kein Tuning des Schaetzers. **Claim ceiling:** FSS-supported
+bounded simulation fuer GENAU diesen Kanal (X-flip p, Messflip p, rounds=d, d<=11,
+PyMatching-MWPM, Z-Memory); kein L->oo-Beweis, keine Latenz, keine Hardware-Aussage.
+nu ist ein effektiver Fit-Parameter, KEIN universeller Exponent.
+**Naechster Schritt:** A/B (Standard vs. Correlated MWPM) ueber das ganze Gitter mit
+Holm-Korrektur; Circuit-Level-Profile; Sinter erst nach Issue #42.
+
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 
 - Statistical-mechanics mapping: der Surface-Code-Threshold == Phasenuebergang des
