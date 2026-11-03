@@ -59,8 +59,11 @@ from . import __version__
 from .qec_decoder_ab import clopper_pearson
 from .qec_fss import (
     Cell,
+    drifted_repetition_dataset,
     exact_coverage,
     fss_bootstrap,
+    fss_fit,
+    fss_systematics,
     intervals,
     jeffreys_interval,
     repetition_fss_dataset,
@@ -174,6 +177,16 @@ class SweepPlan:
     def fingerprint(self) -> str:
         return hashlib.sha256(self._canonical()).hexdigest()
 
+    def stream_seed(self, stream: str) -> int:
+        """Domain-getrennter Seed fuer Auswertungs-Stroeme (kein recycelter Zell-Seed)."""
+        if stream not in {"fss-bootstrap", "fss-systematics"}:
+            raise ValueError(f"unknown analysis stream {stream!r}")
+        digest = hashlib.sha256(self._canonical({"stream": stream})).digest()
+        return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
+
+    def bootstrap_seed(self) -> int:
+        return self.stream_seed("fss-bootstrap")
+
     def cell_seed(self, d: int, p: float) -> int:
         if d not in self.distances or float(p) not in self.p_grid:
             raise ValueError(f"cell (d={d}, p={p}) is not in the registered grid")
@@ -193,16 +206,25 @@ def _require():
     return sd.stim, sd.pymatching
 
 
-def _depol_to_xflip(circuit, stim):
+# Der Flip, gegen den ein Memory-Experiment schuetzt: Z-Memory (logisches Z gemessen)
+# wird nur von X-Komponenten gestoert, X-Memory nur von Z-Komponenten. Ein reiner
+# X-Flip-Kanal auf einem X-Memory waere physikalisch LEER (nur Messfehler wirken) --
+# genau dieser Fehler stand in der ersten Fassung (Review 2026-11-04).
+_FLIP_GATE = {"z": "X_ERROR", "x": "Z_ERROR"}
+
+
+def _depol_to_flip(circuit, stim, gate: str):
     out = stim.Circuit()
     for inst in circuit:
         if isinstance(inst, stim.CircuitRepeatBlock):
             out.append(
-                stim.CircuitRepeatBlock(inst.repeat_count, _depol_to_xflip(inst.body_copy(), stim))
+                stim.CircuitRepeatBlock(
+                    inst.repeat_count, _depol_to_flip(inst.body_copy(), stim, gate)
+                )
             )
         elif inst.name == "DEPOLARIZE1":
             args = inst.gate_args_copy()
-            out.append(stim.CircuitInstruction("X_ERROR", inst.targets_copy(), args))
+            out.append(stim.CircuitInstruction(gate, inst.targets_copy(), args))
         else:
             out.append(inst)
     return out
@@ -211,10 +233,17 @@ def _depol_to_xflip(circuit, stim):
 def build_circuit(
     noise_model: str, memory_basis: str, d: int, p: float, *, p_meas: float | None = None
 ):
-    """Rotated-Surface-Memory, rounds = d, Datenfehler p, Messfehler p_meas (Default p)."""
+    """Rotated-Surface-Memory, rounds = d, Datenfehler p, Messfehler p_meas (Default p).
+
+    ``phenomenological-bitflip`` setzt den Datenfehler basis-dual: X_ERROR(p) fuer das
+    Z-Memory, Z_ERROR(p) fuer das X-Memory (Stim setzt den Messflip ohnehin passend:
+    X_ERROR vor MR/M, Z_ERROR vor MX).
+    """
     stim, _ = _require()
     if noise_model not in NOISE_MODELS:
         raise ValueError(f"noise_model must be one of {NOISE_MODELS}")
+    if memory_basis not in _FLIP_GATE:
+        raise ValueError(f"memory_basis must be 'x' or 'z', got {memory_basis!r}")
     c = stim.Circuit.generated(
         f"surface_code:rotated_memory_{memory_basis}",
         distance=int(d),
@@ -223,7 +252,7 @@ def build_circuit(
         before_measure_flip_probability=float(p if p_meas is None else p_meas),
     )
     if noise_model == "phenomenological-bitflip":
-        c = _depol_to_xflip(c, stim)
+        c = _depol_to_flip(c, stim, _FLIP_GATE[memory_basis])
         if "DEPOLARIZE" in str(c):  # fail-closed: Konvertierung muss vollstaendig sein
             raise RuntimeError("depolarizing noise survived the bit-flip conversion")
     return c
@@ -240,8 +269,12 @@ def decode_cell(
     p_meas: float | None = None,
 ) -> int:
     """Ein Sampler-Aufruf, PyMatching-MWPM auf dem graphlike DEM. Gibt k (Fehler) zurueck."""
-    _, pymatching = _require()
     circuit = build_circuit(noise_model, memory_basis, d, p, p_meas=p_meas)
+    return _decode_circuit(circuit, shots, seed)
+
+
+def _decode_circuit(circuit, shots: int, seed: int) -> int:
+    _, pymatching = _require()
     dem = circuit.detector_error_model(decompose_errors=True)
     matching = pymatching.Matching.from_detector_error_model(dem)
     sampler = circuit.compile_detector_sampler(seed=int(seed))
@@ -280,8 +313,16 @@ def run_sweep(plan: SweepPlan) -> dict:
     fss = fss_bootstrap(
         cells,
         n_boot=plan.n_boot,
-        seed=plan.cell_seed(plan.distances[0], plan.p_grid[0]) % 2**32,
+        seed=plan.bootstrap_seed(),
         alpha=plan.alpha,
+    )
+    # Post-hoc-Robustheit (nach der Primaerschaetzung deklariert, aendert sie nicht).
+    systematics = fss_systematics(
+        cells,
+        n_boot=max(50, plan.n_boot // 2),
+        seed=plan.stream_seed("fss-systematics"),
+        alpha=plan.alpha,
+        stat_ci=fss["p_th_ci"],
     )
     return {
         "tool": "adaptiverg_qec.qec_sweep.run_sweep",
@@ -300,6 +341,7 @@ def run_sweep(plan: SweepPlan) -> dict:
         "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
         "rows": rows,
         "fss": fss,
+        "systematics": systematics,
         "wallclock_s": round(time.time() - t0, 2),
     }
 
@@ -314,7 +356,8 @@ def verify_result(result: dict) -> list[str]:
     """Fail-closed-Pruefung eines Sweep-Ergebnisses gegen seinen eigenen Plan.
 
     Leere Liste = konsistent. Fehler: Plan nicht rekonstruierbar, Fingerprint passt nicht,
-    Zellmenge != registriertes Gitter, Shot-Zahl abweichend, Seed nicht der Plan-Seed.
+    Zellmenge != registriertes Gitter, Shot-Zahl abweichend, Seed nicht der Plan-Seed,
+    k ausserhalb [0, n], gespeicherte FSS-Punktschaetzung passt nicht zu den Zeilen.
     """
     problems: list[str] = []
     try:
@@ -339,6 +382,18 @@ def verify_result(result: dict) -> list[str]:
             problems.append(f"cell {(r['d'], r['p'])}: n={r['n']} != {plan.shots_per_cell}")
         if r["seed"] != plan.cell_seed(r["d"], r["p"]):
             problems.append(f"cell {(r['d'], r['p'])}: seed is not the plan seed")
+        k = r.get("k")
+        if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= r["n"]:
+            problems.append(f"cell {(r['d'], r['p'])}: k={k!r} outside [0, n]")
+    point = (result.get("fss") or {}).get("point")
+    if point is not None and not problems:
+        # Die Punktschaetzung ist deterministisch aus den Zeilen; ein editiertes k oder
+        # eine geschoenter p_th faellt hier auf (der Bootstrap wird nicht neu gerechnet).
+        refit = fss_fit([Cell(r["d"], r["p"], r["k"], r["n"]) for r in result["rows"]])
+        if abs(refit["p_th"] - point.get("p_th", float("nan"))) > 1e-9 or not (
+            abs(refit["nu"] - point.get("nu", float("nan"))) <= 1e-6
+        ):
+            problems.append("stored FSS point estimate does not match a refit of the rows")
     return problems
 
 
@@ -479,6 +534,24 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
         {"point": nc["point"], "crossings": nc["crossings"]},
     )
 
+    # ---- F6/F7 Systematik-Werkzeug beidseitig -----------------------------------
+    sys_or = fss_systematics(repetition_fss_dataset(ds_rep, pg_rep, 50_000, 11), seed=6)
+    gate(
+        "F6",
+        "systematics on the drift-free oracle: no distance/window shift significant",
+        not sys_or["any_significant_shift"],
+        {"systematics": sys_or},
+    )
+    sys_dr = fss_systematics(drifted_repetition_dataset(ds_rep, pg_rep, 50_000, 11, c=0.2), seed=7)
+    sh = sys_dr["shifts"]
+    gate(
+        "F7",
+        "known finite-size drift (curves shifted by c/d, c=0.2): both distance-bin shifts "
+        "significant",
+        bool(sh["drop_smallest_d"]["significant"] and sh["drop_largest_d"]["significant"]),
+        {"systematics": sys_dr, "c": 0.2},
+    )
+
     sections: dict = {}
     try:
         _require()
@@ -499,11 +572,36 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
     z_same = _two_proportion_z(k_bit, k_dep15, n_conv)
     z_trap = _two_proportion_z(k_bit, k_dep, n_conv)
     c = build_circuit("phenomenological-bitflip", "z", 3, q)
-    s1 = abs(z_same) < 3.0 and z_trap > 5.0 and "DEPOLARIZE" not in str(c)
+    # X/Z-Symmetrie: der basis-duale Kanal muss auf dem X-Memory dieselbe Statistik geben;
+    # Gegenrichtung = der Fehler der ersten Fassung (X_ERROR auch auf dem X-Memory).
+    stim, _ = _require()
+    k_x = decode_cell("phenomenological-bitflip", "x", d_conv, q, n_conv, 104)
+    wrong_x = _depol_to_flip(
+        stim.Circuit.generated(
+            "surface_code:rotated_memory_x",
+            distance=d_conv,
+            rounds=d_conv,
+            before_round_data_depolarization=q,
+            before_measure_flip_probability=q,
+        ),
+        stim,
+        "X_ERROR",
+    )
+    k_wrong_x = _decode_circuit(wrong_x, n_conv, 105)
+    z_xz = _two_proportion_z(k_bit, k_x, n_conv)
+    z_wrong = _two_proportion_z(k_bit, k_wrong_x, n_conv)
+    s1 = (
+        abs(z_same) < 3.0
+        and z_trap > 5.0
+        and "DEPOLARIZE" not in str(c)
+        and abs(z_xz) < 3.0
+        and z_wrong > 5.0
+    )
     gate(
         "S1",
         "bit-flip(q) ~ Stim-depolarizing(data 3q/2, meas q): |z|<3; "
-        "Stim-depolarizing(q) is a different, weaker channel (z>5)",
+        "Stim-depolarizing(q) is a different, weaker channel (z>5); X-memory with the "
+        "basis-dual Z-flip == Z-memory (|z|<3), X-flip on the X-memory is empty (z>5)",
         s1,
         {
             "d": d_conv,
@@ -514,6 +612,10 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
             "k_depol_q": k_dep,
             "z_same": z_same,
             "z_trap": z_trap,
+            "k_x_memory_zflip": k_x,
+            "k_x_memory_xflip_wrong": k_wrong_x,
+            "z_x_vs_z_memory": z_xz,
+            "z_wrong_channel": z_wrong,
             "why": "DEPOLARIZE1(p) has X-marginal 2p/3; Z-memory sees only X/Y components",
         },
     )
@@ -578,6 +680,38 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
         },
     )
 
+    # ---- S6 Post-hoc-Robustheit: Distanz-Bins, Fenster, Case-Resampling ----------
+    sy = res["systematics"]
+    band = (
+        PHENOM_MWPM_THRESHOLD_LITERATURE - lit_tol,
+        PHENOM_MWPM_THRESHOLD_LITERATURE + lit_tol,
+    )
+    vs = [v for v in sy["variants"].values()]
+    s6 = (
+        len(vs) == 3
+        and all(v is not None for v in vs)
+        and all(v["p_th_in_window"] and not v["at_parameter_bound"] for v in vs)
+        and all(band[0] <= v["p_th"] <= band[1] for v in vs)
+        and sy["case_resampling"]["ci"] is not None
+        and sy["case_resampling"]["ci"][0] <= pt["p_th"] <= sy["case_resampling"]["ci"][1]
+    )
+    gate(
+        "S6",
+        "post-hoc robustness: drop smallest d / drop largest d / inner window all converge "
+        "inside the window and inside the S4 band; case-resampling CI covers the estimate",
+        s6,
+        {
+            "shifts": sy["shifts"],
+            "variants": sy["variants"],
+            "any_significant_shift": sy["any_significant_shift"],
+            "case_resampling_ci": sy["case_resampling"]["ci"],
+            "stat_half_width": sy["stat_half_width"],
+            "max_abs_shift": sy["max_abs_shift"],
+            "combined_half_width": sy["combined_half_width"],
+            "band": list(band),
+        },
+    )
+
     # ---- S5 Vorregistrierung + Replay ----------------------------------------------
     replay_plan = SweepPlan.from_dict(json.loads(json.dumps(plan.to_dict())))
     small = SweepPlan.from_dict(
@@ -590,6 +724,8 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
     tampered["plan"]["p_grid"] = tampered["plan"]["p_grid"][1:]  # nachtraeglich Gitter kuerzen
     dropped = json.loads(json.dumps(res))
     dropped["rows"] = dropped["rows"][1:]  # unbequeme Zelle weglassen
+    edited_k = json.loads(json.dumps(res))
+    edited_k["rows"][0]["k"] += 25  # einzelnen Zaehler schoenen, Fingerprint bleibt gleich
     s5 = (
         replay_plan.fingerprint() == registered == res["plan_fingerprint"]
         and verify_result(res) == []
@@ -597,20 +733,23 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
         and rows_hash(a["rows"]) != rows_hash(moved["rows"])
         and verify_result(tampered) != []
         and verify_result(dropped) != []
+        and verify_result(edited_k) != []
     )
     gate(
         "S5",
         "pre-registration: fingerprint fixed before run; replay bit-identical; "
-        "base_seed+1 changes results; edited plan / dropped cell rejected",
+        "base_seed+1 changes results; edited plan / dropped cell / edited count rejected",
         s5,
         {
             "registered_fingerprint": registered,
             "verify_ok": verify_result(res),
             "verify_tampered": verify_result(tampered),
             "verify_dropped": verify_result(dropped),
+            "verify_edited_k": verify_result(edited_k),
         },
     )
 
+    gates.sort(key=lambda g: (g["id"][0], int(g["id"][1:])))
     return {
         "tool": "adaptiverg_qec.qec_sweep.build_evidence",
         "surface": "RUN",

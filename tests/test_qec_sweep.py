@@ -97,6 +97,46 @@ def test_verify_result_detects_post_hoc_edits():
     assert qs.verify_result({"plan": {}})  # nicht rekonstruierbar
 
 
+def test_verify_result_rejects_out_of_range_counts():
+    plan = qs.SweepPlan()
+    bad = _fake_result(plan)
+    bad["rows"][0]["k"] = plan.shots_per_cell + 1
+    assert any("outside" in m for m in qs.verify_result(bad))
+    bad["rows"][0]["k"] = True  # bool ist kein Zaehler
+    assert any("outside" in m for m in qs.verify_result(bad))
+
+
+def test_verify_result_refits_stored_point_estimate():
+    import numpy as np
+
+    from adaptiverg_qec.qec_fss import Cell, fss_fit
+
+    plan = qs.SweepPlan()
+    good = _fake_result(plan)
+    rng = np.random.Generator(np.random.Philox(3))
+    for r in good["rows"]:  # glatte FSS-Kurve mit p_th = 0.029, nu = 1.2
+        x = (r["p"] - 0.029) * r["d"] ** (1 / 1.2)
+        r["k"] = int(rng.binomial(r["n"], 0.1 + 0.5 * x))
+    good["fss"] = {"point": fss_fit([Cell(r["d"], r["p"], r["k"], r["n"]) for r in good["rows"]])}
+    assert qs.verify_result(good) == []
+    edited = json.loads(json.dumps(good))
+    edited["rows"][3]["k"] += 400  # Zaehler geschoent, Punktschaetzung nicht nachgezogen
+    assert any("refit" in m for m in qs.verify_result(edited))
+    nudged = json.loads(json.dumps(good))
+    nudged["fss"]["point"]["p_th"] += 1e-4  # p_th geschoent
+    assert any("refit" in m for m in qs.verify_result(nudged))
+
+
+def test_analysis_streams_are_domain_separated():
+    plan = qs.SweepPlan()
+    cell_seeds = {plan.cell_seed(d, p) for d in plan.distances for p in plan.p_grid}
+    a, b = plan.stream_seed("fss-bootstrap"), plan.stream_seed("fss-systematics")
+    assert a != b and a not in cell_seeds and b not in cell_seeds
+    assert plan.bootstrap_seed() == a
+    with pytest.raises(ValueError):
+        plan.stream_seed("other")
+
+
 def test_rows_hash_ignores_seed_field():
     plan = qs.SweepPlan()
     a = _fake_result(plan)["rows"]
@@ -116,6 +156,25 @@ def test_bitflip_circuit_has_no_depolarizing_noise():
 
 
 @requires_surface
+def test_bitflip_channel_is_basis_dual():
+    # Z-Memory sieht nur X-Komponenten, X-Memory nur Z-Komponenten.
+    zc = str(qs.build_circuit("phenomenological-bitflip", "z", 3, 0.03))
+    xc = str(qs.build_circuit("phenomenological-bitflip", "x", 3, 0.03))
+    assert "Z_ERROR" not in zc and "X_ERROR(0.03)" in zc
+    assert xc.count("Z_ERROR(0.03)") >= 2  # Datenfehler je Runde + Messflip vor MX
+    k_z = qs.decode_cell("phenomenological-bitflip", "z", 5, 0.03, 10_000, 1)
+    k_x = qs.decode_cell("phenomenological-bitflip", "x", 5, 0.03, 10_000, 2)
+    # Gleiche Statistik (rotated code ist X/Z-symmetrisch); der alte Fehler gab ~1/16.
+    assert abs(qs._two_proportion_z(k_z, k_x, 10_000)) < 4.0
+
+
+@requires_surface
+def test_invalid_basis_rejected():
+    with pytest.raises(ValueError):
+        qs.build_circuit("phenomenological-bitflip", "y", 3, 0.03)
+
+
+@requires_surface
 @pytest.mark.parametrize("basis", ["x", "z"])
 def test_zero_noise_oracle(basis):
     assert qs.decode_cell("phenomenological-bitflip", basis, 5, 1e-12, 500, 1) == 0
@@ -131,3 +190,4 @@ def test_small_sweep_reproducible_and_verifiable():
     assert qs.rows_hash(a["rows"]) == qs.rows_hash(b["rows"])
     assert qs.verify_result(a) == []
     assert a["fss"]["n_boot"] == 50
+    assert set(a["systematics"]) >= {"shifts", "case_resampling", "combined_half_width"}

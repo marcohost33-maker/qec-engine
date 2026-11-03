@@ -60,6 +60,8 @@ __all__ = [
     "fss_fit",
     "fss_bootstrap",
     "pairwise_crossings",
+    "fss_systematics",
+    "drifted_repetition_dataset",
     "repetition_fss_dataset",
     "repetition_nu_oracle",
 ]
@@ -389,6 +391,181 @@ def fss_bootstrap(
             "percentile CIs; refit warm-started at the point estimate"
         ),
     }
+
+
+_VARIANT_KEYS = (
+    "p_th",
+    "nu",
+    "chi2_per_dof",
+    "chi2_p_value",
+    "p_th_in_window",
+    "at_parameter_bound",
+)
+
+
+def _variant_fit(cells: Sequence[Cell]) -> dict | None:
+    try:
+        fit = fss_fit(cells)
+    except ValueError:
+        return None
+    return {k: fit[k] for k in _VARIANT_KEYS}
+
+
+def _variant_selectors(cells: Sequence[Cell]) -> dict[str, np.ndarray]:
+    ds = sorted({c.d for c in cells})
+    ps = sorted({c.p for c in cells})
+    d = np.array([c.d for c in cells])
+    p = np.array([c.p for c in cells])
+    sel: dict[str, np.ndarray] = {}
+    if len(ds) >= 3:
+        sel["drop_smallest_d"] = d != ds[0]
+        sel["drop_largest_d"] = d != ds[-1]
+    if len(ps) >= 5:
+        sel["inner_window"] = (p > ps[0]) & (p < ps[-1])
+    return sel
+
+
+def fss_systematics(
+    cells: Sequence[Cell],
+    *,
+    n_boot: int = 200,
+    seed: int = 0,
+    alpha: float = 0.05,
+    stat_ci: Sequence[float] | None = None,
+) -> dict:
+    """Systematik, die der parametrische Bootstrap NICHT sieht (Finite-Size, Fenster, Auswahl).
+
+    Varianten (jeweils voller Refit auf einer Teilmenge der Zellen):
+      * ``drop_smallest_d`` / ``drop_largest_d``: Distanz-Bins. Verschiebt sich p_th, wenn die
+        kleinste Distanz wegfaellt, ist der Ansatz dort noch nicht asymptotisch (Stephens 2014,
+        arXiv:1311.5003: verlaesslich ab d ~ 7; Distanz-Bins wie arXiv:2401.04008).
+      * ``inner_window``: aeusserste p-Punkte weg (der Ansatz gilt nur nahe p_th).
+
+    Eine Teilmenge hat weniger Daten, ihr p_th streut also auch OHNE jede Drift. Deshalb wird
+    jeder Shift Delta = p_th(Variante) - p_th(primaer) GEPAART gebootstrapt (beide Fits auf
+    denselben parametrischen Resamples k* ~ Bin(n, k/n)); nur ein Shift, dessen CI die 0
+    ausschliesst, ist eine belegte Drift (``significant``).
+
+    Dazu ``case_resampling``: nichtparametrischer Bootstrap UEBER ZELLEN (welche (d, p)-Paare
+    in den Fit gehen), als zweite, methodisch andere Unsicherheit.
+
+    ``combined_half_width`` = sqrt(stat^2 + max|Delta|^2) ist bewusst KONSERVATIV (der
+    Shift enthaelt selbst Rauschen), eine Groessenordnung, kein exaktes Niveau.
+    """
+    n_boot = _count("n_boot", n_boot)
+    if n_boot < 50:
+        raise ValueError(f"n_boot must be >= 50, got {n_boot}")
+    seed = _count("seed", seed)
+    a = _alpha(alpha)
+    cells = list(cells)
+    primary = fss_fit(cells)
+    sel = _variant_selectors(cells)
+    variants = {
+        name: _variant_fit([c for c, m in zip(cells, mask, strict=True) if m])
+        for name, mask in sel.items()
+    }
+
+    d, p, k, n = _arrays(cells)
+    bounds, _ = _bounds_and_starts(p)
+    rng = np.random.Generator(np.random.Philox(seed))
+    ph = k / n
+    deltas = {name: np.full(n_boot, np.nan) for name in sel}
+    warm_p = [(primary["p_th"], primary["nu"])]
+    for b in range(n_boot):
+        kb = rng.binomial(n.astype(np.int64), ph).astype(float)
+        yb, wb = kb / n, 1.0 / _sigma(kb, n)
+        res0 = _fit_core(d, p, yb, wb, warm_p, bounds)
+        if res0 is None:  # pragma: no cover - numerisch
+            continue
+        for name, mask in sel.items():
+            v = variants[name]
+            if v is None:
+                continue
+            bnd_v, _ = _bounds_and_starts(p[mask])
+            res = _fit_core(d[mask], p[mask], yb[mask], wb[mask], [(v["p_th"], v["nu"])], bnd_v)
+            if res is not None:
+                deltas[name][b] = res.x[0] - res0.x[0]
+
+    shifts = {}
+    for name, v in variants.items():
+        if v is None:
+            shifts[name] = None
+            continue
+        ci = _percentile_ci(deltas[name], a)
+        delta = v["p_th"] - primary["p_th"]
+        shifts[name] = {
+            "delta": delta,
+            "ci": ci,
+            "significant": bool(ci is not None and (ci[0] > 0.0 or ci[1] < 0.0)),
+        }
+    valid = [s["delta"] for s in shifts.values() if s is not None]
+    max_shift = float(max((abs(x) for x in valid), default=0.0))
+
+    case_rng = np.random.Generator(np.random.Philox([seed, 1]))
+    boot, n_fail = [], 0
+    for _ in range(n_boot):
+        idx = case_rng.integers(0, len(cells), size=len(cells))
+        v = _variant_fit([cells[i] for i in idx])
+        if v is None:
+            n_fail += 1
+        else:
+            boot.append(v["p_th"])
+
+    out = {
+        "primary_p_th": primary["p_th"],
+        "variants": variants,
+        "shifts": shifts,
+        "max_abs_shift": max_shift,
+        "any_significant_shift": any(s is not None and s["significant"] for s in shifts.values()),
+        "case_resampling": {
+            "ci": _percentile_ci(np.asarray(boot, dtype=float), a),
+            "n_boot": n_boot,
+            "degenerate_resamples": n_fail,
+        },
+        "n_boot": n_boot,
+        "seed": seed,
+        "alpha": a,
+        "note": (
+            "post-hoc robustness analysis (declared after the primary estimate); shift CIs are "
+            "paired parametric bootstraps; combined_half_width is conservative"
+        ),
+    }
+    if stat_ci is not None:
+        stat_hw = (float(stat_ci[1]) - float(stat_ci[0])) / 2.0
+        out["stat_half_width"] = stat_hw
+        out["combined_half_width"] = math.hypot(stat_hw, max_shift)
+    return out
+
+
+def drifted_repetition_dataset(
+    distances: Sequence[int],
+    p_grid: Sequence[float],
+    shots: int,
+    seed: int,
+    *,
+    c: float,
+) -> list[Cell]:
+    """Gegenkontrolle mit BEKANNTER Finite-Size-Drift: p_L(d, p - c/d). Jede Kurve ist um
+    c/d verschoben, die Kreuzung benachbarter Distanzen wandert also mit d; ein Fit ohne
+    kleinste Distanz MUSS einen anderen p_th liefern."""
+    shots = _count("shots", shots)
+    seed = _count("seed", seed)
+    children = np.random.SeedSequence(seed).spawn(len(distances) * len(p_grid))
+    cells, i = [], 0
+    for dd in distances:
+        for pp in p_grid:
+            rng = np.random.Generator(np.random.Philox(children[i]))
+            i += 1
+            q = min(max(float(pp) - c / int(dd), 0.0), 1.0)
+            cells.append(
+                Cell(
+                    int(dd),
+                    float(pp),
+                    int(rng.binomial(shots, logical_error_rate_exact(int(dd), q))),
+                    shots,
+                )
+            )
+    return cells
 
 
 # =============================================================================

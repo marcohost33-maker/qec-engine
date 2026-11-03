@@ -162,3 +162,42 @@ def test_fss_fit_rejects_underdetermined_grids(cells):
 def test_cell_validation(kw):
     with pytest.raises(ValueError):
         f.Cell(**kw)
+
+
+# --- Systematik ------------------------------------------------------------------
+
+
+def test_systematics_two_sided():
+    clean = f.fss_systematics(f.repetition_fss_dataset(DS, PG, 50_000, 11), n_boot=60, seed=6)
+    assert not clean["any_significant_shift"]
+    drift = f.fss_systematics(
+        f.drifted_repetition_dataset(DS, PG, 50_000, 11, c=0.2), n_boot=60, seed=7
+    )
+    assert drift["shifts"]["drop_smallest_d"]["significant"]
+    assert drift["shifts"]["drop_largest_d"]["significant"]
+
+
+def test_systematics_combined_width_is_conservative():
+    cells = f.repetition_fss_dataset(DS, PG, 50_000, 11)
+    out = f.fss_systematics(cells, n_boot=50, seed=1, stat_ci=(0.499, 0.501))
+    assert out["stat_half_width"] == pytest.approx(0.001)
+    assert out["combined_half_width"] >= max(out["stat_half_width"], out["max_abs_shift"])
+    assert set(out["variants"]) == {"drop_smallest_d", "drop_largest_d", "inner_window"}
+
+
+def test_systematics_skips_variants_the_grid_cannot_support():
+    cells = f.repetition_fss_dataset((9, 15), (0.47, 0.5, 0.53), 10_000, 1)
+    out = f.fss_systematics(cells, n_boot=50, seed=1)
+    assert out["variants"] == {} and out["max_abs_shift"] == 0.0
+
+
+def test_drifted_dataset_moves_crossings_with_distance():
+    n = 10**9
+    ds = (9, 27)
+    exact = [
+        f.Cell(d, p, round(f.logical_error_rate_exact(d, p - 0.2 / d) * n), n)
+        for d in ds
+        for p in PG
+    ]
+    cross = f.pairwise_crossings(exact)[0]["crossing"]
+    assert cross is not None and cross < 0.5  # Drift ist real, nicht nur Rauschen
