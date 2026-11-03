@@ -479,3 +479,23 @@ Nachprüfbar mit `sha256sum spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` (
   (github.com/ElinaMa500/surface-code-threshold) meldet ~3.9 % — konsistent mit genau diesem
   Konventionsunterschied (V4, nur als Warnbeispiel).
 
+---
+
+## Lineage-Append — 2026-11-04: Selbst-Review Inkrement 3.4 (Systematik, X/Z-Kanal)
+
+- **Bootstrap erfasst nur Sampling-Rauschen**, nicht Finite-Size-/Fenster-/Ansatz-Systematik:
+  so ausdrücklich in *Plaquette: A hardware-aware design platform for fault-tolerant quantum
+  computers*, arXiv:2607.08767 (V3). Daher `fss_systematics`.
+- **Ansatz erst ab d ≈ 7 verlässlich; quadratische Skalierungsfunktion**: A. M. Stephens,
+  *Fault-tolerant thresholds for quantum error correction with the surface code*, Phys. Rev. A
+  89, 022321 (2014), arXiv:1311.5003 (V1). Begründet den Distanz-Bin `drop_smallest_d`.
+- **Fit in Bins wachsender Distanz statt expliziter Korrekturterm** (Korrektur nahe p_th schwer
+  extrahierbar): arXiv:2401.04008, *Exact results on finite size corrections for surface codes
+  tailored to biased noise* (V1/V3). Begründet die Bin-Varianten statt eines D·d^(−1/μ)-Terms.
+- **Case-Resampling der (p, L)-Paare** als zweite Unsicherheit: Bonilla Ataides et al. bzw. die
+  Biased-noise-Literatur (arXiv:1708.08474, Tuckett et al., PRL 120, 050505 (2018)) (V1).
+- Eigene Ergänzung (kein Literaturzitat): die Shifts werden GEPAART gebootstrapt, weil eine
+  Teilmenge auch ohne Drift streut (am driftfreien Repetition-Orakel gemessen ~1e-3 bei einer
+  statistischen Halbbreite von 1.4e-3); ein Max-Shift ohne Paarung würde Rauschen als
+  Systematik ausweisen.
+

@@ -204,8 +204,178 @@
       ]
     },
     {
+      "id": "F6",
+      "name": "systematics on the drift-free oracle: no distance/window shift significant",
+      "status": "PASS",
+      "systematics": {
+        "primary_p_th": 0.4993282215946455,
+        "variants": {
+          "drop_smallest_d": {
+            "p_th": 0.5004392756474136,
+            "nu": 2.2912945313300974,
+            "chi2_per_dof": 0.9022601845755797,
+            "chi2_p_value": 0.5662552864871571,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          },
+          "drop_largest_d": {
+            "p_th": 0.498387578406268,
+            "nu": 1.9752400897952642,
+            "chi2_per_dof": 0.9782432039854679,
+            "chi2_p_value": 0.4775088983442145,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          },
+          "inner_window": {
+            "p_th": 0.49890311938061155,
+            "nu": 2.192141733782027,
+            "chi2_per_dof": 0.9043816299846218,
+            "chi2_p_value": 0.5586872018087253,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          }
+        },
+        "shifts": {
+          "drop_smallest_d": {
+            "delta": 0.0011110540527681234,
+            "ci": [
+              -0.0008256875416553871,
+              0.003465841730844557
+            ],
+            "significant": false
+          },
+          "drop_largest_d": {
+            "delta": -0.000940643188377499,
+            "ci": [
+              -0.002395846460735954,
+              0.0005612697239726586
+            ],
+            "significant": false
+          },
+          "inner_window": {
+            "delta": -0.00042510221403396775,
+            "ci": [
+              -0.0014235909679513616,
+              0.0004408578828198179
+            ],
+            "significant": false
+          }
+        },
+        "max_abs_shift": 0.0011110540527681234,
+        "any_significant_shift": false,
+        "case_resampling": {
+          "ci": [
+            0.4980215833423379,
+            0.5012959699539687
+          ],
+          "n_boot": 200,
+          "degenerate_resamples": 0
+        },
+        "n_boot": 200,
+        "seed": 6,
+        "alpha": 0.05,
+        "note": "post-hoc robustness analysis (declared after the primary estimate); shift CIs are paired parametric bootstraps; combined_half_width is conservative"
+      }
+    },
+    {
+      "id": "F7",
+      "name": "known finite-size drift (curves shifted by c/d, c=0.3): drop-smallest-d shift significant on 3/3 independent datasets (drop-largest-d reported, lower power)",
+      "status": "PASS",
+      "c": 0.3,
+      "runs": [
+        {
+          "dataset_seed": 11,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.005090399598494555,
+              "ci": [
+                0.0021988048127963957,
+                0.007577977208854342
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.0024108011788437356,
+              "ci": [
+                -0.005491952482853483,
+                0.00012750965911225725
+              ],
+              "significant": false
+            },
+            "inner_window": {
+              "delta": -0.0014984590101415063,
+              "ci": [
+                -0.004910230935265675,
+                0.001077535324409357
+              ],
+              "significant": false
+            }
+          }
+        },
+        {
+          "dataset_seed": 12,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.007035293203762727,
+              "ci": [
+                0.004607178933449514,
+                0.009334091067065144
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.004819936195733454,
+              "ci": [
+                -0.00777172821622932,
+                -0.0027631487906946426
+              ],
+              "significant": true
+            },
+            "inner_window": {
+              "delta": -0.001877380694198072,
+              "ci": [
+                -0.005528078897305231,
+                0.0007643874711280203
+              ],
+              "significant": false
+            }
+          }
+        },
+        {
+          "dataset_seed": 13,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.003433087267201207,
+              "ci": [
+                0.0005247071888900947,
+                0.005992292495890793
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.002358989831009406,
+              "ci": [
+                -0.005114340019065272,
+                -4.74698887971272e-05
+              ],
+              "significant": true
+            },
+            "inner_window": {
+              "delta": -0.001506154487601774,
+              "ci": [
+                -0.004979931864413858,
+                0.0009134675882147717
+              ],
+              "significant": false
+            }
+          }
+        }
+      ],
+      "drop_largest_d_significant": 2
+    },
+    {
       "id": "S1",
-      "name": "bit-flip(q) ~ Stim-depolarizing(data 3q/2, meas q): |z|<3; Stim-depolarizing(q) is a different, weaker channel (z>5)",
+      "name": "bit-flip(q) ~ Stim-depolarizing(data 3q/2, meas q): |z|<3; Stim-depolarizing(q) is a different, weaker channel (z>5); X-memory with the basis-dual Z-flip == Z-memory (|z|<3), X-flip on the X-memory is empty (z>5)",
       "status": "PASS",
       "d": 5,
       "q": 0.03,
@@ -215,6 +385,10 @@
       "k_depol_q": 2135,
       "z_same": -1.1751251784202377,
       "z_trap": 27.625756963864553,
+      "k_x_memory_zflip": 4318,
+      "k_x_memory_xflip_wrong": 255,
+      "z_x_vs_z_memory": -0.7430282355566864,
+      "z_wrong_channel": 61.29786720703766,
       "why": "DEPOLARIZE1(p) has X-marginal 2p/3; Z-memory sees only X/Y components"
     },
     {
@@ -262,13 +436,13 @@
       "status": "PASS",
       "p_th": 0.029122290879940133,
       "p_th_ci": [
-        0.028897118196877625,
-        0.02932866704710355
+        0.028910815702653712,
+        0.029349402930532616
       ],
       "nu": 1.1856480447244229,
       "nu_ci": [
-        1.1138098064095259,
-        1.2667442610297746
+        1.1198401357461374,
+        1.2617540370974372
       ],
       "chi2_per_dof": 0.7803993518377411,
       "chi2_p_value": 0.7334906998796082,
@@ -280,8 +454,8 @@
           ],
           "crossing": 0.02922264150943396,
           "ci": [
-            0.02780414358903351,
-            0.0303311468794835
+            0.028214598321342932,
+            0.030324981454711453
           ],
           "found_fraction": 1.0
         },
@@ -292,8 +466,8 @@
           ],
           "crossing": 0.029365461847389557,
           "ci": [
-            0.028217552946593,
-            0.030526165922090936
+            0.027823211352923195,
+            0.03052210788097075
           ],
           "found_fraction": 1.0
         },
@@ -304,8 +478,8 @@
           ],
           "crossing": 0.02882674772036474,
           "ci": [
-            0.02776077213364993,
-            0.02987236842105264
+            0.027801574290026065,
+            0.03008844545521238
           ],
           "found_fraction": 1.0
         }
@@ -323,7 +497,7 @@
     },
     {
       "id": "S5",
-      "name": "pre-registration: fingerprint fixed before run; replay bit-identical; base_seed+1 changes results; edited plan / dropped cell rejected",
+      "name": "pre-registration: fingerprint fixed before run; replay bit-identical; base_seed+1 changes results; edited plan / dropped cell / edited count rejected",
       "status": "PASS",
       "registered_fingerprint": "babf51d36adf057c1ddcd0d15b8b4fdedbf14b8bbe16294b292d10ebef9056da",
       "verify_ok": [],
@@ -353,6 +527,78 @@
       ],
       "verify_dropped": [
         "cells differ from registered grid: missing=[(5, 0.024)], extra=[]"
+      ],
+      "verify_edited_k": [
+        "stored FSS point estimate does not match a refit of the rows"
+      ]
+    },
+    {
+      "id": "S6",
+      "name": "post-hoc robustness: drop smallest d / drop largest d / inner window all converge inside the window and inside the S4 band; case-resampling CI covers the estimate",
+      "status": "PASS",
+      "shifts": {
+        "drop_smallest_d": {
+          "delta": 0.00011652807999886286,
+          "ci": [
+            -0.00012595611997616863,
+            0.00032049460075048836
+          ],
+          "significant": false
+        },
+        "drop_largest_d": {
+          "delta": -5.4657202383543574e-05,
+          "ci": [
+            -0.0003311841060071903,
+            0.00019886916291323432
+          ],
+          "significant": false
+        },
+        "inner_window": {
+          "delta": 0.00012758460609110442,
+          "ci": [
+            -2.3396997664337087e-05,
+            0.0002802790517383973
+          ],
+          "significant": false
+        }
+      },
+      "variants": {
+        "drop_smallest_d": {
+          "p_th": 0.029238818959938996,
+          "nu": 1.1517322448292315,
+          "chi2_per_dof": 0.5434488970801461,
+          "chi2_p_value": 0.8987794440942674,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "drop_largest_d": {
+          "p_th": 0.02906763367755659,
+          "nu": 1.207474929074248,
+          "chi2_per_dof": 0.8160181013162127,
+          "chi2_p_value": 0.643599742246758,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "inner_window": {
+          "p_th": 0.029249875486031238,
+          "nu": 1.1049989222183825,
+          "chi2_per_dof": 0.23124162942248977,
+          "chi2_p_value": 0.9954886704767015,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        }
+      },
+      "any_significant_shift": false,
+      "case_resampling_ci": [
+        0.028913353798389066,
+        0.02934978415171037
+      ],
+      "stat_half_width": 0.00021929361393945197,
+      "max_abs_shift": 0.00012758460609110442,
+      "combined_half_width": 0.00025370754980104095,
+      "band": [
+        0.027000000000000003,
+        0.031
       ]
     }
   ],
@@ -393,7 +639,7 @@
     "runtime_environment": {
       "package_version": "0.5.0.dev0",
       "distribution_version": "0.5.0.dev0",
-      "git_sha": "1f6473a",
+      "git_sha": "99c013a",
       "python": "3.13.18",
       "platform": "Linux-6.18.44-fc-v230-x86_64-with-glibc2.39",
       "machine": "x86_64"
@@ -970,14 +1216,14 @@
         "weights": "1/sigma, sigma^2 = p~(1-p~)/n, p~ = (k+1/2)/(n+1)"
       },
       "p_th_ci": [
-        0.028897118196877625,
-        0.02932866704710355
+        0.028910815702653712,
+        0.029349402930532616
       ],
       "nu_ci": [
-        1.1138098064095259,
-        1.2667442610297746
+        1.1198401357461374,
+        1.2617540370974372
       ],
-      "p_th_boot_sd": 0.00010645744888753205,
+      "p_th_boot_sd": 0.00011538850694465783,
       "fit_success_fraction": 1.0,
       "p_th_in_window_fraction": 1.0,
       "crossings": [
@@ -988,8 +1234,8 @@
           ],
           "crossing": 0.02922264150943396,
           "ci": [
-            0.02780414358903351,
-            0.0303311468794835
+            0.028214598321342932,
+            0.030324981454711453
           ],
           "found_fraction": 1.0
         },
@@ -1000,8 +1246,8 @@
           ],
           "crossing": 0.029365461847389557,
           "ci": [
-            0.028217552946593,
-            0.030526165922090936
+            0.027823211352923195,
+            0.03052210788097075
           ],
           "found_fraction": 1.0
         },
@@ -1012,19 +1258,90 @@
           ],
           "crossing": 0.02882674772036474,
           "ci": [
-            0.02776077213364993,
-            0.02987236842105264
+            0.027801574290026065,
+            0.03008844545521238
           ],
           "found_fraction": 1.0
         }
       ],
       "n_boot": 400,
-      "seed": 3005028540,
+      "seed": 8585115130229575405,
       "alpha": 0.05,
       "method": "parametric bootstrap over independent cells, k* ~ Binomial(n, k/n); percentile CIs; refit warm-started at the point estimate"
     },
-    "wallclock_s": 32.17
+    "systematics": {
+      "primary_p_th": 0.029122290879940133,
+      "variants": {
+        "drop_smallest_d": {
+          "p_th": 0.029238818959938996,
+          "nu": 1.1517322448292315,
+          "chi2_per_dof": 0.5434488970801461,
+          "chi2_p_value": 0.8987794440942674,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "drop_largest_d": {
+          "p_th": 0.02906763367755659,
+          "nu": 1.207474929074248,
+          "chi2_per_dof": 0.8160181013162127,
+          "chi2_p_value": 0.643599742246758,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "inner_window": {
+          "p_th": 0.029249875486031238,
+          "nu": 1.1049989222183825,
+          "chi2_per_dof": 0.23124162942248977,
+          "chi2_p_value": 0.9954886704767015,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        }
+      },
+      "shifts": {
+        "drop_smallest_d": {
+          "delta": 0.00011652807999886286,
+          "ci": [
+            -0.00012595611997616863,
+            0.00032049460075048836
+          ],
+          "significant": false
+        },
+        "drop_largest_d": {
+          "delta": -5.4657202383543574e-05,
+          "ci": [
+            -0.0003311841060071903,
+            0.00019886916291323432
+          ],
+          "significant": false
+        },
+        "inner_window": {
+          "delta": 0.00012758460609110442,
+          "ci": [
+            -2.3396997664337087e-05,
+            0.0002802790517383973
+          ],
+          "significant": false
+        }
+      },
+      "max_abs_shift": 0.00012758460609110442,
+      "any_significant_shift": false,
+      "case_resampling": {
+        "ci": [
+          0.028913353798389066,
+          0.02934978415171037
+        ],
+        "n_boot": 200,
+        "degenerate_resamples": 0
+      },
+      "n_boot": 200,
+      "seed": 5663239803932692223,
+      "alpha": 0.05,
+      "note": "post-hoc robustness analysis (declared after the primary estimate); shift CIs are paired parametric bootstraps; combined_half_width is conservative",
+      "stat_half_width": 0.00021929361393945197,
+      "combined_half_width": 0.00025370754980104095
+    },
+    "wallclock_s": 38.6
   },
   "claim_ceiling": "FSS-supported bounded simulation for the declared phenomenological bit-flip channel (X-flip p, measurement flip p, rounds=d, d<=11, PyMatching MWPM); no L->oo proof, no latency, no hardware claim, no other noise convention",
-  "wallclock_s": 70.7
+  "wallclock_s": 105.0
 }

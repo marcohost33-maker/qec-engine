@@ -169,28 +169,38 @@ keine Uebertragung auf Hardware oder andere Noise-Konventionen.
 **Naechster Schritt:** Sweep-Engine mit fester vorregistrierter p×d-Matrix (fixed shots) und
 Bootstrap-FSS; A/B ueber das ganze Gitter; Sinter erst nach Issue #42.
 
-## Inkrement 3.4 — vorregistrierte p×d-Sweep-Engine + Wilson/Jeffreys + Bootstrap-FSS  [DONE 2026-11-03]
+## Inkrement 3.4 — vorregistrierte p×d-Sweep-Engine + Wilson/Jeffreys + Bootstrap-FSS  [DONE 2026-11-03, gehaertet 2026-11-04]
 
 Gate-Log `results/qec-sweep-fss.json` (`python -m adaptiverg_qec.qec_sweep --json results/qec-sweep-fss.json`,
-~75 s); CI-Job `surface` faehrt es fail-closed. Statistik-Kern `qec_fss.py` (reines numpy/scipy),
+~100 s); CI-Job `surface` faehrt es fail-closed. Statistik-Kern `qec_fss.py` (reines numpy/scipy),
 Sweep-Engine `qec_sweep.py` (Stim DEM -> PyMatching).
 
 - **Vorregistrierung:** `SweepPlan` friert p-Gitter, Distanzen, rounds=d, Shot-Budget
   (`fixed-shots`, kein datenabhaengiges Stoppen), FSS-Modell, Bootstrap-Groesse und Seed ein;
-  SHA-256-Fingerprint im Ergebnis, `verify_result` weist editiertes Gitter, fehlende Zellen,
-  abweichende Shots und fremde Seeds ab. Zell-Seeds per SHA-256 aus Plan + (d, p).
+  SHA-256-Fingerprint im Ergebnis. `verify_result` weist editiertes Gitter, fehlende Zellen,
+  abweichende Shots, fremde Seeds, k ausserhalb [0, n] und eine Punktschaetzung, die nicht zu
+  einem Refit der Zeilen passt, ab. Zell-Seeds per SHA-256 aus Plan + (d, p); Bootstrap und
+  Systematik haben eigene, domain-getrennte Seeds.
 - **[KORREKTUR] Noise-Konvention:** Stims `before_round_data_depolarization=p` ist DEPOLARIZE1(p)
   mit X-Marginale 2p/3 und daher NICHT der Kanal der Literatur-Schwelle 2.9 %
-  (Wang/Harrington/Preskill 2003: unabhaengige Bitflips p + Messfehler q=p). Der neue Kanal
-  `phenomenological-bitflip` ersetzt DEPOLARIZE1(p) durch X_ERROR(p). Gate S1 belegt beide
-  Richtungen: bit-flip(q) ~ Stim-depol(Daten 3q/2, Mess q) (|z|=1.2), Stim-depol(q) ist ein
-  anderer Kanal (z=27.6). Verbleibende Modellabweichung: Stim flippt auch die finale
+  (Wang/Harrington/Preskill 2003: unabhaengige Flips p + Messfehler q=p). Kanal
+  `phenomenological-bitflip` ersetzt DEPOLARIZE1(p) **basis-dual** durch X_ERROR(p) (Z-Memory)
+  bzw. Z_ERROR(p) (X-Memory). Verbleibende Modellabweichung: Stim flippt auch die finale
   Datenmessung (WHP: letzte Runde perfekt) -> Zeitrand-, keine Kanal-Abweichung.
+- **[KORREKTUR 2026-11-04, Selbst-Review]** Die Erstfassung setzte auch auf dem X-Memory
+  X_ERROR; der kommutiert mit dem X-Observable, es wirkten nur Messfehler (255 statt ~4300
+  Fehler bei d=5, q=0.03, 40k Shots). Die committete Evidenz lief nur auf dem Z-Memory und war
+  nicht betroffen; S1 prueft jetzt X/Z-Gleichheit und den alten Kanal als Gegenrichtung.
 - **Intervalle:** Wilson, Jeffreys (Brown/Cai/DasGupta 2001), Clopper-Pearson je Zelle;
   `exact_coverage` summiert die Binomial-pmf (kein MC).
 - **FSS:** `p_L = A + Bx + Cx^2`, `x=(p-p_th)d^{1/nu}` (WHP 2003), gewichtete LS mit
   Variable Projection (A,B,C linear eliminiert), Multi-Start, chi^2-Guete; parametrischer
   Zell-Bootstrap (gueltig wegen unabhaengiger Zellen) fuer p_th, nu und paarweise Kreuzungen.
+- **[LUECKE geschlossen 2026-11-04] Systematik:** der parametrische Bootstrap erfasst nur
+  Sampling-Rauschen. `fss_systematics` refittet Distanz-Bins (ohne kleinste / ohne groesste d)
+  und ein inneres p-Fenster und bootstrapt jeden Shift GEPAART auf denselben Resamples -- eine
+  Teilmenge streut auch ohne Drift (am driftfreien Orakel ~1e-3!), nur ein Shift mit CI ohne
+  die 0 zaehlt als Drift. Dazu nichtparametrisches Case-Resampling ueber Zellen.
 
 | Gate | Pruefung | Gemessen |
 |---|---|---|
@@ -199,23 +209,29 @@ Sweep-Engine `qec_sweep.py` (Stim DEM -> PyMatching).
 | F3 | Repetition-Orakel: CI deckt exaktes p_th=1/2 und exaktes nu_eff=2.070 | ja, chi^2-p > 0.01 |
 | F4 | Bootstrap-Coverage ueber 100 Replikate | p_th 0.97, nu 0.93 (Schwelle 0.95−3SD=0.885) |
 | F5 | Negativkontrolle ohne Kreuzung | keine Kreuzung, Fit am Rand geflaggt |
-| S1 | Konventions-Aequivalenz + Falle (s.o.) | z=−1.18 / z=27.6 |
+| F6 | Systematik am driftfreien Orakel | kein Shift signifikant |
+| F7 | bekannte Drift (Kurven um 0.3/d verschoben) | drop-smallest-d 3/3 Datensaetze signifikant; drop-largest-d 2/3 (geringere Power, nur berichtet) |
+| S1 | Konvention + X/Z-Symmetrie + beide Fallen | bit-flip(q) vs depol(3q/2, q) z=−1.18; depol(q) z=27.6; X- vs Z-Memory z=−0.74; X-Flip auf X-Memory z=61.3 |
 | S2 | Gitter klammert die Schwelle (p=0.024 faellt, p=0.034 steigt mit d) | ja |
-| S3 | Fit adaequat, p_th + CI im Fenster, >= 99 % Refits | **p_th = 0.02912, 95 %-CI [0.02890, 0.02933]**, nu = 1.19 [1.11, 1.27], chi^2/dof = 0.78 (p=0.73) |
+| S3 | Fit adaequat, p_th + CI im Fenster, >= 99 % Refits | **p_th = 0.02912, 95 %-CI [0.02891, 0.02935]**, nu = 1.19 [1.12, 1.26], chi^2/dof = 0.78 (p=0.73) |
 | S4 | externer Anker |p_th − 0.029| <= 0.002 (vorab), CI < 0.033 (optimal) | abs_err = 1.2e-4 |
-| S5 | Fingerprint vor Lauf; Replay bitgleich; base_seed+1 anders; Manipulation abgewiesen | ja |
+| S5 | Fingerprint vor Lauf; Replay bitgleich; base_seed+1 anders; Gitter-/Zellen-/Zaehler-Manipulation abgewiesen | ja |
+| S6 | Post-hoc-Robustheit: alle Varianten konvergieren im Fenster und im S4-Band; Case-CI deckt | Varianten 0.02907–0.02925, kein Shift signifikant, Case-CI [0.02891, 0.02935] |
 
-Paarweise Kreuzungen (5,7) 0.0292, (7,9) 0.0294, (9,11) 0.0288 — Finite-Size-Drift bei
-d<=11 und 50k Shots/Zelle nicht aufgeloest (CIs ~±0.001).
+**Gesamt:** p_th = 0.0291 ± 0.0003 (stat ⊕ max. Shift, bewusst konservativ). Paarweise
+Kreuzungen (5,7) 0.0292, (7,9) 0.0294, (9,11) 0.0288; eine Finite-Size-Drift ist bei d<=11 und
+50k Shots/Zelle NICHT aufgeloest -- das heisst nicht, dass es keine gibt (Power-Grenze s. F7).
 
 **Ehrlich zur Vorregistrierung:** Gitter und S4-Toleranz wurden vor dem 50k-Lauf festgelegt,
-aber nach einem 20k-Shot-Vorlauf an zwei p-Punkten (Kreuzung zwischen 0.026 und 0.030).
-Das ist eine Fensterwahl, kein Tuning des Schaetzers. **Claim ceiling:** FSS-supported
-bounded simulation fuer GENAU diesen Kanal (X-flip p, Messflip p, rounds=d, d<=11,
-PyMatching-MWPM, Z-Memory); kein L->oo-Beweis, keine Latenz, keine Hardware-Aussage.
-nu ist ein effektiver Fit-Parameter, KEIN universeller Exponent.
+aber nach einem 20k-Shot-Vorlauf an zwei p-Punkten (Kreuzung zwischen 0.026 und 0.030) -- eine
+Fensterwahl, kein Tuning des Schaetzers. F6/F7/S6 sind nach der Primaerschaetzung hinzugekommen
+(Post-hoc-Robustheit, aendert die Primaerschaetzung nicht). **Claim ceiling:** FSS-supported
+bounded simulation fuer GENAU diesen Kanal (Flip p, Messflip p, rounds=d, d<=11,
+PyMatching-MWPM; Z-Memory gemessen, X-Memory statistisch gleich); kein L->oo-Beweis, keine
+Latenz, keine Hardware-Aussage. nu ist ein effektiver Fit-Parameter, KEIN universeller Exponent.
 **Naechster Schritt:** A/B (Standard vs. Correlated MWPM) ueber das ganze Gitter mit
-Holm-Korrektur; Circuit-Level-Profile; Sinter erst nach Issue #42.
+Holm-Korrektur; groessere Distanzen (d=13..17) fuer die Drift-Frage; Circuit-Level-Profile;
+Sinter erst nach Issue #42.
 
 ## Inkrement 4 — Brueckenschlag zum MCRG-Teil (warum beide im selben Repo)
 

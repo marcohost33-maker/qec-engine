@@ -36,7 +36,8 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
 - `qec-sweep-fss.json` — **Inkrement 3.4:** vorregistrierter p×d-Sweep (phenomenological
   bit-flip, Rotated-Surface-Memory, rounds=d, d∈{5,7,9,11}, 50k Shots/Zelle) mit
   Wilson/Jeffreys/CP-Intervallen und Bootstrap-FSS; Gates F1–F5 (Statistik gegen geschlossene
-  Orakel) und S1–S5 (Konvention, Klammerung, Fit, Literaturanker, Vorregistrierung).
+  Orakel, inkl. Systematik-Werkzeug beidseitig F6/F7) und S1–S6 (Konvention + X/Z-Symmetrie,
+  Klammerung, Fit, Literaturanker, Vorregistrierung, Post-hoc-Robustheit).
   Reproduzierbar via (braucht `[surface]`):
 
   ```bash
