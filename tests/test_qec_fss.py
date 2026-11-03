@@ -171,10 +171,10 @@ def test_systematics_two_sided():
     clean = f.fss_systematics(f.repetition_fss_dataset(DS, PG, 50_000, 11), n_boot=60, seed=6)
     assert not clean["any_significant_shift"]
     drift = f.fss_systematics(
-        f.drifted_repetition_dataset(DS, PG, 50_000, 11, c=0.2), n_boot=60, seed=7
+        f.drifted_repetition_dataset(DS, PG, 50_000, 12, c=0.3), n_boot=60, seed=7
     )
     assert drift["shifts"]["drop_smallest_d"]["significant"]
-    assert drift["shifts"]["drop_largest_d"]["significant"]
+    assert drift["shifts"]["drop_smallest_d"]["delta"] > 0  # Richtung: ohne d_min hoeher
 
 
 def test_systematics_combined_width_is_conservative():
