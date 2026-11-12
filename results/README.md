@@ -33,6 +33,17 @@ AGENTS.md verlangt Evidenz hier (keine Physik-/Status-Claims ohne Gate-Log).
   python -m adaptiverg_qec.qec_diagnostics   # schreibt results/qec-diagnostics-rep-code.json
   ```
 
+- `qec-sweep-fss.json` — **Inkrement 3.4:** vorregistrierter p×d-Sweep (phenomenological
+  bit-flip, Rotated-Surface-Memory, rounds=d, d∈{5,7,9,11}, 50k Shots/Zelle) mit
+  Wilson/Jeffreys/CP-Intervallen und Bootstrap-FSS; Gates F1–F5 (Statistik gegen geschlossene
+  Orakel, inkl. Systematik-Werkzeug beidseitig F6/F7) und S1–S6 (Konvention + X/Z-Symmetrie,
+  Klammerung, Fit, Literaturanker, Vorregistrierung, Post-hoc-Robustheit).
+  Reproduzierbar via (braucht `[surface]`):
+
+  ```bash
+  python -m adaptiverg_qec.qec_sweep --json results/qec-sweep-fss.json
+  ```
+
 - `phase2-swendsen.json` — Phase-2-Validierungstabelle: Swendsen-MCRG-Schätzer
   T̂(K) vs. analytisches Orakel tanh(2K) über 4 K-Werte, 8 Seeds, mit
   Multi-Seed-Fehlerbalken (std/SEM) und n_sigma. Reproduzierbar via:

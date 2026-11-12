@@ -235,6 +235,19 @@ Evidenz: `results/qec-surface-mwpm.json` (`python -m adaptiverg_qec.surface_deco
   (`python -m adaptiverg_qec.qec_evidence`; CI-Job `surface` fährt es fail-closed).
   **Claim ceiling:** bounded simulation; kein Threshold-, FSS- oder Latenz-Claim.
 
+- **Inkr. 3.4 Sweep + Bootstrap-FSS** (`qec_sweep.py`, `qec_fss.py`): vorregistrierter p×d-Plan
+  (SHA-256-Fingerprint, fixed shots, zell-eigene Seeds), Wilson/Jeffreys/Clopper-Pearson je Zelle,
+  FSS-Fit `p_L = A + Bx + Cx²`, `x=(p−p_th)d^{1/ν}` (Wang/Harrington/Preskill 2003) mit
+  parametrischem Zell-Bootstrap plus Systematik (Distanz-Bins und Fenster mit GEPAART
+  gebootstrapten Shifts, Case-Resampling). Validiert gegen das geschlossene Repetition-Orakel
+  (p_th=1/2, exaktes ν_eff, Coverage über 100 Replikate) und gegen Daten mit bekannter Drift.
+  **Konventions-Fix:** Stim-`DEPOLARIZE1(p)` hat X-Marginale 2p/3 und ist NICHT der
+  Literaturkanal; neuer Kanal `phenomenological-bitflip` (basis-dualer Flip p + Messflip p).
+  Ergebnis d∈{5,7,9,11}, rounds=d, 50k Shots/Zelle: **p_th = 0.0291 ± 0.0003** (95 %-CI stat
+  [0.02891, 0.02935], keine signifikante Distanz-Drift) vs. MWPM-Literatur 2.9 %.
+  13 Gates F1–F7/S1–S6, Evidenz `results/qec-sweep-fss.json`.
+  **Claim ceiling:** FSS-gestützte bounded simulation für genau diesen Kanal; kein L→∞-Beweis.
+
 > **Ehrliche Korrektheits-Grenze (kein Overclaim):** Validiert wird gegen den MWPM-Wert
 > 0.103 (Nulltemperatur-RBIM), **NICHT** gegen den optimalen ML/Tensor-Network-Threshold
 > 0.1094 (Nishimori-Punkt) — MWPM ist near-optimal, aber sub-optimal; ein Schätzer, der
