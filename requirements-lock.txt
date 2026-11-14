@@ -17,8 +17,8 @@ Pygments==2.21.0
 PyMatching==2.4.0
 pyparsing==3.3.3
 pytest==9.2.0
-python-dateutil==3.0.0
-ruff==0.17.3
+python-dateutil==4.0.0
+ruff==0.17.4
 scipy==1.18.1
 six==1.17.0
 stim==1.16.0
