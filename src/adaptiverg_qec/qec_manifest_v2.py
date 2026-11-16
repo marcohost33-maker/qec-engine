@@ -115,6 +115,9 @@ class QECExperimentManifestV2:
     base_seed: int = 20260919
     seed_policy: str = "manifest-sha256-v1"
     sampling_backend: str = "direct-stim-detector-sampler"
+    # Vertragswert (geht in den Fingerprint, daher nicht umbenannt). "ARCHITECTURE" ist eng zu
+    # lesen: gleicher Stim-Build auf gleichem OS. Gemessen 2026-11-16 (Stim 1.16.0, gleicher
+    # x86_64-Rechner): gleicher Seed -> unter Windows andere Shot-Zaehler als unter Linux.
     reproducibility_tier: str = "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE"
     decoder: str = "pymatching-mwpm-dem"
     noise: StimNoiseProfile = field(default_factory=StimNoiseProfile)

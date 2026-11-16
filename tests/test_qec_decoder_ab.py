@@ -208,6 +208,38 @@ def test_evidence_runner_quick_all_pass(tmp_path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["all_pass"] and payload["n_gates"] == 10
     assert [g["id"] for g in payload["gates"]] == [f"Q{i}" for i in range(1, 11)]
+    # Die Ordnungs-Gates skalieren im Quick-Modus NICHT mit (Power, s. ORDER_GATE_SHOTS).
+    by_id = {g["id"]: g for g in payload["gates"]}
+    for gid in ("Q2", "Q3"):
+        assert {r["shots"] for r in by_id[gid]["rows"]} == {qec_evidence.ORDER_GATE_SHOTS[gid]}
+    assert by_id["Q8"]["cell_d5"]["shots"] == qec_evidence.ORDER_GATE_SHOTS["Q8"]
+
+
+def _order_gate_power(p_hi: float, p_lo: float, n: int, alpha: float = 0.01) -> float:
+    """EXAKT: P(CP_lo(K_hi) > CP_hi(K_lo)), K ~ Bin(n, p) unabhaengig (Summe ueber pmf)."""
+
+    def ks(p):
+        s = 8.0 * (n * p * (1 - p)) ** 0.5
+        return np.arange(max(0, int(n * p - s)), min(n, int(n * p + s)) + 1)
+
+    ka, kb = ks(p_hi), ks(p_lo)
+    lo = np.array([ab.clopper_pearson(int(k), n, alpha)[0] for k in ka])
+    hi = np.array([ab.clopper_pearson(int(k), n, alpha)[1] for k in kb])
+    w = stats.binom.pmf(ka, n, p_hi)[:, None] * stats.binom.pmf(kb, n, p_lo)[None, :]
+    return float(np.sum(w * (lo[:, None] > hi[None, :])))
+
+
+def test_q2_order_gate_has_power_in_quick_mode_too():
+    """Szenario mit etwas KLEINEREM Abstand d=5/d=7 als gemessen (2026-11-16, Seed 31/999:
+    Windows 2.38e-3/6.1e-4 bei 400k Shots, Linux-Container 2.63e-3/6.5e-4 bei 60k): das
+    Q2-Budget muss das Paar mit >= 99 % Power trennen. Gegenkontrolle: das alte
+    Quick-Budget (60k * 0.25) schafft das nicht -- genau der Windows-Fehlschlag
+    (Ziehungsglueck statt Gate). Reine scipy-Rechnung, plattformunabhaengig."""
+    from adaptiverg_qec import qec_evidence
+
+    p5, p7 = 2.2e-3, 7.0e-4
+    assert _order_gate_power(p5, p7, qec_evidence.ORDER_GATE_SHOTS["Q2"]) >= 0.99
+    assert _order_gate_power(p5, p7, 15_000) < 0.8
 
 
 # --- Review-Haertung PR #54 ---------------------------------------------------------
