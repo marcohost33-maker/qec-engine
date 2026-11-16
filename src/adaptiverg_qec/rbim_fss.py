@@ -27,12 +27,13 @@ gauge argument; "quiet planting", Krzakala & Zdeborova, PRL 102, 238701 (2009)):
 the chain is then stationary for every gauge-invariant observable (e.g. the
 energy is exact from t=0), and ``m^2`` relaxes from ABOVE as the equilibrium
 auto-overlap decays, whereas the hot start coarsens from BELOW. Agreement of
-both is a two-sided thermalisation certificate. Measured (L=16, p=0.11, 96
-realisations): after 1000 sweeps aligned 0.631 vs hot 0.544 (not equilibrated;
-the identity gate fires for the hot start, z=3.2), after >=3000 sweeps both
-0.59 +- 0.02. The aligned start therefore is the production default.
+both is a two-sided thermalisation certificate. Measured with the earlier
+checkerboard Metropolis kernel (L=16, p=0.11, 96 realisations): after 1000
+sweeps aligned 0.631 vs hot 0.544 (not equilibrated; the identity gate fires
+for the hot start, z=3.2), after >=3000 sweeps both 0.59 +- 0.02. The aligned
+start therefore is the production default.
 
-Sampler: vectorised checkerboard Metropolis over a batch of disorder
+Sampler: vectorised checkerboard heat-bath (Glauber) over a batch of disorder
 realisations x 2 thermal replicas. The RBIM Wolff single-cluster update of
 :mod:`rbim_nishimori` is deliberately NOT used here: at the Nishimori point
 (``beta_N ~ 1.05``, ``P_add ~ 0.88``) the cluster covered 99.4% of the lattice
@@ -129,25 +130,46 @@ def thermal_seed_sequence(
 
 
 # ---------------------------------------------------------------------------
-# Batched Metropolis sampler
+# Batched heat-bath sampler
 # ---------------------------------------------------------------------------
-def _metropolis_sweep_batch(
+def _flip_table(beta: float) -> np.ndarray:
+    """Heat-bath (Glauber) flip probability indexed by ``s*h + 4``, ``h`` in -4..4.
+
+    ``P(flip) = pi(-s) / (pi(s) + pi(-s)) = 1 / (1 + exp(2 beta s h))``: detailed
+    balance per site (``P(x)/P(-x) = exp(-2 beta x)``) and ``0 < P < 1`` for every
+    field at finite beta. The previous Metropolis table ``min(1, exp(-2 beta s h))``
+    flipped every zero-field site with probability 1, so a deterministic checkerboard
+    scan could cycle forever between a configuration and its negative (e.g. uniform
+    rows of alternating sign on ferromagnetic bonds: every field is 0) -- a reducible
+    chain (Codex review, PR #44).
+    """
+    return (1.0 / (1.0 + np.exp(2.0 * beta * np.arange(-4, 5)))).astype(np.float32)
+
+
+def _heatbath_sweep_batch(
     s: np.ndarray,
     jx: np.ndarray,
     jy: np.ndarray,
     jx_left: np.ndarray,
     jy_up: np.ndarray,
-    accept_table: np.ndarray,
+    flip_table: np.ndarray,
     even: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """One checkerboard Metropolis sweep for a batch ``s`` of shape (B, L, L).
+    """One checkerboard heat-bath sweep for a batch ``s`` of shape (B, L, L).
 
     Axis 2 is x (``jx[i, j]`` couples (i, j)-(i, j+1)), axis 1 is y (``jy[i, j]``
     couples (i, j)-(i+1, j)) -- the :class:`rbim_nishimori.RBIMBonds` convention.
-    With the integer local field ``h`` a flip changes ``log pi`` by ``-2 beta s h``;
-    ``accept_table[s*h + 4] = min(1, exp(-2 beta s h))``. Sites of one colour have
-    no common bond, so updating a colour in parallel is exact.
+    With the integer local field ``h`` a site is flipped with probability
+    ``flip_table[s*h + 4]`` (:func:`_flip_table`). Sites of one colour have no common
+    bond, so each colour half-step draws EXACTLY from the conditional distribution of
+    that colour given the other (a two-block systematic-scan Gibbs sampler, Geman &
+    Geman 1984; Glauber 1963 single-site rates). Because every conditional has full
+    support at finite beta, one sweep reaches every configuration with positive
+    probability: the sweep kernel is irreducible and aperiodic with stationary
+    distribution pi_J. Trade-off: for two-state spins Metropolis dominates heat-bath
+    in the Peskun order (random scan, Peskun 1973), i.e. somewhat longer
+    autocorrelation times are accepted in exchange for a provably ergodic scan.
     """
     for mask in (even, ~even):
         h = (
@@ -156,7 +178,7 @@ def _metropolis_sweep_batch(
             + jy * np.roll(s, -1, axis=1)
             + jy_up * np.roll(s, 1, axis=1)
         )
-        prob = accept_table[(s * h).astype(np.intp) + 4]
+        prob = flip_table[(s * h).astype(np.intp) + 4]
         flip = mask & (rng.random(s.shape, dtype=np.float32) < prob)
         s = np.where(flip, -s, s).astype(np.int8)
     return s
@@ -204,7 +226,7 @@ def simulate_cell(
 ) -> CellSamples:
     """Simulate ``n_disorder`` realisations x 2 replicas at (p, beta_N(p), L).
 
-    ``burn_in`` and ``n_skip`` count Metropolis sweeps. ``start`` is ``"aligned"``
+    ``burn_in`` and ``n_skip`` count heat-bath sweeps. ``start`` is ``"aligned"``
     (planted-gauge start, production default) or ``"hot"`` (uniform random).
     """
     if not isinstance(L, (int, np.integer)) or L < 4 or L % 2:
@@ -224,7 +246,7 @@ def simulate_cell(
     beta = nishimori_beta(p)
     n = L * L
     t0 = time.perf_counter()
-    accept_table = np.minimum(1.0, np.exp(-2.0 * beta * np.arange(-4, 5))).astype(np.float32)
+    flip_table = _flip_table(beta)
     ii, jj = np.indices((L, L))
     even = ((ii + jj) % 2 == 0)[None, :, :]
     phase = np.exp(2j * np.pi * np.arange(L) / L)
@@ -249,15 +271,15 @@ def simulate_cell(
             s = np.ones((2 * R, L, L), dtype=np.int8)
         else:
             s = np.where(rng.random((2 * R, L, L)) < 0.5, np.int8(1), np.int8(-1))
-        args = (jx2, jy2, jx_left, jy_up, accept_table, even, rng)
+        args = (jx2, jy2, jx_left, jy_up, flip_table, even, rng)
 
         for _ in range(burn_in):
-            s = _metropolis_sweep_batch(s, *args)
+            s = _heatbath_sweep_batch(s, *args)
         acc = {k: np.zeros(R) for k in out}
         trace = np.empty(n_records)
         for t in range(n_records):
             for _ in range(n_skip):
-                s = _metropolis_sweep_batch(s, *args)
+                s = _heatbath_sweep_batch(s, *args)
             sf = s.astype(np.float64)
             m = sf.sum(axis=(1, 2)) / n
             m_sq = m * m
@@ -421,7 +443,8 @@ def equilibration_doubling(long: CellSamples, short: CellSamples) -> dict[str, f
     enough must agree with a fraction of itself. Measured limitation: at L>=16
     the difference between 4000 and 16000 sweeps (L=16) and between 10000 and
     40000 sweeps (L=24) was still systematic (U4 +0.02 per 4x), i.e. single-spin
-    Metropolis could not certify equilibrium there within this budget.
+    Metropolis (the kernel before the heat-bath switch) could not certify
+    equilibrium there within this budget.
     """
     if (long.p, long.L, long.n_disorder) != (short.p, short.L, short.n_disorder):
         raise ValueError("doubling needs the same (p, L, n_disorder) for both runs")
@@ -472,11 +495,19 @@ def crossing_point(
         raise ValueError("ps must be strictly increasing")
     if not np.all(np.isfinite(g)):
         return float("nan")
-    sign_change = np.nonzero(np.sign(g[:-1]) * np.sign(g[1:]) < 0)[0]
-    if sign_change.size == 0:
+    # Sign changes between consecutive NONZERO gaps: a crossing that lands exactly on a
+    # sampled point (g == 0, e.g. equal integer counts) sits between two nonzero gaps of
+    # opposite sign; a strict adjacent-sign test would miss it. A zero whose nonzero
+    # neighbours share a sign is a touch, not a crossing.
+    nz = np.flatnonzero(g != 0.0)
+    pairs = np.nonzero(np.sign(g[nz[:-1]]) * np.sign(g[nz[1:]]) < 0)[0]
+    if pairs.size == 0:
         return float("nan")
-    k = int(sign_change[0])
-    guess = x[k] - g[k] * (x[k + 1] - x[k]) / (g[k + 1] - g[k])
+    i, j = int(nz[pairs[0]]), int(nz[pairs[0] + 1])
+    if j == i + 1:
+        guess = x[i] - g[i] * (x[j] - x[i]) / (g[j] - g[i])
+    else:  # exact zero(s) at x[i+1..j-1]: centre of the zero run
+        guess = 0.5 * (x[i + 1] + x[j - 1])
     sel = np.sort(np.argsort(np.abs(x - guess))[: max(window, deg + 1)])
     xw, gw = x[sel], g[sel]
     xm = float(xw.mean())
@@ -824,7 +855,7 @@ def run_fss(
         "claim_tier": "FSS-supported simulation, small L (no correction-to-scaling control)",
         "model": "2D +/-J RBIM, periodic, Nishimori line beta = 0.5 ln((1-p)/p)",
         "sampler": (
-            "vectorised checkerboard Metropolis, aligned (planted-gauge) start, "
+            "vectorised checkerboard heat-bath, aligned (planted-gauge) start, "
             "2 independent thermal replicas per disorder realisation"
         ),
         "rng_policy": (

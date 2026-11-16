@@ -283,3 +283,57 @@ def test_run_fss_end_to_end_tiny() -> None:
     assert set(rep["crossings"]["u4"]) == {"4-6", "4-8", "6-8"}
     assert "drop_smallest_L" in rep["collapse"]["u4"]
     assert all(b >= a for a, b in pairwise(rep["parameters"]["ps"]))
+
+
+# --- Codex P2 (#44): crossings exactly on a grid point --------------------------------
+def test_crossing_on_a_sampled_grid_point_is_found() -> None:
+    ps = [0.12, 0.13, 0.14]
+    assert F.crossing_point(ps, [0.0, 0.0, 0.0], [-0.1, 0.0, 0.1]) == pytest.approx(0.13)
+    ps7 = [0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16]
+    gap = [-0.03, -0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    assert F.crossing_point(ps7, [0.5] * 7, [0.5 + g for g in gap]) == pytest.approx(0.13)
+
+
+def test_crossing_on_a_run_of_zeros_lies_inside_the_run() -> None:
+    ps = [0.10, 0.11, 0.12, 0.13, 0.14, 0.15]
+    r = F.crossing_point(ps, [0.0] * 6, [-0.2, -0.1, 0.0, 0.0, 0.1, 0.2])
+    assert 0.12 <= r <= 0.13
+
+
+def test_touching_zero_is_not_a_crossing() -> None:
+    ps = [0.12, 0.13, 0.14, 0.15]
+    assert math.isnan(F.crossing_point(ps, [0.0] * 4, [-0.1, 0.0, -0.1, -0.2]))
+
+
+# --- Codex P2 (#44): checkerboard kernel must escape zero-field cycles -----------------
+@pytest.mark.parametrize("beta", [nishimori_beta(0.11), 0.3, 2.0])
+def test_flip_table_detailed_balance_and_full_support(beta: float) -> None:
+    t = F._flip_table(beta).astype(np.float64)
+    x = np.arange(-4, 5)
+    assert np.all((t > 0.0) & (t < 1.0))  # every site may keep AND flip -> no forced moves
+    np.testing.assert_allclose(t / t[::-1], np.exp(-2.0 * beta * x), rtol=1e-5)
+
+
+def test_stripe_configuration_escapes_zero_field_cycle() -> None:
+    """All J=+1, rows of alternating uniform sign: every local field is 0. The old
+    Metropolis checkerboard flipped every site -> 2-cycle with m^2 = 0 forever."""
+    L, B, beta = 4, 64, nishimori_beta(0.11)
+    ones = np.ones((L, L), dtype=np.int8)
+    jx = np.broadcast_to(ones, (B, L, L)).copy()
+    jy = jx.copy()
+    rows = np.where(np.arange(L) % 2 == 0, 1, -1).astype(np.int8)
+    s = np.broadcast_to(rows[:, None], (B, L, L)).astype(np.int8).copy()
+    ii, jj = np.indices((L, L))
+    even = ((ii + jj) % 2 == 0)[None, :, :]
+    args = (jx, jy, np.roll(jx, 1, axis=2), np.roll(jy, 1, axis=1), F._flip_table(beta), even)
+    rng = np.random.default_rng(7)
+    for _ in range(200):
+        s = F._heatbath_sweep_batch(s, *args, rng)
+    m2 = []
+    for _ in range(400):
+        s = F._heatbath_sweep_batch(s, *args, rng)
+        m2.append(float(np.mean((s.astype(np.float64).sum(axis=(1, 2)) / (L * L)) ** 2)))
+    bonds = RBIMBonds(jx=ones, jy=ones, p=0.11, L=L, seed=0)
+    _, m2_exact = _exact_e_m2(bonds, beta)
+    assert m2_exact > 0.99
+    assert abs(np.mean(m2) - m2_exact) < 0.01, (np.mean(m2), m2_exact)
