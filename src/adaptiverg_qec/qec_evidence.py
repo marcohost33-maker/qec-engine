@@ -49,7 +49,7 @@ from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
 ALPHA_ORDER = 0.01  # 99%-Intervalle fuer die Ordnungs-Gates Q2/Q3.
 # Shots je Zelle der Ordnungs-Gates; bewusst NICHT mit --quick skaliert (Power, s. Q2).
-ORDER_GATE_SHOTS = {"Q2": 60_000, "Q3": 20_000}
+ORDER_GATE_SHOTS = {"Q2": 60_000, "Q3": 20_000, "Q8": 40_000}
 
 
 def _rows_hash(rows: list[dict]) -> str:
@@ -197,9 +197,11 @@ def build_evidence(*, quick: bool = False) -> dict:
         {"cells": _cell_summary(ab_nh)},
     )
 
+    # Q7-Q10 teilen diesen Circuit; voller Budget auch im Quick-Modus. Gemessen 2026-11-16
+    # (Windows, 40 fremde Seeds, nur d=5): Q8 besteht bei 10'000 Shots 26/40, bei 40'000 40/40.
     circuit = QECExperimentManifestV2(
         distances=(3, 5),
-        shots_per_cell=int(40_000 * scale),
+        shots_per_cell=ORDER_GATE_SHOTS["Q8"],
         base_seed=81,
         noise=_circuit_level(0.006),
     )

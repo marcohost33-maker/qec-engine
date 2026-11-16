@@ -212,6 +212,7 @@ def test_evidence_runner_quick_all_pass(tmp_path):
     by_id = {g["id"]: g for g in payload["gates"]}
     for gid in ("Q2", "Q3"):
         assert {r["shots"] for r in by_id[gid]["rows"]} == {qec_evidence.ORDER_GATE_SHOTS[gid]}
+    assert by_id["Q8"]["cell_d5"]["shots"] == qec_evidence.ORDER_GATE_SHOTS["Q8"]
 
 
 def _order_gate_power(p_hi: float, p_lo: float, n: int, alpha: float = 0.01) -> float:
