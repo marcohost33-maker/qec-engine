@@ -12,12 +12,14 @@ closed-form or exact oracle (for example the Onsager exponents, a transfer-matri
 or exact total-variation reference, scipy's exact binomial test); others are
 consistency checks, directional negative/positive controls or empirical
 comparisons. The Phase-5 run and the QEC manifest-v2 path replay bit-identically
-from a run manifest. It is not a frontier threshold tool and not release-ready. The
+from a run manifest on the same platform build (the Stim shots for a given seed differ
+between Windows and Linux on the same x86_64 CPU, measured 2026-11-16). It is not a frontier threshold tool and not release-ready. The
 documentation is in German; see [Schnellstart](#schnellstart) to run it.
 
 > **Status (Stand 2026-10-12):** Prototyp eines MCMC/MCRG-Verifikations-Harness für QEC-Schwellen —
 > teils gegen exakte Orakel geprüft, teils über Konsistenz-, Kontroll- und empirische Gates;
-> Phase-5- und Manifest-v2-Läufe bit-reproduzierbar; kein Frontier-Tool. Umgesetzt sind die Inkremente
+> Phase-5- und Manifest-v2-Läufe bit-reproduzierbar auf demselben Plattform-Build (Stim zieht
+> mit demselben Seed unter Windows andere Shots als unter Linux, gemessen 2026-11-16); kein Frontier-Tool. Umgesetzt sind die Inkremente
 > Phase 1 bis 7 und die QEC-Diagnostik (Inkrement 1 bis 3) in begrenzter, gate-geprüfter Form; der Selftest
 > umfasst 49 Gates. Offen sind u. a. MMD-Drift und Defensive Mixture (Tabelle unten).
 > Entwicklungsstand `0.5.0.dev0`, letztes Release `v0.4.0` (2026-06-19). **Schnellstart:** [unten](#schnellstart).
