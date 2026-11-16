@@ -61,6 +61,7 @@ __all__ = [
     "fss_bootstrap",
     "pairwise_crossings",
     "fss_systematics",
+    "no_drift_verdict",
     "drifted_repetition_dataset",
     "repetition_fss_dataset",
     "repetition_nu_oracle",
@@ -511,12 +512,16 @@ def fss_systematics(
         else:
             boot.append(v["p_th"])
 
+    # Ein Shift ohne CI (alle gepaarten Refits gescheitert) ist UNBESTIMMT, nicht "nicht
+    # signifikant" -- sonst bestuende ein Driftfrei-Gate, wenn das Werkzeug gar nichts misst.
+    undetermined = sorted(name for name, s in shifts.items() if s is not None and s["ci"] is None)
     out = {
         "primary_p_th": primary["p_th"],
         "variants": variants,
         "shifts": shifts,
         "max_abs_shift": max_shift,
         "any_significant_shift": any(s is not None and s["significant"] for s in shifts.values()),
+        "undetermined_shifts": undetermined,
         "case_resampling": {
             "ci": _percentile_ci(np.asarray(boot, dtype=float), a),
             "n_boot": n_boot,
@@ -535,6 +540,17 @@ def fss_systematics(
         out["stat_half_width"] = stat_hw
         out["combined_half_width"] = math.hypot(stat_hw, max_shift)
     return out
+
+
+def no_drift_verdict(systematics: dict) -> bool:
+    """Driftfrei NUR, wenn mindestens ein Shift bestimmt wurde, keiner unbestimmt ist und
+    keiner signifikant. Fail-closed gegen das stille "kein CI -> nicht signifikant"."""
+    determined = [s for s in systematics["shifts"].values() if s is not None]
+    return (
+        bool(determined)
+        and not systematics["undetermined_shifts"]
+        and not systematics["any_significant_shift"]
+    )
 
 
 def drifted_repetition_dataset(

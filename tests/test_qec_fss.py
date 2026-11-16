@@ -33,6 +33,35 @@ def test_jeffreys_equals_beta_quantiles(k, n):
     assert hi == pytest.approx(ref.ppf(0.975), abs=1e-14)
 
 
+_EDGE_KN = [(0, 1), (1, 1), (0, 10), (1, 10), (9, 10), (10, 10), (0, 50_000), (50_000, 50_000)]
+
+
+@pytest.mark.parametrize("alpha", [0.01, 0.05, 0.32])
+@pytest.mark.parametrize("k,n", _EDGE_KN + [(37, 50_000), (2500, 50_000)])
+def test_intervals_match_scipy_binomtest_and_beta_quantiles(k, n, alpha):
+    """Unabhaengiges Orakel: scipy.stats.binomtest (Wilson ohne Stetigkeitskorrektur,
+    'exact' = Clopper-Pearson) und Beta-Quantile fuer Jeffreys, inkl. k=0 / k=n / n=1."""
+    from adaptiverg_qec.qec_decoder_ab import clopper_pearson
+
+    ci = stats.binomtest(k, n).proportion_ci(confidence_level=1 - alpha, method="wilson")
+    w = f.wilson_interval(k, n, alpha)
+    assert w[0] == pytest.approx(ci.low, abs=1e-12)
+    assert w[1] == pytest.approx(ci.high, abs=1e-12)
+
+    ex = stats.binomtest(k, n).proportion_ci(confidence_level=1 - alpha, method="exact")
+    cp = clopper_pearson(k, n, alpha)
+    assert cp[0] == pytest.approx(ex.low, abs=1e-12)
+    assert cp[1] == pytest.approx(ex.high, abs=1e-12)
+
+    j = f.jeffreys_interval(k, n, alpha)
+    beta = stats.beta(k + 0.5, n - k + 0.5)
+    assert j[0] == (0.0 if k == 0 else pytest.approx(beta.ppf(alpha / 2), abs=1e-14))
+    assert j[1] == (1.0 if k == n else pytest.approx(beta.ppf(1 - alpha / 2), abs=1e-14))
+    # Ordnung + Einschluss der Punktschaetzung bei allen drei gueltigen Intervallen.
+    for lo, hi in (w, cp, j):
+        assert 0.0 <= lo <= k / n <= hi <= 1.0
+
+
 def test_boundary_conventions_and_wald_degeneracy():
     assert f.jeffreys_interval(0, 100)[0] == 0.0
     assert f.jeffreys_interval(100, 100)[1] == 1.0
@@ -175,6 +204,30 @@ def test_systematics_two_sided():
     )
     assert drift["shifts"]["drop_smallest_d"]["significant"]
     assert drift["shifts"]["drop_smallest_d"]["delta"] > 0  # Richtung: ohne d_min hoeher
+
+
+def test_no_drift_verdict_fails_closed_when_every_paired_refit_fails(monkeypatch):
+    cells = f.repetition_fss_dataset(DS, PG, 50_000, 11)
+    clean = f.fss_systematics(cells, n_boot=50, seed=6)
+    assert clean["undetermined_shifts"] == [] and f.no_drift_verdict(clean)  # Positivkontrolle
+
+    real = f._fit_core
+
+    def broken(d, p, y, w, starts, bounds):  # Bootstrap-Refits (ein Warmstart) scheitern
+        return None if len(starts) == 1 else real(d, p, y, w, starts, bounds)
+
+    monkeypatch.setattr(f, "_fit_core", broken)
+    blind = f.fss_systematics(cells, n_boot=50, seed=6)
+    assert not blind["any_significant_shift"]  # genau die alte, blinde Lesart
+    assert blind["undetermined_shifts"] == sorted(blind["shifts"])
+    assert not f.no_drift_verdict(blind)
+
+
+def test_no_drift_verdict_requires_at_least_one_shift():
+    out = f.fss_systematics(
+        f.repetition_fss_dataset((9, 15), (0.47, 0.5, 0.53), 10_000, 1), n_boot=50, seed=1
+    )
+    assert out["shifts"] == {} and not f.no_drift_verdict(out)
 
 
 def test_systematics_combined_width_is_conservative():

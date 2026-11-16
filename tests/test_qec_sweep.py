@@ -127,6 +127,82 @@ def test_verify_result_refits_stored_point_estimate():
     assert any("refit" in m for m in qs.verify_result(nudged))
 
 
+def _smooth_fss_result() -> dict:
+    import numpy as np
+
+    from adaptiverg_qec.qec_fss import Cell, fss_fit
+
+    plan = qs.SweepPlan()
+    good = _fake_result(plan)
+    rng = np.random.Generator(np.random.Philox(3))
+    for r in good["rows"]:
+        x = (r["p"] - 0.029) * r["d"] ** (1 / 1.2)
+        r["k"] = int(rng.binomial(r["n"], 0.1 + 0.5 * x))
+    good["fss"] = {"point": fss_fit([Cell(r["d"], r["p"], r["k"], r["n"]) for r in good["rows"]])}
+    return good
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("p_th", float("nan")),
+        ("p_th", float("inf")),
+        ("p_th", None),
+        ("p_th", "0.029"),
+        ("p_th", True),
+        ("nu", float("nan")),
+    ],
+)
+def test_verify_result_non_finite_or_foreign_estimate_fails_closed(key, value):
+    # Frueher: `abs(refit - nan) > tol` ist False -> ein p_th=NaN bestand still.
+    good = _smooth_fss_result()
+    assert qs.verify_result(good) == []  # Positivkontrolle: dieselbe Datei ohne Eingriff
+    bad = json.loads(json.dumps(good))
+    bad["fss"]["point"][key] = value
+    assert any("refit" in m and key in m for m in qs.verify_result(bad))
+
+
+@pytest.mark.parametrize("drop", ["p_th", "nu"])
+def test_verify_result_missing_estimate_key_fails_closed(drop):
+    good = _smooth_fss_result()
+    bad = json.loads(json.dumps(good))
+    del bad["fss"]["point"][drop]
+    assert any("refit" in m and drop in m for m in qs.verify_result(bad))
+
+
+def test_verify_result_fss_block_without_point_fails_closed():
+    good = _smooth_fss_result()
+    bad = json.loads(json.dumps(good))
+    del bad["fss"]["point"]
+    assert any("point estimate is missing" in m for m in qs.verify_result(bad))
+    # Kein fss-Block = keine FSS-Behauptung: nur Zellen werden geprueft (unveraendert).
+    del bad["fss"]
+    assert qs.verify_result(bad) == []
+
+
+@pytest.mark.parametrize("rows", [None, "x", [{"d": 5, "p": 0.024}], [42], {"d": 5}])
+def test_verify_result_malformed_rows_fail_closed_without_crash(rows):
+    bad = _fake_result(qs.SweepPlan())
+    bad["rows"] = rows
+    problems = qs.verify_result(bad)
+    assert any("rows malformed" in m for m in problems)
+
+
+def test_verify_result_rejects_non_object():
+    assert qs.verify_result([]) == ["result is not a JSON object"]
+
+
+def test_committed_sweep_artifact_passes_hardened_verify():
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "results" / "qec-sweep-fss.json"
+    sweep = json.loads(path.read_text(encoding="utf-8"))["sweep"]
+    assert qs.verify_result(sweep) == []
+    nan = json.loads(json.dumps(sweep))
+    nan["fss"]["point"]["p_th"] = float("nan")
+    assert qs.verify_result(nan) != []
+
+
 def test_analysis_streams_are_domain_separated():
     plan = qs.SweepPlan()
     cell_seeds = {plan.cell_seed(d, p) for d in plan.distances for p in plan.p_grid}

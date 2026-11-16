@@ -66,6 +66,7 @@ from .qec_fss import (
     fss_systematics,
     intervals,
     jeffreys_interval,
+    no_drift_verdict,
     repetition_fss_dataset,
     repetition_nu_oracle,
     wald_interval,
@@ -357,17 +358,26 @@ def verify_result(result: dict) -> list[str]:
 
     Leere Liste = konsistent. Fehler: Plan nicht rekonstruierbar, Fingerprint passt nicht,
     Zellmenge != registriertes Gitter, Shot-Zahl abweichend, Seed nicht der Plan-Seed,
-    k ausserhalb [0, n], gespeicherte FSS-Punktschaetzung passt nicht zu den Zeilen.
+    k ausserhalb [0, n], Zeilen ohne Pflichtfelder, gespeicherte FSS-Punktschaetzung fehlt,
+    ist nicht endlich oder passt nicht zu einem Refit der Zeilen.
     """
     problems: list[str] = []
+    if not isinstance(result, dict):
+        return ["result is not a JSON object"]
     try:
         plan = SweepPlan.from_dict(result["plan"])
     except (KeyError, TypeError, ValueError) as exc:
         return [f"plan not reconstructible: {exc}"]
     if plan.fingerprint() != result.get("plan_fingerprint"):
         problems.append("plan fingerprint mismatch (plan edited after registration?)")
+    rows = result.get("rows", [])
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) and r.keys() >= _ROW_KEYS for r in rows
+    ):
+        # Fail-closed statt KeyError: eine Zeile ohne d/p/seed/k/n ist nicht pruefbar.
+        return [*problems, f"rows malformed: every row needs the keys {sorted(_ROW_KEYS)}"]
     want = {(d, p) for d in plan.distances for p in plan.p_grid}
-    got = [(r["d"], r["p"]) for r in result.get("rows", [])]
+    got = [(r["d"], r["p"]) for r in rows]
     if len(got) != len(set(got)):
         problems.append("duplicate cells")
     if set(got) != want:
@@ -375,7 +385,7 @@ def verify_result(result: dict) -> list[str]:
             f"cells differ from registered grid: missing={sorted(want - set(got))}, "
             f"extra={sorted(set(got) - want)}"
         )
-    for r in result.get("rows", []):
+    for r in rows:
         if (r["d"], r["p"]) not in want:
             continue
         if r["n"] != plan.shots_per_cell:
@@ -385,16 +395,34 @@ def verify_result(result: dict) -> list[str]:
         k = r.get("k")
         if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= r["n"]:
             problems.append(f"cell {(r['d'], r['p'])}: k={k!r} outside [0, n]")
-    point = (result.get("fss") or {}).get("point")
-    if point is not None and not problems:
+    fss = result.get("fss")
+    if fss is not None and not problems:
         # Die Punktschaetzung ist deterministisch aus den Zeilen; ein editiertes k oder
         # eine geschoenter p_th faellt hier auf (der Bootstrap wird nicht neu gerechnet).
-        refit = fss_fit([Cell(r["d"], r["p"], r["k"], r["n"]) for r in result["rows"]])
-        if abs(refit["p_th"] - point.get("p_th", float("nan"))) > 1e-9 or not (
-            abs(refit["nu"] - point.get("nu", float("nan"))) <= 1e-6
-        ):
-            problems.append("stored FSS point estimate does not match a refit of the rows")
+        # Fail-closed: eine FEHLENDE oder nicht-endliche Schaetzung ist ein Befund, kein
+        # Freipass -- frueher liess `abs(x - nan) > tol` (False) ein p_th=NaN durch.
+        point = fss.get("point") if isinstance(fss, dict) else None
+        if not isinstance(point, dict):
+            problems.append("fss block present but its point estimate is missing")
+        else:
+            refit = fss_fit([Cell(r["d"], r["p"], r["k"], r["n"]) for r in rows])
+            for key, tol in (("p_th", 1e-9), ("nu", 1e-6)):
+                if not _matches(point.get(key), refit[key], tol):
+                    problems.append(
+                        f"stored FSS point estimate {key}={point.get(key)!r} does not match "
+                        f"a refit of the rows ({refit[key]!r})"
+                    )
     return problems
+
+
+_ROW_KEYS = frozenset({"d", "p", "seed", "k", "n"})
+
+
+def _matches(stored, expected: float, tol: float) -> bool:
+    """True nur fuer eine ENDLICHE reelle Zahl innerhalb tol -- NaN/None/str/bool fallen."""
+    if isinstance(stored, bool) or not isinstance(stored, (int, float)):
+        return False
+    return math.isfinite(stored) and abs(float(stored) - expected) <= tol
 
 
 # =============================================================================
@@ -539,7 +567,7 @@ def build_evidence(*, quick: bool = False, replicates: int = 100) -> dict:
     gate(
         "F6",
         "systematics on the drift-free oracle: no distance/window shift significant",
-        not sys_or["any_significant_shift"],
+        no_drift_verdict(sys_or),
         {"systematics": sys_or},
     )
     # drop_smallest_d ist der Standard-Diagnostiker; drop_largest_d hat weniger Hebel
