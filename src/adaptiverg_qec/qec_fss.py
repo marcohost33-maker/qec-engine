@@ -236,7 +236,33 @@ def _project(d, p, y, w, theta):
     return (y - X @ coef) * w, coef
 
 
+def _x_scale(bounds) -> np.ndarray:
+    return np.array([max(bounds[1][0] - bounds[0][0], 1e-12) / 10.0, 0.5])
+
+
+# Identifizierbarkeit von (p_th, nu): kleinster Singulaerwert der mit der Parameterskala
+# spaltenskalierten Jacobi-Matrix der projizierten Residuen. Bezugsgroesse ist ||y*w|| (die
+# OPERANDEN der Residuen): der Vorwaertsdifferenzen-Fehler der Jacobi-Spalten liegt bei
+# ~sqrt(eps)*||y*w||*Skala (gemessen: konstante Daten 3e-9 relativ), echte Information bei
+# >= 3e-3 relativ (Repetition-Daten, Negativkontrolle). 1e-6 liegt dazwischen.
+_IDENT_RTOL = 1e-6
+
+
+def _identifiable(res, y, w, bounds) -> bool:
+    """True nur, wenn (p_th, nu) lokal identifiziert sind. Fail-closed: NaN, alles-null
+    (s_min = 0 = ||y w||) und Rangverlust ergeben False, weil der Annahme-Zweig an ``>``
+    haengt."""
+    js = np.asarray(res.jac, dtype=float) * _x_scale(bounds)
+    if not np.all(np.isfinite(js)):  # SVD wirft bei NaN/inf; nicht-endlich = nicht identifiziert
+        return False
+    s = np.linalg.svd(js, compute_uv=False)
+    ref = float(np.linalg.norm(y * w))
+    return bool(s.size == 2 and s[-1] > _IDENT_RTOL * ref)
+
+
 def _fit_core(d, p, y, w, starts, bounds):
+    """Bester KONVERGIERTER Start (``success``); nicht konvergierte Laeufe (z.B. Budget
+    erschoepft, status 0) zaehlen wie ein gescheiterter Start. None, wenn keiner konvergiert."""
     best = None
     for s in starts:
         try:
@@ -245,13 +271,24 @@ def _fit_core(d, p, y, w, starts, bounds):
                 x0=np.asarray(s, dtype=float),
                 bounds=bounds,
                 method="trf",
-                x_scale=[max(bounds[1][0] - bounds[0][0], 1e-12) / 10.0, 0.5],
+                x_scale=_x_scale(bounds),
             )
         except (ValueError, np.linalg.LinAlgError):  # pragma: no cover - numerisch
+            continue
+        if not res.success:
             continue
         if best is None or res.cost < best.cost:
             best = res
     return best
+
+
+def _refit(d, p, y, w, starts, bounds):
+    """Bootstrap-/Varianten-Refit: nur ein konvergierter UND identifizierter Fit gilt als
+    Erfolg, sonst None (-> NaN, zaehlt in ``fit_success_fraction`` als Fehlschlag)."""
+    res = _fit_core(d, p, y, w, starts, bounds)
+    if res is None or not _identifiable(res, y, w, bounds):
+        return None
+    return res
 
 
 def _bounds_and_starts(p: np.ndarray):
@@ -276,7 +313,13 @@ def fss_fit(cells: Sequence[Cell], *, starts=None) -> dict:
     resid, coef = _project(d, p, y, w, res.x)
     chi2 = float(np.sum(resid**2))
     dof = len(y) - 5
-    p_th, nu = float(res.x[0]), float(res.x[1])
+    identifiable = _identifiable(res, y, w, bounds)
+    if identifiable:
+        p_th, nu = float(res.x[0]), float(res.x[1])
+    else:
+        # Keine Information ueber (p_th, nu) (z.B. alle k=0): kein Schaetzwert, NaN laesst
+        # p_th_in_window und jedes nachgelagerte Gate fail-closed fallen.
+        p_th, nu = float("nan"), float("nan")
     at_bound = bool(
         np.isclose(p_th, bounds[0][0])
         or np.isclose(p_th, bounds[1][0])
@@ -295,6 +338,7 @@ def fss_fit(cells: Sequence[Cell], *, starts=None) -> dict:
         "chi2_p_value": float(stats.chi2.sf(chi2, dof)),
         "p_th_in_window": bool(p.min() < p_th < p.max()),
         "at_parameter_bound": at_bound,
+        "identifiable": identifiable,
         "model": "p_L = A + B x + C x^2, x = (p - p_th) d^(1/nu)  [Wang/Harrington/Preskill 2003]",
         "weights": "1/sigma, sigma^2 = p~(1-p~)/n, p~ = (k+1/2)/(n+1)",
     }
@@ -356,7 +400,8 @@ def fss_bootstrap(
         kb = rng.binomial(n.astype(np.int64), ph).astype(float)
         yb = kb / n
         wb = 1.0 / _sigma(kb, n)
-        res = _fit_core(d, p, yb, wb, warm, bounds)
+        # Unidentifizierter Punktfit: kein Warmstart, jeder Refit zaehlt als gescheitert.
+        res = _refit(d, p, yb, wb, warm, bounds) if point["identifiable"] else None
         if res is not None:
             p_th_s[b], nu_s[b] = res.x
         cb = pairwise_crossings(
@@ -407,7 +452,7 @@ _VARIANT_KEYS = (
 def _variant_fit(cells: Sequence[Cell]) -> dict | None:
     try:
         fit = fss_fit(cells)
-    except ValueError:
+    except (ValueError, RuntimeError):  # RuntimeError: kein Start konvergiert
         return None
     return {k: fit[k] for k in _VARIANT_KEYS}
 
@@ -475,15 +520,15 @@ def fss_systematics(
     for b in range(n_boot):
         kb = rng.binomial(n.astype(np.int64), ph).astype(float)
         yb, wb = kb / n, 1.0 / _sigma(kb, n)
-        res0 = _fit_core(d, p, yb, wb, warm_p, bounds)
-        if res0 is None:  # pragma: no cover - numerisch
+        res0 = _refit(d, p, yb, wb, warm_p, bounds) if primary["identifiable"] else None
+        if res0 is None:
             continue
         for name, mask in sel.items():
             v = variants[name]
-            if v is None:
+            if v is None or not (math.isfinite(v["p_th"]) and math.isfinite(v["nu"])):
                 continue
             bnd_v, _ = _bounds_and_starts(p[mask])
-            res = _fit_core(d[mask], p[mask], yb[mask], wb[mask], [(v["p_th"], v["nu"])], bnd_v)
+            res = _refit(d[mask], p[mask], yb[mask], wb[mask], [(v["p_th"], v["nu"])], bnd_v)
             if res is not None:
                 deltas[name][b] = res.x[0] - res0.x[0]
 
@@ -507,7 +552,7 @@ def fss_systematics(
     for _ in range(n_boot):
         idx = case_rng.integers(0, len(cells), size=len(cells))
         v = _variant_fit([cells[i] for i in idx])
-        if v is None:
+        if v is None or not math.isfinite(v["p_th"]):  # unidentifiziert = entartet
             n_fail += 1
         else:
             boot.append(v["p_th"])

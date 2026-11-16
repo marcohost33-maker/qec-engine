@@ -254,3 +254,74 @@ def test_drifted_dataset_moves_crossings_with_distance():
     ]
     cross = f.pairwise_crossings(exact)[0]["crossing"]
     assert cross is not None and cross < 0.5  # Drift ist real, nicht nur Rauschen
+
+
+# --- Codex-P2 (#67): Identifizierbarkeit + Konvergenz -------------------------------
+
+
+def _all_zero_cells():
+    return [f.Cell(d, p, 0, 1000) for d in (3, 5, 7) for p in (0.01, 0.02, 0.03)]
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        _all_zero_cells(),
+        [f.Cell(d, p, 100, 1000) for d in (3, 5, 7) for p in (0.01, 0.02, 0.03)],  # konstant
+        list(reversed(_all_zero_cells())),  # Permutation: gleiches Urteil
+    ],
+    ids=["all_zero", "constant_rate", "all_zero_permuted"],
+)
+def test_unidentifiable_fit_reports_no_threshold(cells):
+    fit = f.fss_fit(cells)
+    assert fit["identifiable"] is False
+    assert math.isnan(fit["p_th"]) and math.isnan(fit["nu"])
+    assert not fit["p_th_in_window"]
+    boot = f.fss_bootstrap(cells, n_boot=50, seed=1)
+    assert boot["p_th_ci"] is None and boot["nu_ci"] is None
+    assert boot["fit_success_fraction"] == 0.0
+
+
+def test_identifiable_fit_positive_control_survives_permutation():
+    cells = f.repetition_fss_dataset(DS, PG, 50_000, 11)
+    a, b = f.fss_fit(cells), f.fss_fit(list(reversed(cells)))
+    assert a["identifiable"] and b["identifiable"]
+    assert a["p_th"] == pytest.approx(b["p_th"], abs=1e-9)
+
+
+def test_identifiability_gate_is_nan_fail_closed():
+    class R:
+        jac = np.array([[np.nan, 1.0], [1.0, 1.0], [0.0, 2.0]])
+
+    y, w = np.array([0.1, 0.2, 0.3]), np.ones(3)
+    assert f._identifiable(R(), y, w, ([0.0, 0.2], [1.0, 10.0])) is False
+
+
+def _starved_least_squares(real):
+    def starved(*args, **kwargs):  # Budget erschoepft: finite x, success=False (status 0)
+        kwargs["max_nfev"] = 1
+        return real(*args, **kwargs)
+
+    return starved
+
+
+def test_non_converged_refits_are_counted_as_failures(monkeypatch):
+    cells = f.repetition_fss_dataset(DS, PG, 50_000, 11)
+    point = f.fss_fit(cells)
+    monkeypatch.setattr(f, "fss_fit", lambda _cells: point)
+    monkeypatch.setattr(
+        f.optimize, "least_squares", _starved_least_squares(f.optimize.least_squares)
+    )
+    out = f.fss_bootstrap(cells, n_boot=50, seed=3)
+    assert out["fit_success_fraction"] == 0.0
+    assert out["p_th_ci"] is None
+
+
+def test_fit_core_rejects_unsuccessful_optimizer_result(monkeypatch):
+    cells = f.repetition_fss_dataset(DS, PG, 50_000, 11)
+    d, p, k, n = f._arrays(cells)
+    bounds, _ = f._bounds_and_starts(p)
+    monkeypatch.setattr(
+        f.optimize, "least_squares", _starved_least_squares(f.optimize.least_squares)
+    )
+    assert f._fit_core(d, p, k / n, 1.0 / f._sigma(k, n), [(0.47, 1.5)], bounds) is None
