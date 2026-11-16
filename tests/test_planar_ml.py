@@ -163,3 +163,39 @@ def test_simulation_reproducible_and_cell_seeded() -> None:
     c = M.simulate_decoders(3, 0.1, shots=500, base_seed=4, with_mwpm=False)
     assert a.ml_fail == b.ml_fail
     assert a.ml_fail != c.ml_fail  # different cell seed -> different samples
+
+
+# --- Codex P2 (#44): paired_z must not turn "no difference" into +inf ----------------
+
+
+@requires_mwpm
+def test_paired_z_is_zero_when_decoders_agree_on_a_real_cell() -> None:
+    c = M.simulate_decoders(3, 1e-4, shots=50, base_seed=1, with_mwpm=True)
+    assert c.ml_fail == 0 and c.mwpm_fail == 0  # low noise: no discordant shot
+    diff, se, z = M._paired_difference(c.ml_fail, c.mwpm_fail, c.both_fail, c.shots)
+    assert (diff, se, z) == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "ml,mw,both,n,expect",
+    [
+        (0, 0, 0, 100, 0.0),  # no discordance: no evidence either way
+        (3, 3, 3, 100, 0.0),  # both always fail together
+        (0, 1, 0, 1, "nan"),  # one shot: se undefined -> no claim
+        (0, 0, 0, 1, "nan"),
+        (0, 10, 0, 10, math.inf),  # every shot discordant, MWPM worse: deterministic
+        (10, 0, 0, 10, -math.inf),  # ... ML worse: sign kept
+    ],
+)
+def test_paired_z_cases(ml, mw, both, n, expect) -> None:
+    _, _, z = M._paired_difference(ml, mw, both, n)
+    if expect == "nan":
+        assert math.isnan(z)
+    else:
+        assert z == expect
+
+
+def test_paired_z_positive_control_finite_significance() -> None:
+    diff, se, z = M._paired_difference(10, 30, 5, 1000)
+    assert diff == pytest.approx(0.02) and se > 0.0
+    assert z == pytest.approx(diff / se) and 0.0 < z < math.inf

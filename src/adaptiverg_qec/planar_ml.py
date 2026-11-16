@@ -316,6 +316,35 @@ def _jeffreys_se(k: float, n: int) -> float:
     return math.sqrt(pt * (1.0 - pt) / n)
 
 
+def _paired_difference(
+    ml_fail: float, mwpm_fail: float, both_fail: float, n: int
+) -> tuple[float, float, float]:
+    """Paired MWPM - ML difference per sample, its standard error and z = diff/se.
+
+    Per-sample values lie in {-1, -1/2, 0, 1/2, 1}; the variance is bounded by the
+    discordant fraction, which is used as the bound. ``z`` distinguishes three cases
+    instead of mapping every ``se <= 0`` to ``+inf`` (Codex review, PR #44):
+
+    * ``se`` undefined (one shot, NaN/inf input): ``z = nan`` -- no claim;
+    * no observed difference (``diff == 0``, e.g. no discordant shot): ``z = 0`` --
+      the exact sign/McNemar test has p = 1 here, there is no evidence either way;
+    * ``se == 0`` with ``diff != 0`` (every shot discordant in one direction): the
+      sign of ``diff`` times ``inf``.
+    """
+    discord = (ml_fail - both_fail) + (mwpm_fail - both_fail)
+    diff = (mwpm_fail - ml_fail) / n
+    se = math.sqrt(max(discord / n - diff**2, 0.0) / n) if n > 1 else float("nan")
+    if not (math.isfinite(se) and math.isfinite(diff)):
+        z = float("nan")
+    elif se > 0.0:
+        z = diff / se
+    elif diff == 0.0:
+        z = 0.0
+    else:
+        z = math.copysign(float("inf"), diff)
+    return diff, se, z
+
+
 def _crossings_from_rates(
     ds: list[int], ps: list[float], rate: dict[tuple[int, float], float]
 ) -> dict[str, float]:
@@ -453,11 +482,7 @@ def run_threshold(
             "wall_seconds": c.wall_seconds,
         }
         if with_mwpm:
-            # Paired difference MWPM - ML per sample: values in {-1, -1/2, 0, 1/2, 1}.
-            # Its variance is bounded by the discordant fraction; use that bound.
-            discord = (c.ml_fail - c.both_fail) + (c.mwpm_fail - c.both_fail)
-            diff = (c.mwpm_fail - c.ml_fail) / n
-            se = math.sqrt(max(discord / n - diff**2, 0.0) / n) if n > 1 else float("nan")
+            diff, se, z = _paired_difference(c.ml_fail, c.mwpm_fail, c.both_fail, n)
             row.update(
                 {
                     "mwpm_fail": c.mwpm_fail,
@@ -465,7 +490,7 @@ def run_threshold(
                     "mwpm_se": _jeffreys_se(c.mwpm_fail, n),
                     "paired_mwpm_minus_ml": diff,
                     "paired_se": se,
-                    "paired_z": diff / se if se > 0 else float("inf"),
+                    "paired_z": z,
                 }
             )
         rows.append(row)
