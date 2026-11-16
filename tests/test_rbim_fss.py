@@ -301,8 +301,10 @@ def test_crossing_on_a_run_of_zeros_lies_inside_the_run() -> None:
 
 
 def test_touching_zero_is_not_a_crossing() -> None:
-    ps = [0.12, 0.13, 0.14, 0.15]
-    assert math.isnan(F.crossing_point(ps, [0.0] * 4, [-0.1, 0.0, -0.1, -0.2]))
+    # Chosen so that a local quadratic around the zero DOES have in-window roots: only
+    # the sign logic (both neighbours negative -> touch) keeps this nan.
+    ps = [0.12, 0.13, 0.14, 0.15, 0.16]
+    assert math.isnan(F.crossing_point(ps, [0.0] * 5, [-0.2, 0.0, -0.01, -0.02, -0.3]))
 
 
 # --- Codex P2 (#44): checkerboard kernel must escape zero-field cycles -----------------
