@@ -148,9 +148,10 @@ def _smooth_fss_result() -> dict:
         ("p_th", float("nan")),
         ("p_th", float("inf")),
         ("p_th", None),
-        ("p_th", "0.029"),
+        ("p_th", "AS_STRING"),  # exakt der richtige Wert, aber als Text
         ("p_th", True),
         ("nu", float("nan")),
+        ("nu", "AS_STRING"),
     ],
 )
 def test_verify_result_non_finite_or_foreign_estimate_fails_closed(key, value):
@@ -158,6 +159,8 @@ def test_verify_result_non_finite_or_foreign_estimate_fails_closed(key, value):
     good = _smooth_fss_result()
     assert qs.verify_result(good) == []  # Positivkontrolle: dieselbe Datei ohne Eingriff
     bad = json.loads(json.dumps(good))
+    if value == "AS_STRING":  # staerkster Faelscher: ein float()-Coercer liesse ihn durch
+        value = repr(good["fss"]["point"][key])
     bad["fss"]["point"][key] = value
     assert any("refit" in m and key in m for m in qs.verify_result(bad))
 
