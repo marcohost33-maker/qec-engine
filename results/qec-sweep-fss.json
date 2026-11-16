@@ -1,0 +1,1347 @@
+{
+  "tool": "adaptiverg_qec.qec_sweep.build_evidence",
+  "surface": "RUN",
+  "quick": false,
+  "gates": [
+    {
+      "id": "F1",
+      "name": "Wilson == score-test roots, Jeffreys == Beta(k+1/2, n-k+1/2) quantiles",
+      "status": "PASS",
+      "max_abs_diff": 6.661338147750939e-16
+    },
+    {
+      "id": "F2",
+      "name": "exact coverage, n=20000, p in [2e-5,2e-3]: Wilson/Jeffreys ~0.95, CP >= 0.95; Wald collapses (k=0 -> width 0)",
+      "status": "PASS",
+      "mean_coverage": {
+        "wilson": 0.9513112238325121,
+        "jeffreys": 0.955670111628947,
+        "clopper_pearson": 0.9744181621950707,
+        "wald": 0.7980406587490214
+      },
+      "min_coverage": {
+        "wilson": 0.9144283186226181,
+        "jeffreys": 0.9129916542654916,
+        "clopper_pearson": 0.9527965623082194,
+        "wald": 0.3296214176849613
+      },
+      "n": 20000,
+      "p_grid": [
+        2e-05,
+        2.4230553172571755e-05,
+        2.9355985352441414e-05,
+        3.556558820077846e-05,
+        4.308869380063765e-05,
+        5.220314431365078e-05,
+        6.324555320336759e-05,
+        7.662373699114571e-05,
+        9.283177667225565e-05,
+        0.00011246826503806983,
+        0.0001362584138115922,
+        0.00016508083705360366,
+        0.00020000000000000004,
+        0.00024230553172571755,
+        0.00029355985352441384,
+        0.0003556558820077846,
+        0.0004308869380063765,
+        0.0005220314431365073,
+        0.000632455532033676,
+        0.0007662373699114571,
+        0.0009283177667225556,
+        0.0011246826503806984,
+        0.0013625841381159217,
+        0.0016508083705360365,
+        0.002
+      ]
+    },
+    {
+      "id": "F3",
+      "name": "repetition oracle: 95% CI covers exact p_th=1/2 and exact effective nu; chi2 p > 0.01",
+      "status": "PASS",
+      "fss": {
+        "point": {
+          "p_th": 0.4993282215946455,
+          "nu": 2.1218498652656246,
+          "A": 0.4978037833303995,
+          "B": 0.8717701177938577,
+          "C": -0.07696644769125652,
+          "chi2": 23.76450331450848,
+          "dof": 23,
+          "chi2_per_dof": 1.033239274543847,
+          "chi2_p_value": 0.41694327293232086,
+          "p_th_in_window": true,
+          "at_parameter_bound": false,
+          "model": "p_L = A + B x + C x^2, x = (p - p_th) d^(1/nu)  [Wang/Harrington/Preskill 2003]",
+          "weights": "1/sigma, sigma^2 = p~(1-p~)/n, p~ = (k+1/2)/(n+1)"
+        },
+        "p_th_ci": [
+          0.49796542675127453,
+          0.5006771423270621
+        ],
+        "nu_ci": [
+          1.9852096047868935,
+          2.2647635298195077
+        ],
+        "p_th_boot_sd": 0.0007440716460957427,
+        "fit_success_fraction": 1.0,
+        "p_th_in_window_fraction": 1.0,
+        "crossings": [
+          {
+            "d_pair": [
+              9,
+              15
+            ],
+            "crossing": 0.503582295988935,
+            "ci": [
+              0.48747249829913053,
+              0.5065670362829395
+            ],
+            "found_fraction": 1.0
+          },
+          {
+            "d_pair": [
+              15,
+              21
+            ],
+            "crossing": 0.49577528089887635,
+            "ci": [
+              0.48926634138785624,
+              0.5032810555925855
+            ],
+            "found_fraction": 1.0
+          },
+          {
+            "d_pair": [
+              21,
+              27
+            ],
+            "crossing": 0.5049142857142858,
+            "ci": [
+              0.49366797548362384,
+              0.5139847956921129
+            ],
+            "found_fraction": 1.0
+          }
+        ],
+        "n_boot": 400,
+        "seed": 11,
+        "alpha": 0.05,
+        "method": "parametric bootstrap over independent cells, k* ~ Binomial(n, k/n); percentile CIs; refit warm-started at the point estimate"
+      },
+      "nu_oracle": {
+        "nu_effective": 2.070274877909322,
+        "nu_asymptotic": 2.0,
+        "slopes_at_half": [
+          2.4609375000000013,
+          3.1420898437500053,
+          3.7001380920410116,
+          4.184487462043781
+        ]
+      },
+      "distances": [
+        9,
+        15,
+        21,
+        27
+      ],
+      "p_grid": [
+        0.47,
+        0.48,
+        0.49,
+        0.5,
+        0.51,
+        0.52,
+        0.53
+      ]
+    },
+    {
+      "id": "F4",
+      "name": "bootstrap CI coverage over 100 replicates >= 0.95 - 3 SD (p_th and nu)",
+      "status": "PASS",
+      "replicates": 100,
+      "coverage_p_th": 0.97,
+      "coverage_nu": 0.93,
+      "tolerance": 0.0653834841531101
+    },
+    {
+      "id": "F5",
+      "name": "negative control (curves ordered everywhere): no crossing, fit flagged",
+      "status": "PASS",
+      "point": {
+        "p_th": 0.07000000000000002,
+        "nu": 1.741840719957738,
+        "A": 0.08658621295129479,
+        "B": 0.5551978641391089,
+        "C": -0.3152000977776507,
+        "chi2": 13.878381165249982,
+        "dof": 7,
+        "chi2_per_dof": 1.9826258807499975,
+        "chi2_p_value": 0.053387228081564556,
+        "p_th_in_window": false,
+        "at_parameter_bound": true,
+        "model": "p_L = A + B x + C x^2, x = (p - p_th) d^(1/nu)  [Wang/Harrington/Preskill 2003]",
+        "weights": "1/sigma, sigma^2 = p~(1-p~)/n, p~ = (k+1/2)/(n+1)"
+      },
+      "crossings": [
+        {
+          "d_pair": [
+            5,
+            7
+          ],
+          "crossing": null,
+          "ci": null,
+          "found_fraction": 0.0
+        },
+        {
+          "d_pair": [
+            7,
+            9
+          ],
+          "crossing": null,
+          "ci": null,
+          "found_fraction": 0.0
+        }
+      ]
+    },
+    {
+      "id": "F6",
+      "name": "systematics on the drift-free oracle: no distance/window shift significant",
+      "status": "PASS",
+      "systematics": {
+        "primary_p_th": 0.4993282215946455,
+        "variants": {
+          "drop_smallest_d": {
+            "p_th": 0.5004392756474136,
+            "nu": 2.2912945313300974,
+            "chi2_per_dof": 0.9022601845755797,
+            "chi2_p_value": 0.5662552864871571,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          },
+          "drop_largest_d": {
+            "p_th": 0.498387578406268,
+            "nu": 1.9752400897952642,
+            "chi2_per_dof": 0.9782432039854679,
+            "chi2_p_value": 0.4775088983442145,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          },
+          "inner_window": {
+            "p_th": 0.49890311938061155,
+            "nu": 2.192141733782027,
+            "chi2_per_dof": 0.9043816299846218,
+            "chi2_p_value": 0.5586872018087253,
+            "p_th_in_window": true,
+            "at_parameter_bound": false
+          }
+        },
+        "shifts": {
+          "drop_smallest_d": {
+            "delta": 0.0011110540527681234,
+            "ci": [
+              -0.0008256875416553871,
+              0.003465841730844557
+            ],
+            "significant": false
+          },
+          "drop_largest_d": {
+            "delta": -0.000940643188377499,
+            "ci": [
+              -0.002395846460735954,
+              0.0005612697239726586
+            ],
+            "significant": false
+          },
+          "inner_window": {
+            "delta": -0.00042510221403396775,
+            "ci": [
+              -0.0014235909679513616,
+              0.0004408578828198179
+            ],
+            "significant": false
+          }
+        },
+        "max_abs_shift": 0.0011110540527681234,
+        "any_significant_shift": false,
+        "case_resampling": {
+          "ci": [
+            0.4980215833423379,
+            0.5012959699539687
+          ],
+          "n_boot": 200,
+          "degenerate_resamples": 0
+        },
+        "n_boot": 200,
+        "seed": 6,
+        "alpha": 0.05,
+        "note": "post-hoc robustness analysis (declared after the primary estimate); shift CIs are paired parametric bootstraps; combined_half_width is conservative"
+      }
+    },
+    {
+      "id": "F7",
+      "name": "known finite-size drift (curves shifted by c/d, c=0.3): drop-smallest-d shift significant on 3/3 independent datasets (drop-largest-d reported, lower power)",
+      "status": "PASS",
+      "c": 0.3,
+      "runs": [
+        {
+          "dataset_seed": 11,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.005090399598494555,
+              "ci": [
+                0.0021988048127963957,
+                0.007577977208854342
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.0024108011788437356,
+              "ci": [
+                -0.005491952482853483,
+                0.00012750965911225725
+              ],
+              "significant": false
+            },
+            "inner_window": {
+              "delta": -0.0014984590101415063,
+              "ci": [
+                -0.004910230935265675,
+                0.001077535324409357
+              ],
+              "significant": false
+            }
+          }
+        },
+        {
+          "dataset_seed": 12,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.007035293203762727,
+              "ci": [
+                0.004607178933449514,
+                0.009334091067065144
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.004819936195733454,
+              "ci": [
+                -0.00777172821622932,
+                -0.0027631487906946426
+              ],
+              "significant": true
+            },
+            "inner_window": {
+              "delta": -0.001877380694198072,
+              "ci": [
+                -0.005528078897305231,
+                0.0007643874711280203
+              ],
+              "significant": false
+            }
+          }
+        },
+        {
+          "dataset_seed": 13,
+          "shifts": {
+            "drop_smallest_d": {
+              "delta": 0.003433087267201207,
+              "ci": [
+                0.0005247071888900947,
+                0.005992292495890793
+              ],
+              "significant": true
+            },
+            "drop_largest_d": {
+              "delta": -0.002358989831009406,
+              "ci": [
+                -0.005114340019065272,
+                -4.74698887971272e-05
+              ],
+              "significant": true
+            },
+            "inner_window": {
+              "delta": -0.001506154487601774,
+              "ci": [
+                -0.004979931864413858,
+                0.0009134675882147717
+              ],
+              "significant": false
+            }
+          }
+        }
+      ],
+      "drop_largest_d_significant": 2
+    },
+    {
+      "id": "S1",
+      "name": "bit-flip(q) ~ Stim-depolarizing(data 3q/2, meas q): |z|<3; Stim-depolarizing(q) is a different, weaker channel (z>5); X-memory with the basis-dual Z-flip == Z-memory (|z|<3), X-flip on the X-memory is empty (z>5)",
+      "status": "PASS",
+      "d": 5,
+      "q": 0.03,
+      "shots": 40000,
+      "k_bitflip_q": 4253,
+      "k_depol_1.5q": 4356,
+      "k_depol_q": 2135,
+      "z_same": -1.1751251784202377,
+      "z_trap": 27.625756963864553,
+      "k_x_memory_zflip": 4318,
+      "k_x_memory_xflip_wrong": 255,
+      "z_x_vs_z_memory": -0.7430282355566864,
+      "z_wrong_channel": 61.29786720703766,
+      "why": "DEPOLARIZE1(p) has X-marginal 2p/3; Z-memory sees only X/Y components"
+    },
+    {
+      "id": "S2",
+      "name": "grid brackets the threshold: at p_min p_L strictly decreasing in d, at p_max strictly increasing (point estimates; 99% CP of d_min vs d_max disjoint)",
+      "status": "PASS",
+      "p_min": 0.024,
+      "at_p_min": {
+        "p_logical_by_d": [
+          0.06094,
+          0.05302,
+          0.04548,
+          0.03768
+        ],
+        "cp99_d_min": [
+          0.05821621749108094,
+          0.06374773651749897
+        ],
+        "cp99_d_max": [
+          0.03552054499039205,
+          0.039927969196287515
+        ]
+      },
+      "p_max": 0.034,
+      "at_p_max": {
+        "p_logical_by_d": [
+          0.14036,
+          0.15678,
+          0.17434,
+          0.1889
+        ],
+        "cp99_d_min": [
+          0.13638300106315215,
+          0.14440566006027225
+        ],
+        "cp99_d_max": [
+          0.1844107517859347,
+          0.19344861921123543
+        ]
+      }
+    },
+    {
+      "id": "S3",
+      "name": "FSS fit adequate: p_th and its 95% CI inside the window, chi2 p > 0.01, >= 99% bootstrap refits succeed",
+      "status": "PASS",
+      "p_th": 0.029122290879940133,
+      "p_th_ci": [
+        0.028910815702653712,
+        0.029349402930532616
+      ],
+      "nu": 1.1856480447244229,
+      "nu_ci": [
+        1.1198401357461374,
+        1.2617540370974372
+      ],
+      "chi2_per_dof": 0.7803993518377411,
+      "chi2_p_value": 0.7334906998796082,
+      "crossings": [
+        {
+          "d_pair": [
+            5,
+            7
+          ],
+          "crossing": 0.02922264150943396,
+          "ci": [
+            0.028214598321342932,
+            0.030324981454711453
+          ],
+          "found_fraction": 1.0
+        },
+        {
+          "d_pair": [
+            7,
+            9
+          ],
+          "crossing": 0.029365461847389557,
+          "ci": [
+            0.027823211352923195,
+            0.03052210788097075
+          ],
+          "found_fraction": 1.0
+        },
+        {
+          "d_pair": [
+            9,
+            11
+          ],
+          "crossing": 0.02882674772036474,
+          "ci": [
+            0.027801574290026065,
+            0.03008844545521238
+          ],
+          "found_fraction": 1.0
+        }
+      ]
+    },
+    {
+      "id": "S4",
+      "name": "external anchor: |p_th - 0.029| <= 0.002 (MWPM, WHP 2003) and CI below the optimal-decoder value 0.033 (MWPM must not reach it)",
+      "status": "PASS",
+      "p_th": 0.029122290879940133,
+      "literature_mwpm": 0.029,
+      "literature_optimal": 0.033,
+      "tolerance": 0.002,
+      "abs_err": 0.00012229087994013177
+    },
+    {
+      "id": "S5",
+      "name": "pre-registration: fingerprint fixed before run; replay bit-identical; base_seed+1 changes results; edited plan / dropped cell / edited count rejected",
+      "status": "PASS",
+      "registered_fingerprint": "babf51d36adf057c1ddcd0d15b8b4fdedbf14b8bbe16294b292d10ebef9056da",
+      "verify_ok": [],
+      "verify_tampered": [
+        "plan fingerprint mismatch (plan edited after registration?)",
+        "cells differ from registered grid: missing=[], extra=[(5, 0.024), (7, 0.024), (9, 0.024), (11, 0.024)]",
+        "cell (5, 0.026): seed is not the plan seed",
+        "cell (5, 0.028): seed is not the plan seed",
+        "cell (5, 0.03): seed is not the plan seed",
+        "cell (5, 0.032): seed is not the plan seed",
+        "cell (5, 0.034): seed is not the plan seed",
+        "cell (7, 0.026): seed is not the plan seed",
+        "cell (7, 0.028): seed is not the plan seed",
+        "cell (7, 0.03): seed is not the plan seed",
+        "cell (7, 0.032): seed is not the plan seed",
+        "cell (7, 0.034): seed is not the plan seed",
+        "cell (9, 0.026): seed is not the plan seed",
+        "cell (9, 0.028): seed is not the plan seed",
+        "cell (9, 0.03): seed is not the plan seed",
+        "cell (9, 0.032): seed is not the plan seed",
+        "cell (9, 0.034): seed is not the plan seed",
+        "cell (11, 0.026): seed is not the plan seed",
+        "cell (11, 0.028): seed is not the plan seed",
+        "cell (11, 0.03): seed is not the plan seed",
+        "cell (11, 0.032): seed is not the plan seed",
+        "cell (11, 0.034): seed is not the plan seed"
+      ],
+      "verify_dropped": [
+        "cells differ from registered grid: missing=[(5, 0.024)], extra=[]"
+      ],
+      "verify_edited_k": [
+        "stored FSS point estimate does not match a refit of the rows"
+      ]
+    },
+    {
+      "id": "S6",
+      "name": "post-hoc robustness: drop smallest d / drop largest d / inner window all converge inside the window and inside the S4 band; case-resampling CI covers the estimate",
+      "status": "PASS",
+      "shifts": {
+        "drop_smallest_d": {
+          "delta": 0.00011652807999886286,
+          "ci": [
+            -0.00012595611997616863,
+            0.00032049460075048836
+          ],
+          "significant": false
+        },
+        "drop_largest_d": {
+          "delta": -5.4657202383543574e-05,
+          "ci": [
+            -0.0003311841060071903,
+            0.00019886916291323432
+          ],
+          "significant": false
+        },
+        "inner_window": {
+          "delta": 0.00012758460609110442,
+          "ci": [
+            -2.3396997664337087e-05,
+            0.0002802790517383973
+          ],
+          "significant": false
+        }
+      },
+      "variants": {
+        "drop_smallest_d": {
+          "p_th": 0.029238818959938996,
+          "nu": 1.1517322448292315,
+          "chi2_per_dof": 0.5434488970801461,
+          "chi2_p_value": 0.8987794440942674,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "drop_largest_d": {
+          "p_th": 0.02906763367755659,
+          "nu": 1.207474929074248,
+          "chi2_per_dof": 0.8160181013162127,
+          "chi2_p_value": 0.643599742246758,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "inner_window": {
+          "p_th": 0.029249875486031238,
+          "nu": 1.1049989222183825,
+          "chi2_per_dof": 0.23124162942248977,
+          "chi2_p_value": 0.9954886704767015,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        }
+      },
+      "any_significant_shift": false,
+      "case_resampling_ci": [
+        0.028913353798389066,
+        0.02934978415171037
+      ],
+      "stat_half_width": 0.00021929361393945197,
+      "max_abs_shift": 0.00012758460609110442,
+      "combined_half_width": 0.00025370754980104095,
+      "band": [
+        0.027000000000000003,
+        0.031
+      ]
+    }
+  ],
+  "sweep": {
+    "tool": "adaptiverg_qec.qec_sweep.run_sweep",
+    "plan": {
+      "schema": "adaptiverg_qec.qec_sweep_plan/v1",
+      "code_family": "surface_code:rotated_memory",
+      "memory_basis": "z",
+      "noise_model": "phenomenological-bitflip",
+      "distances": [
+        5,
+        7,
+        9,
+        11
+      ],
+      "p_grid": [
+        0.024,
+        0.026,
+        0.028,
+        0.03,
+        0.032,
+        0.034
+      ],
+      "rounds_policy": "distance",
+      "shots_per_cell": 50000,
+      "stopping_rule": "fixed-shots",
+      "decoder": "pymatching-mwpm-dem",
+      "base_seed": 20261103,
+      "seed_policy": "sweep-plan-sha256-v1",
+      "fss_model": "whp-quadratic-v1",
+      "n_boot": 400,
+      "alpha": 0.05
+    },
+    "plan_fingerprint": "babf51d36adf057c1ddcd0d15b8b4fdedbf14b8bbe16294b292d10ebef9056da",
+    "stim_version": "1.16.0",
+    "pymatching_version": "2.4.0",
+    "runtime_environment": {
+      "package_version": "0.5.0.dev0",
+      "distribution_version": "0.5.0.dev0",
+      "git_sha": "99c013a",
+      "python": "3.13.18",
+      "platform": "Linux-6.18.44-fc-v230-x86_64-with-glibc2.39",
+      "machine": "x86_64"
+    },
+    "reproducibility_tier": "SEEDED_SAME_STIM_VERSION_AND_ARCHITECTURE",
+    "rows": [
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.024,
+        "seed": 3290104277847840956,
+        "k": 3047,
+        "n": 50000,
+        "p_logical": 0.06094,
+        "intervals": {
+          "wilson": [
+            0.0588767200821321,
+            0.0630707399713601
+          ],
+          "jeffreys": [
+            0.058868554202582565,
+            0.06306227446755736
+          ],
+          "clopper_pearson": [
+            0.05885871564943784,
+            0.06307243474086656
+          ]
+        }
+      },
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.026,
+        "seed": 2171255253874677820,
+        "k": 3854,
+        "n": 50000,
+        "p_logical": 0.07708,
+        "intervals": {
+          "wilson": [
+            0.07477450775724676,
+            0.07945047244095604
+          ],
+          "jeffreys": [
+            0.07476661408269995,
+            0.07944234626511441
+          ],
+          "clopper_pearson": [
+            0.07475675364092331,
+            0.07945248465419348
+          ]
+        }
+      },
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.028,
+        "seed": 719629209297665180,
+        "k": 4572,
+        "n": 50000,
+        "p_logical": 0.09144,
+        "intervals": {
+          "wilson": [
+            0.08894485472583778,
+            0.09399791910793158
+          ],
+          "jeffreys": [
+            0.08893721000224716,
+            0.09399008801566497
+          ],
+          "clopper_pearson": [
+            0.08892733481975809,
+            0.09400021166640261
+          ]
+        }
+      },
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.03,
+        "seed": 5287691570070179566,
+        "k": 5359,
+        "n": 50000,
+        "p_logical": 0.10718,
+        "intervals": {
+          "wilson": [
+            0.10449866193761129,
+            0.109921693499488
+          ],
+          "jeffreys": [
+            0.10449129483261052,
+            0.10991418107090312
+          ],
+          "clopper_pearson": [
+            0.10448140671303188,
+            0.10992429178628145
+          ]
+        }
+      },
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.032,
+        "seed": 1416272489890513863,
+        "k": 6203,
+        "n": 50000,
+        "p_logical": 0.12406,
+        "intervals": {
+          "wilson": [
+            0.12119939112008993,
+            0.12697837076327423
+          ],
+          "jeffreys": [
+            0.1211923255866121,
+            0.12697119620770914
+          ],
+          "clopper_pearson": [
+            0.12118242612232638,
+            0.12698129557965374
+          ]
+        }
+      },
+      {
+        "d": 5,
+        "rounds": 5,
+        "p": 0.034,
+        "seed": 6151868463902714463,
+        "k": 7018,
+        "n": 50000,
+        "p_logical": 0.14036,
+        "intervals": {
+          "wilson": [
+            0.13734293034813638,
+            0.14343232709649062
+          ],
+          "jeffreys": [
+            0.1373361587733163,
+            0.1434254760396325
+          ],
+          "clopper_pearson": [
+            0.1373262500998764,
+            0.14343556620330378
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.024,
+        "seed": 2929379352725753527,
+        "k": 2651,
+        "n": 50000,
+        "p_logical": 0.05302,
+        "intervals": {
+          "wilson": [
+            0.05109006006207835,
+            0.05501861687207632
+          ],
+          "jeffreys": [
+            0.05108176512265116,
+            0.055009980303395704
+          ],
+          "clopper_pearson": [
+            0.05107194054143134,
+            0.05502015454520753
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.026,
+        "seed": 681222460771533272,
+        "k": 3537,
+        "n": 50000,
+        "p_logical": 0.07074,
+        "intervals": {
+          "wilson": [
+            0.06852550504468928,
+            0.0730204492726297
+          ],
+          "jeffreys": [
+            0.06851750326826006,
+            0.07301219099082261
+          ],
+          "clopper_pearson": [
+            0.06850765059228422,
+            0.07302233714426741
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.028,
+        "seed": 7642388935231257409,
+        "k": 4410,
+        "n": 50000,
+        "p_logical": 0.0882,
+        "intervals": {
+          "wilson": [
+            0.08574583878555303,
+            0.0907174328630328
+          ],
+          "jeffreys": [
+            0.08573813747219271,
+            0.0907095356149522
+          ],
+          "clopper_pearson": [
+            0.08572826532745376,
+            0.09071966230298753
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.03,
+        "seed": 8376135176688966038,
+        "k": 5462,
+        "n": 50000,
+        "p_logical": 0.10924,
+        "intervals": {
+          "wilson": [
+            0.10653573445608229,
+            0.1120043044691275
+          ],
+          "jeffreys": [
+            0.10652840396718075,
+            0.1119968334620645
+          ],
+          "clopper_pearson": [
+            0.10651851434177814,
+            0.11200694267180054
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.032,
+        "seed": 9025474454778067735,
+        "k": 6659,
+        "n": 50000,
+        "p_logical": 0.13318,
+        "intervals": {
+          "wilson": [
+            0.1302300080388708,
+            0.13618635258797296
+          ],
+          "jeffreys": [
+            0.1302231066934633,
+            0.13617935931894792
+          ],
+          "clopper_pearson": [
+            0.13021320189962263,
+            0.13618945336186328
+          ]
+        }
+      },
+      {
+        "d": 7,
+        "rounds": 7,
+        "p": 0.034,
+        "seed": 3418460275732652551,
+        "k": 7839,
+        "n": 50000,
+        "p_logical": 0.15678,
+        "intervals": {
+          "wilson": [
+            0.15361940407393795,
+            0.15999333049436612
+          ],
+          "jeffreys": [
+            0.15361293069437815,
+            0.15998680323463618
+          ],
+          "clopper_pearson": [
+            0.15360301401121698,
+            0.15999688538925022
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.024,
+        "seed": 415243943007367214,
+        "k": 2274,
+        "n": 50000,
+        "p_logical": 0.04548,
+        "intervals": {
+          "wilson": [
+            0.0436883805101155,
+            0.04734145491901328
+          ],
+          "jeffreys": [
+            0.0436799669010723,
+            0.04733265125191638
+          ],
+          "clopper_pearson": [
+            0.04367015868169821,
+            0.04734284185089589
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.026,
+        "seed": 205076732626114171,
+        "k": 3126,
+        "n": 50000,
+        "p_logical": 0.06252,
+        "intervals": {
+          "wilson": [
+            0.06043138395544511,
+            0.06467583333650079
+          ],
+          "jeffreys": [
+            0.06042324424333129,
+            0.06466740153458878
+          ],
+          "clopper_pearson": [
+            0.06041340320627614,
+            0.06467755932454407
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.028,
+        "seed": 2451441301226671709,
+        "k": 4240,
+        "n": 50000,
+        "p_logical": 0.0848,
+        "intervals": {
+          "wilson": [
+            0.08238993227546246,
+            0.08727386177138755
+          ],
+          "jeffreys": [
+            0.08238217182240994,
+            0.08726589485410856
+          ],
+          "clopper_pearson": [
+            0.08237230303245249,
+            0.08727602489640435
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.03,
+        "seed": 7588451316847913517,
+        "k": 5541,
+        "n": 50000,
+        "p_logical": 0.11082,
+        "intervals": {
+          "wilson": [
+            0.1080983572509033,
+            0.1136014389127602
+          ],
+          "jeffreys": [
+            0.10809105488455668,
+            0.11359399963699907
+          ],
+          "clopper_pearson": [
+            0.10808116412930549,
+            0.11360410771702023
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.032,
+        "seed": 1050045511780913133,
+        "k": 7009,
+        "n": 50000,
+        "p_logical": 0.14018,
+        "intervals": {
+          "wilson": [
+            0.13716457828484702,
+            0.1432507068161587
+          ],
+          "jeffreys": [
+            0.137157803451712,
+            0.1432438521991324
+          ],
+          "clopper_pearson": [
+            0.13714789487245338,
+            0.14325394245697665
+          ]
+        }
+      },
+      {
+        "d": 9,
+        "rounds": 9,
+        "p": 0.034,
+        "seed": 2350412078813853094,
+        "k": 8717,
+        "n": 50000,
+        "p_logical": 0.17434,
+        "intervals": {
+          "wilson": [
+            0.17103951146855287,
+            0.17769052506636326
+          ],
+          "jeffreys": [
+            0.17103335879552325,
+            0.1776843422674667
+          ],
+          "clopper_pearson": [
+            0.1710234346083325,
+            0.1776944169185933
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.024,
+        "seed": 1656226303067646608,
+        "k": 1884,
+        "n": 50000,
+        "p_logical": 0.03768,
+        "intervals": {
+          "wilson": [
+            0.03604611881402629,
+            0.03938491505817915
+          ],
+          "jeffreys": [
+            0.03603758876237597,
+            0.03937593213986521
+          ],
+          "clopper_pearson": [
+            0.0360278021392155,
+            0.0393861443276722
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.026,
+        "seed": 616122192322235330,
+        "k": 2805,
+        "n": 50000,
+        "p_logical": 0.0561,
+        "intervals": {
+          "wilson": [
+            0.054116883558995965,
+            0.05815132014378997
+          ],
+          "jeffreys": [
+            0.05410863835419835,
+            0.05814275056014127
+          ],
+          "clopper_pearson": [
+            0.0540988080098011,
+            0.058152919040248635
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.028,
+        "seed": 2982762132702415461,
+        "k": 4104,
+        "n": 50000,
+        "p_logical": 0.08208,
+        "intervals": {
+          "wilson": [
+            0.07970604758203213,
+            0.08451816438342923
+          ],
+          "jeffreys": [
+            0.07969824001320935,
+            0.08451014153333215
+          ],
+          "clopper_pearson": [
+            0.07968837404169303,
+            0.08452027439361358
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.03,
+        "seed": 565887010339811358,
+        "k": 5734,
+        "n": 50000,
+        "p_logical": 0.11468,
+        "intervals": {
+          "wilson": [
+            0.11191664113323553,
+            0.11750256195475157
+          ],
+          "jeffreys": [
+            0.11190940760451794,
+            0.11749520006578398
+          ],
+          "clopper_pearson": [
+            0.11189951417568732,
+            0.11750530547253328
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.032,
+        "seed": 657613741309523331,
+        "k": 7501,
+        "n": 50000,
+        "p_logical": 0.15002,
+        "intervals": {
+          "wilson": [
+            0.14691690804112958,
+            0.15317686517784093
+          ],
+          "jeffreys": [
+            0.14691031167642402,
+            0.15317020483438054
+          ],
+          "clopper_pearson": [
+            0.14690039815904954,
+            0.15318029015452975
+          ]
+        }
+      },
+      {
+        "d": 11,
+        "rounds": 11,
+        "p": 0.034,
+        "seed": 7578771334286961455,
+        "k": 9445,
+        "n": 50000,
+        "p_logical": 0.1889,
+        "intervals": {
+          "wilson": [
+            0.18549298342046622,
+            0.1923548160207068
+          ],
+          "jeffreys": [
+            0.1854870978179853,
+            0.1923489176746648
+          ],
+          "clopper_pearson": [
+            0.18547716805882516,
+            0.192358986754178
+          ]
+        }
+      }
+    ],
+    "fss": {
+      "point": {
+        "p_th": 0.029122290879940133,
+        "nu": 1.1856480447244229,
+        "A": 0.09931849222930886,
+        "B": 2.0409199959252846,
+        "C": 11.277345117648713,
+        "chi2": 14.82758768491708,
+        "dof": 19,
+        "chi2_per_dof": 0.7803993518377411,
+        "chi2_p_value": 0.7334906998796082,
+        "p_th_in_window": true,
+        "at_parameter_bound": false,
+        "model": "p_L = A + B x + C x^2, x = (p - p_th) d^(1/nu)  [Wang/Harrington/Preskill 2003]",
+        "weights": "1/sigma, sigma^2 = p~(1-p~)/n, p~ = (k+1/2)/(n+1)"
+      },
+      "p_th_ci": [
+        0.028910815702653712,
+        0.029349402930532616
+      ],
+      "nu_ci": [
+        1.1198401357461374,
+        1.2617540370974372
+      ],
+      "p_th_boot_sd": 0.00011538850694465783,
+      "fit_success_fraction": 1.0,
+      "p_th_in_window_fraction": 1.0,
+      "crossings": [
+        {
+          "d_pair": [
+            5,
+            7
+          ],
+          "crossing": 0.02922264150943396,
+          "ci": [
+            0.028214598321342932,
+            0.030324981454711453
+          ],
+          "found_fraction": 1.0
+        },
+        {
+          "d_pair": [
+            7,
+            9
+          ],
+          "crossing": 0.029365461847389557,
+          "ci": [
+            0.027823211352923195,
+            0.03052210788097075
+          ],
+          "found_fraction": 1.0
+        },
+        {
+          "d_pair": [
+            9,
+            11
+          ],
+          "crossing": 0.02882674772036474,
+          "ci": [
+            0.027801574290026065,
+            0.03008844545521238
+          ],
+          "found_fraction": 1.0
+        }
+      ],
+      "n_boot": 400,
+      "seed": 8585115130229575405,
+      "alpha": 0.05,
+      "method": "parametric bootstrap over independent cells, k* ~ Binomial(n, k/n); percentile CIs; refit warm-started at the point estimate"
+    },
+    "systematics": {
+      "primary_p_th": 0.029122290879940133,
+      "variants": {
+        "drop_smallest_d": {
+          "p_th": 0.029238818959938996,
+          "nu": 1.1517322448292315,
+          "chi2_per_dof": 0.5434488970801461,
+          "chi2_p_value": 0.8987794440942674,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "drop_largest_d": {
+          "p_th": 0.02906763367755659,
+          "nu": 1.207474929074248,
+          "chi2_per_dof": 0.8160181013162127,
+          "chi2_p_value": 0.643599742246758,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        },
+        "inner_window": {
+          "p_th": 0.029249875486031238,
+          "nu": 1.1049989222183825,
+          "chi2_per_dof": 0.23124162942248977,
+          "chi2_p_value": 0.9954886704767015,
+          "p_th_in_window": true,
+          "at_parameter_bound": false
+        }
+      },
+      "shifts": {
+        "drop_smallest_d": {
+          "delta": 0.00011652807999886286,
+          "ci": [
+            -0.00012595611997616863,
+            0.00032049460075048836
+          ],
+          "significant": false
+        },
+        "drop_largest_d": {
+          "delta": -5.4657202383543574e-05,
+          "ci": [
+            -0.0003311841060071903,
+            0.00019886916291323432
+          ],
+          "significant": false
+        },
+        "inner_window": {
+          "delta": 0.00012758460609110442,
+          "ci": [
+            -2.3396997664337087e-05,
+            0.0002802790517383973
+          ],
+          "significant": false
+        }
+      },
+      "max_abs_shift": 0.00012758460609110442,
+      "any_significant_shift": false,
+      "case_resampling": {
+        "ci": [
+          0.028913353798389066,
+          0.02934978415171037
+        ],
+        "n_boot": 200,
+        "degenerate_resamples": 0
+      },
+      "n_boot": 200,
+      "seed": 5663239803932692223,
+      "alpha": 0.05,
+      "note": "post-hoc robustness analysis (declared after the primary estimate); shift CIs are paired parametric bootstraps; combined_half_width is conservative",
+      "stat_half_width": 0.00021929361393945197,
+      "combined_half_width": 0.00025370754980104095
+    },
+    "wallclock_s": 38.6
+  },
+  "claim_ceiling": "FSS-supported bounded simulation for the declared phenomenological bit-flip channel (X-flip p, measurement flip p, rounds=d, d<=11, PyMatching MWPM); no L->oo proof, no latency, no hardware claim, no other noise convention",
+  "wallclock_s": 105.0
+}

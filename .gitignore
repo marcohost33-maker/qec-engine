@@ -15,3 +15,4 @@ build/
 # Local CI-run gate-log (uploaded as CI artifact, not committed)
 results/selftest-ci.json
 results/qec-multiround-evidence-ci.json
+results/qec-sweep-fss-ci.json
