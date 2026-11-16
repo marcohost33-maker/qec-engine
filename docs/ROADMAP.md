@@ -1,8 +1,8 @@
 # AdaptiveRG-QEC — Implementierungs-Roadmap
 
-Aus der gehärteten Kernel-Spec v1.0 (5-Phasen-Roadmap, ~16 Wochen). **Status (2026-06-18): Phase 1 als
-bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 OFFEN.** Übergang Spec-Repo
-→ Code-Repo. Reifegrad dev/Prototyp, nicht release-fertig.
+Aus der gehärteten Kernel-Spec v1.0 (5-Phasen-Roadmap, ~16 Wochen). **Status (2026-09-27): Phasen 1–7 als
+bounded, orakel-validierte MVP-Inkremente umgesetzt (Details je Phase unten; offene Punkte dort markiert).**
+Historischer Stand 2026-06-18: Phase 1 angefangen, Phasen 2–5 offen. Reifegrad dev/Prototyp, nicht release-fertig.
 
 > Hinweis: Diese Roadmap ist aus der Spec extrahiert/zusammengefasst. Vor Implementierung gegen das
 > Original `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` (§„5-phasiger Research Roadmap") abgleichen
@@ -15,11 +15,37 @@ bounded MVP ANGEFANGEN (`src/`, Branch `claude/phase1-mcmc-mcrg`); Phasen 2–5 
 - **MVP-Stand:** A-Kernel (`a_kernel.py`) + conditional-mean Drift-Guard (`drift.py`) implementiert +
   getestet gegen analytisches Transfer-Matrix-Orakel; Guard greift (equilib λ̂<1) UND feuert
   (non-contract λ̂≥1). MVP-Instanz: 1D-Repetition-Code-Ring (`mvp_instance.py`).
-  **Offen für volle Akzeptanz:** R-hat-Multichain (Vehtari, Spec §10.1a) + TV-Distanz-Verlauf.
+  ~~**Offen für volle Akzeptanz:** R-hat-Multichain (Vehtari, Spec §10.1a) + TV-Distanz-Verlauf.~~
+  **Erledigt:** R-hat-Multichain in Phase 5; TV-Distanz-Verlauf **exakt** in Phase 7 (s.u., G46/G47).
 
 ## Phase 2 — Adaptive Steuerung (Diminishing Adaptation + Containment)
 - Lernraten-Schedule η_t = η0/(1+t/T0); Θ auf kompakte Menge (kritischen Punkt ausschliessen).
 - **Akzeptanz:** kein AdapFail; Mischzeiten stochastisch beschränkt.
+- **[KORREKTUR 2026-10-05, Issue #51]** Der Code bewegte das ZIEL β mit dem summierbaren
+  a_t = c/(1+t/T0)² über die ganze Kette, auch in der Produktion. Für 0<a_t<1 gilt
+  β_∞ − β* = (β_0 − β*)·Π(1−a_t) ≠ 0 genau dann, wenn Σa_t < ∞: bei c=0.5, T0=1, 0.1→0.8
+  bleibt β bei 0.8 − 0.7·sin(π/√2)/(π/√2) ≈ 0.549 stehen. Auch beim Default (T0=100)
+  erreicht die Gleitkomma-Iteration β* nie bit-genau (2.5 bzw. 5 ulp darunter, gemessen auf
+  fe25191). Andrieu & Thoms (2008) verlangen Σγ=∞ und Σγ^{1+λ}<∞; Roberts & Rosenthal (2007)
+  setzen ein festes Ziel voraus. Seither gilt: WARM-UP (adaptiv, nur Kalibration) → FREEZE
+  (β := β* per Zuweisung) → FIXED-TARGET BURN-IN → PRODUKTION; Run-Manifest v2 deklariert
+  `warmup_steps` und `burn_in` vor dem Lauf. Der Phase-5-Lauf reproduziert unter dem neuen
+  Vertrag denselben `result_hash` (4f058f80…) wie das alte Artefakt: β lag dort ab ~t=250
+  nur noch ulp neben β*, die Metropolis-Entscheide waren identisch.
+- **Stand (Phase 7, 2026-09-27; nachgezogen auf den Freeze-Vertrag 2026-10-07):** für die
+  MVP-Instanz exakt belegt — adaptive Randverteilung `μ_{t+1}=μ_t P_{β_t}` konvergiert unter
+  WARM-UP → FREEZE (`β:=β*` per Zuweisung) exakt nach `π_{β*}`, selbst beim schlechtesten
+  Warm-up-Schedule (c=0.5, T0=1; TV_end < 1e-10); `18.85 ≤ sup_{β∈Θ} t_rel ≤ 19.50` Sweeps
+  (rigorose Weyl-Intervallschranke, nicht nur Gitter; Eigenwerte a posteriori
+  eingeschlossen, IEEE-754-Standardmodell)
+  (Containment), außerhalb Θ divergent (G49; bewiesen über die Engpass-Schranke
+  `t_rel(β) ≥ e^{2β}/120`, LPW Thm 13.10 — nicht aus dem Messwert bei β=6 gefolgert). **Gegenrichtung (Defektklasse ohne Freeze,
+  Sampler vor #53):** derselbe summierbare Schedule friert β bei
+  `β_∞ = β* + (β_0−β*)·Π(1−a_t) ≈ 0.549` ein, TV-Boden 0.088 — Phase 7 hat diesen Defekt
+  zuerst beziffert, Issue #51/PR #53 hat ihn im Sampler geschlossen.
+  Offen: der Spec-Schedule `η_t = η0/(1+t/T0)` (nicht summierbar) ist im MVP nicht der
+  implementierte Warm-up-Schedule (`a_t = c/(1+t/T0)^2`); unter dem Freeze-Vertrag ist das
+  nur noch eine Kalibrations-, keine Korrektheitsfrage.
 
 ## Phase 3 — RG-Analyse + Jacobian-Extraktion
 - Stochastische RG-Map R̂, Fixpunkt-Konsistenz (Bias O(n^−β), β>1/2), hyperbolischer Fixpunkt.
@@ -155,18 +181,39 @@ Duplikat-p-Guard; Surface-Threshold-Fenster verbreitert (0.09–0.115, 80k Shots
   Nur diese drei sind betroffen: `majority_block_b2` wird ausschliesslich von `mcrg_matrix` und
   `mcrg_multirg` aufgerufen. Ein Gate-Log, der eine Transformation beschreibt, die es in diesem
   Commit nicht mehr gibt, wäre irreführend — auch wenn ihn kein Test liest.
-- `rbim_nishimori`-Scan (historische Baseline, bewusst unverändert) nutzt weiterhin
-  arithmetische Seeds `base_seed + d` / `base_seed + 10000 + d` — also implizite common random
-  numbers über p. Der neue Pfad `rbim_scan.py` macht die Wahl explizit: Default
-  `seed_policy="independent"` mischt `p`/`L`/Replikat über `SeedSequence` und trennt Bond- und
-  Thermal-Strom per `spawn(2)`; CRN ist nur noch als ausdrückliche Option erreichbar.
-  **Offen an der Baseline:** die additive Ableitung lässt Bond- und MCMC-Seeds ab
-  `n_disorder >= 10001` exakt überlappen (`base_seed + 10000` tritt in beiden Familien auf);
-  `n_disorder` ist nur gegen `< 1` geprüft.
+- ~~`rbim_nishimori`-Baseline nutzte arithmetische Seeds mit einer deterministischen
+  Bond/MCMC-Kollision ab grossem `n_disorder`.~~ **Erledigt 2026-09-19:** auch die historische
+  Baseline erzeugt je Disorder-Realisierung jetzt zwei hierarchisch getrennte Streams via
+  `SeedSequence([base_seed, d]).spawn(2)`, analog zur bereits gehärteten `rbim_scan.py`.
+  Regressionstests decken explizit `d > 10000` ab; negative Seed-Eingaben failen an der Grenze.
 - `autocorr.integrated_autocorr_time` klemmt τ_int ≥ 0.5 (für anti-korrelierte Reihen bewusst
   konservativ; jetzt im Code dokumentiert).
 - G26 vergleicht τ_int in Update-Einheiten (1 Wolff-Cluster vs 1 Metropolis-Sweep), nicht
   arbeitsnormiert — der ×12–16-Claim ist als solcher zu lesen.
+
+## Phase 7 — Exakte TV-Mischung + adaptive Kette + Containment  [DONE 2026-09-27, Branch `claude/qec-engine-next-steps-coapze`]
+
+Schließt die ältesten offenen Akzeptanzkriterien (Phase 1: „TV-Distanz fällt", Phase 2:
+„Mischzeiten beschränkt") mit exakten Orakeln (`mixing.py`; Gates G46–G49; Artefakt
+`results/phase7-mixing-tv.json`, regenerierbar via `python -m adaptiverg_qec.cli phase7 --json
+results/phase7-mixing-tv.json`):
+
+1. **Exakter Sweep-Kern** `P = P_1^L` des A-Kernels auf `{0,1}^L` (L=6), reversibel geprüft;
+   π gegen `ising1d.exact_distribution`/`mean_energy` (1e-15).
+2. **Spektral-Sandwich** (Levin/Peres/Wilmer 2017, Kap. 12): `λ*^t/2 ≤ d(t) ≤
+   √((1−π_min)/π_min)·λ*^t/2`, Fit-Rate = λ* (<1 %). Gegenrichtung: β=0 → λ*=1, geflaggt.
+3. **Echter Sampler im TV-Band** des exakten Kerns (4000 Ketten, Jensen+McDiarmid, δ=1e-6):
+   familienweise über alle 13 Looks (Bonferroni, Sol-P0): Ratio 0.54; falscher Kern (β=1.2)
+   3.42. L±1 Einzelschritte je Sweep erkennt seit der Codex-Runde ein Ein-Sweep-Paritätstest
+   (8.63 / 6.81); Trennschärfe-Grenze dokumentiert (β±12 %, gerade Abweichungen L±2 schwach).
+4. **Adaptive Kette exakt**, Containment-Profil `t_rel(β)`, eingefrorene summierbare Adaption
+   (T0=1: β_∞=0.549 statt 0.8, TV-Boden 0.088).
+
+**Im selben Inkrement:** Issue #48 geschlossen — `autocorr.tau_int_or_half` ersetzt die
+`np.var(x) > 0`-Vorchecks in `mcrg_matrix`/`mcrg_multirg` (NaN lief am #46-Gate vorbei);
+`rhat`-folded-Boden als Konstante `16·5e-324` statt `16·spacing(scale)` (kein Überlauf bei DBL_MAX).
+
+**Ehrliche Scope-Grenze:** exakt nur für 2^L ≤ 4096 (1D-Ring); keine Aussage zu 2D/RBIM-Mischung.
 
 ## ROADMAP-Inkr.4 — RBIM-Nishimori ↔ MCRG/QEC-Brücke  [DONE 2026-06-19, Branch `claude/qec-inkr4`]
 
@@ -191,18 +238,19 @@ gehören beide in EIN Repo. Dieses Inkrement liefert den empirischen Beleg über
   ⟨|m|⟩ auch im FRUSTRIERTEN Fall (p>0; dieser Test fing einen Bond-Richtungs-Bug in der Cluster-BFS, der
   bei p=0 unsichtbar war); (d) Stationaritäts-Sektor (G-N5): aligned-Start landet im korrekten FM-Sektor
   (p<p_c, hohes ⟨|m|⟩) bzw. PM-Sektor (p>p_c, relaxiert) — kein Bias.
-- **Gemessen — regenerierbares Artefakt `results/inkr4-rbim-nishimori.json` (L=8, 24 Realisierungen,
-  `python -m adaptiverg_qec.rbim_nishimori`):** `[<|m|>]` fällt monoton `0.98 → 0.36` über `p=0.04 → 0.20`;
-  **steilster Abfall bei `p* ≈ 0.145`** (|err| ≈ 0.036 vs `p_c`). **Feinere Auflösung — Artefakt
-  `results/inkr4-rbim-nishimori-L12.json` (L=12, 30 Realisierungen, via `--L 12 --n-disorder 30`):**
-  `[<|m|>] 0.99 → 0.22`, `p* = 0.120` (|err| = 0.011) — erwarteter
-  Finite-Size-Shift zu kleinerem `p*` mit wachsendem L; beide konsistent mit `p_c ≈ 0.109`.
-  Gates: `tests/test_rbim_nishimori.py` (10/10).
-- **Ehrliche Scope-Grenze:** kleines L + endliches Disorder-Sampling → **grobe Lokalisierung auf
-  Plausibilitäts-Niveau**, KEINE `L→∞`-FSS, KEIN Frontier-Wert. Konsistent mit der Repo-Positionierung.
-- **Brücken-Ergebnis:** das RBIM-Tooling (gebaut aus `ising2d`/`wolff2d`/MCRG-Maschinerie) lokalisiert
-  `p* ≈ p_c` → die MCRG-Exponenten-Maschinerie misst (im Rahmen der Auflösung) **dasselbe Objekt** wie der
-  QEC-Threshold → der **„nicht-splitten"-Architektur-Entscheid ist empirisch gestützt**.
+- **Historische Evidence (pre RNG-fix):** `results/inkr4-rbim-nishimori*.json` enthält
+  kleine L=8/12-Scans mit `p*=0.145` bzw. `0.120`. Seit 2026-09-19 werden Disorder- und
+  Thermal-Streams korrekt hierarchisch getrennt; ein unterdimensionierter L=8-CI-Scan
+  (10 Disorder-Realisierungen, 80 Records) sprang dabei auf `p*=0.155`. Die frühere
+  Band-Prüfung gegen `p_c≈0.1094` wurde daher als **statistisch unzureichendes CI-Gate**
+  entfernt, nicht durch ein breiteres Toleranzband kaschiert.
+- **Aktueller CI-Beleg:** exakte L=4-Boltzmann-Orakel, Gauge-Invarianz, FM-vs-PM-Sektor,
+  explizite RNG-Stream-Policy und eine deterministische Prüfung von `locate_transition`.
+- **Research-Gate Issue #43:** eigener numerischer Nishimori-`p_c` erst wieder promoten nach
+  Multi-L finite-size scaling, deutlich mehr unabhängigen Disorder-Realisierungen,
+  dimensionless/Binder-Crossings und Bootstrap-/Disorder-Konfidenzintervallen.
+- **Brückenstatus:** das RBIM↔QEC-Mapping ist theoretisch exakt und hält die gemeinsame
+  Repo-Architektur fachlich kohärent; ein eigener hochstatistischer p_c-Nachweis ist offen.
 
 
 ## ROADMAP-Inkr.5 — Nishimori-`p_c` Research-Gate (Issue #43)  [DONE 2026-09-25, Branch `claude/qec-engines-next-steps-1b3hne`]

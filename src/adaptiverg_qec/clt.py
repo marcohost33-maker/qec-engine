@@ -74,7 +74,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
-from .autocorr import integrated_autocorr_time
+from .autocorr import _require_finite, integrated_autocorr_time
 
 __all__ = [
     "CLTResult",
@@ -115,6 +115,10 @@ class CLTResult:
         return self.sigma2_g_gamma
 
 
+MIN_CLT_SAMPLES: int = 4
+"""Mindestlaenge fuer OBM und clt_variance (Batch b = floor(sqrt(N)) < N braucht N >= 4)."""
+
+
 def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """Overlapping-Batch-Means-Schaetzer der CLT-Varianz sigma^2_g.
 
@@ -131,8 +135,9 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for OBM, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for OBM, got {n}")
+    _require_finite(x, "samples")
     if batch_size is None:
         batch_size = max(1, int(np.floor(np.sqrt(n))))
     b = int(batch_size)
@@ -145,6 +150,10 @@ def obm_variance(x: np.ndarray, *, batch_size: int | None = None) -> float:
     batch_means = (cs[b:] - cs[: n - b + 1]) / b
     ssq = float(np.sum((batch_means - grand_mean) ** 2))
     sigma2 = (n * b) / ((n - b) * (n - b + 1)) * ssq
+    # Issue #48: endliche Samples |x| ~ 1e308 -> cumsum/Quadrate laufen ueber, vorher
+    # kam NaN/inf still zurueck. Positiv formuliert: nur ein endliches sigma2 geht durch.
+    if not np.isfinite(sigma2):
+        raise ValueError("OBM sums overflow float64; rescale the series")
     return sigma2
 
 
@@ -160,8 +169,8 @@ def clt_variance(x: np.ndarray, *, c_window: float = 1.5) -> CLTResult:
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     n = x.size
-    if n < 4:
-        raise ValueError(f"need >=4 samples for a CLT estimate, got {n}")
+    if n < MIN_CLT_SAMPLES:
+        raise ValueError(f"need >={MIN_CLT_SAMPLES} samples for a CLT estimate, got {n}")
     ac = integrated_autocorr_time(x, c_window=c_window)
     var_marg = ac.variance
     sigma2_gamma = 2.0 * ac.tau_int * var_marg
@@ -195,10 +204,13 @@ def confidence_interval(
     """
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
-    if n < 1:
-        raise ValueError(f"n must be >= 1, got {n}")
-    if sigma2_g < 0.0:
-        raise ValueError(f"sigma2_g must be >= 0, got {sigma2_g}")
+    if not (np.isfinite(n) and n >= 1):  # NaN-sicher (#46), endlich (#48)
+        raise ValueError(f"n must be finite and >= 1, got {n}")
+    # Issue #46: positiv formuliert und endlich -- ``sigma2_g < 0.0`` liess NaN durch.
+    if not (np.isfinite(sigma2_g) and sigma2_g >= 0.0):
+        raise ValueError(f"sigma2_g must be finite and >= 0, got {sigma2_g}")
+    if not np.isfinite(mean):
+        raise ValueError(f"mean must be finite, got {mean}")
     z = float(stats.norm.ppf(1.0 - alpha / 2.0))
     half = z * np.sqrt(sigma2_g / n)
     return (mean - half, mean + half)
@@ -221,8 +233,8 @@ def ar1_clt_variance(phi: float, sigma_eps: float = 1.0) -> dict[str, float]:
     """
     if not (-1.0 < phi < 1.0):
         raise ValueError(f"AR(1) requires |phi| < 1, got {phi}")
-    if sigma_eps <= 0.0:
-        raise ValueError(f"sigma_eps must be > 0, got {sigma_eps}")
+    if not (np.isfinite(sigma_eps) and sigma_eps > 0.0):  # NaN/inf-sicher (#46)
+        raise ValueError(f"sigma_eps must be finite and > 0, got {sigma_eps}")
     var_marg = sigma_eps**2 / (1.0 - phi**2)
     sigma2_g = sigma_eps**2 / (1.0 - phi) ** 2
     tau_int = (1.0 + phi) / (2.0 * (1.0 - phi))

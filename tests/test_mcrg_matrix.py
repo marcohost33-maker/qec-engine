@@ -125,3 +125,15 @@ def test_three_operators_runs() -> None:
 def test_edge_inputs_raise(bad) -> None:
     with pytest.raises((ValueError, np.linalg.LinAlgError)):
         bad()
+
+
+def test_estimate_y_t_rejects_nan_operator_series() -> None:
+    """Issue #48: der ``np.var(arr) > 0``-Vorcheck liess eine NaN-Spalte am
+    Endlichkeits-Gate vorbei (tau still 0.5); jetzt bricht es laut."""
+    rng = np.random.default_rng(48)
+    S = rng.standard_normal((256, 2))
+    Sp = rng.standard_normal((256, 2))
+    S[:, 1] = np.nan
+    ts = mm.OperatorTimeseries(S=S, Sp=Sp, K=0.44, L=8)
+    with pytest.raises(ValueError, match="finite"):
+        mm.estimate_y_t(ts, n_op=2)

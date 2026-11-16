@@ -5,7 +5,13 @@ Simulation Engine. Coworker-Research Säule 3 (Physik/Methodik).
 **Typ:** Spec/Theorie-Repo **+ Phase-1-MVP-Code** (seit PR#4, 2026-06-18; `src/adaptiverg_qec/`, Diagnostik-/Verifikations-Harness). Ursprünglich Spec-only (kein `.py`); Code-Lineage im Append unten.
 
 ## Kanonische Quellen (gestaged in `spec/`)
-| Datei | Drive-Ort | Drive-ID | Größe |
+
+> Hinweis für Aussenstehende: Drive-Ort und Drive-ID bezeichnen die interne Projektablage und sind
+> nicht öffentlich abrufbar. Massgeblich für die Integrität der Dateien in `spec/` sind die SHA-256-Werte
+> weiter unten; für die Spec-PDF gilt die Korrektur vom 2026-10-14 am Ende dieser Datei (der am
+> 2026-06-18 notierte Wert passt nicht zur committeten Datei).
+
+| Datei | Drive-Ort (intern) | Drive-ID (intern, nicht öffentlich) | Größe |
 |---|---|---|---|
 | `AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` | `0Hex  HQST  U2\` | `1OE5Yr9VXz1eXNTbdYdiKeS5WJ7Uup9pw` | 26287 B |
 | `AdaptiveRG-QEC_ProofBlock_v1.1_KernelSpec_v1.2.docx` | `0Hex  HQST  U2\` | `1JaE9LG5cK7FB-rPjvOHPBKS-0gvZC488` | 21088 B |
@@ -225,8 +231,10 @@ Kern-Dependency; ohne das Extra SKIPPEN die Tests (verifiziert: dev-only-venv 3 
 **EHRLICHE KORREKTHEITS-GRENZE (kein Overclaim, Lehre aus Inkr.2-Fabrikation):** validiert
 gegen 0.103 (MWPM), NICHT gegen 0.1094 (optimal/ML) — ein Schaetzer, der 0.109 „erreicht",
 waere verdaechtig. Endliche Distanzen → KEINE L→∞-FSS; der Kreuzungs-Schaetzer driftet von
-unten zum Threshold (sichtbar: (7,9)<(9,11)). Phenomenological noise (~2.9%) und
-depolarisierendes Rauschen sind NICHT implementiert. Jede genannte Zahl ist aus
+unten zum Threshold (sichtbar: (7,9)<(9,11)). Phenomenological Multi-Round-Sampling ist seit 2026-09-19 als klar spezifizierte Stim-Baseline
+als Code + Tests vorhanden, Gate-Log seit 2026-10-07 in `results/qec-multiround-evidence.json` (Daten-DEPOLARIZE1 je Runde + Mess-Flip; PyMatching aus DEM). Ein numerischer
+~2.9%-Literatur-Threshold wird bewusst NICHT als Orakel verwendet, bis Noise-Konvention und FSS
+apples-to-apples festgelegt sind. Jede genannte Zahl ist aus
 `python -m adaptiverg_qec.surface_decoder` → `results/qec-surface-mwpm.json` regenerierbar
 (stim 1.16.0, pymatching 2.4.0).
 
@@ -337,6 +345,113 @@ rg_map-dtype-Fix, G3-Gate non-vakuoes. Betroffene regenerierte Artefakte:
 
 *Claude Code | 2026-08-09 | Phase-6-Append | Reality-Anchor: dev/Prototyp, bounded orakel-validiert, nicht selbst-zertifiziert*
 
+
+---
+
+## Lineage-Append — 2026-09-19: RBIM p_c Evidence-Tier korrigiert
+
+Nach Umstellung der historischen `rbim_nishimori`-Baseline von additiven Seeds auf
+hierarchisch getrennte `SeedSequence`-Streams zeigte der kleine CI-Scan
+(L=8, n_disorder=10, n_records=80) `p*=0.155` statt des zuvor erwarteten ~0.11.
+Das ist als **Statistik-/Finite-Size-Befund** behandelt worden, nicht durch Seed-Reuse
+oder ein breiteres Toleranzband "repariert".
+
+Die historischen `results/inkr4-rbim-nishimori*.json` bleiben als Provenienz erhalten,
+gelten aber als **pre-RNG-fix / historical** und nicht als aktueller eigener p_c-Nachweis.
+Default-CI prüft stattdessen exakte L=4-Orakel, Gauge-Invarianz, FM/PM-Sektor, RNG-Policy
+und die `locate_transition`-Logik deterministisch. Research-Gate: GitHub Issue #43
+(Multi-L FSS, mehr Disorder-Realisierungen, Binder/dimensionless crossings, Bootstrap-CI).
+
+Literaturanker bleibt Honecker/Picco/Pujol PRL 87, 047201 (2001), p_c=0.1094(2),
+bestimmt per Transfermatrix/domain-wall free energy; der Literaturwert ist kein Unit-Test
+für einen kleinen einzelnen Monte-Carlo-Scan.
+
+
+---
+
+## Lineage-Append — 2026-09-19: Multi-Round phenomenological baseline
+
+- **Stim**: `Circuit.generated` dokumentiert `before_round_data_depolarization` als Datenqubit-`DEPOLARIZE1(p)` zu Beginn jeder Stabilisatorrunde und `before_measure_flip_probability` als Mess-Bitflip vor Messungen.
+- **PyMatching 2**: `Matching.from_detector_error_model` + `decode_batch` ist der etablierte DEM->MWPM-Pfad; kein eigener Spacetime-Matcher.
+- Implementiert in `surface_decoder.surface_phenomenological_logical_error_rate`; Claim-Tier bewusst `bounded baseline`, keine FSS-/Threshold-Promotion.
+
+## Lineage-Append (append-only) — 2026-09-27: Phase-7 (exakte TV-Mischung) + Issue #48
+
+Branch `claude/qec-engine-next-steps-coapze` (Agent: Claude).
+
+- **Neu:** `src/adaptiverg_qec/mixing.py`, `tests/test_mixing.py`, Gates G46–G49, CLI `phase7`,
+  Artefakt `results/phase7-mixing-tv.json`.
+- **Methodenquellen (Methode, keine Dependency):**
+  - D. A. Levin, Y. Peres, E. L. Wilmer, *Markov Chains and Mixing Times*, 2. Aufl., AMS 2017,
+    Kap. 12 (Spektraldarstellung reversibler Ketten, absolute spectral gap, l2-Schranke,
+    Eigenfunktions-Untergrenze im Beweis von Thm 12.5). Die beiden benutzten Ungleichungen sind im
+    Modul-Docstring hergeleitet und werden numerisch an der exakten d(t) geprüft (G46).
+  - C. McDiarmid, „On the method of bounded differences", Surveys in Combinatorics 1989 —
+    Konzentration der empirischen TV (1/n-Lipschitz je Kette) für das Sampler-Band (G47).
+  - G. O. Roberts, J. S. Rosenthal, „Coupling and ergodicity of adaptive MCMC", J. Appl. Probab.
+    44(2), 458–475 (2007) — Diminishing Adaptation + Containment. **Einordnung:** der Satz setzt
+    ein gemeinsames Ziel π voraus; im MVP ändert θ=β das Ziel selbst. Phase 7 zeigt daher exakt die
+    Konvergenz gegen π_{β_∞} und beziffert β_∞ ≠ β_target bei summierbarem Schedule (kein Zitat
+    als Beleg dafür).
+- **Unabhängiges Orakel für π:** `ising1d.exact_distribution` / `mean_energy` (separat geschriebene
+  Enumeration bzw. Transfer-Matrix).
+- **Issue #48:** `autocorr.tau_int_or_half` (Endlichkeit vor Konstanz); `rhat`-Boden
+  `16·smallest_subnormal` (äquivalent zu `16·spacing(scale)` für jede endliche Skala, da
+  `spacing(x) ≤ eps·x` für normale x und = 5e-324 für subnormale; kein Überlauf bei DBL_MAX).
+
+---
+
+## Lineage-Append — 2026-10-07: Phase-7 auf den Freeze-Vertrag (#51/#53) nachgezogen
+
+- `mixing.adaptive_beta_schedule` / `adaptive_exact_tv` verlangen jetzt `freeze_at` (kein Default)
+  und spiegeln `a_kernel.advance_chain(freeze_at=...)` bit-genau; `freeze_at = n` bildet die
+  zielwandernde Defektklasse des Samplers vor #53 nach.
+- G48 zweiseitig: Freeze nach 30 Sweeps beim schlechtesten Schedule (c=0.5, T0=1) -> beta ab dem
+  Freeze bit-gleich beta_target, TV zu pi_target < 1e-10; ohne Freeze -> beta_inf ~ 0.549
+  (geschlossene Produktformel), TV-Boden > 0.05.
+- Issue-#48-Teil dieses Zweigs war inzwischen identisch über PR #53 auf main; beim Merge wurde
+  main übernommen (kein Doppel-Fix).
+- Literatur unverändert: Andrieu & Thoms, Stat. Comput. 18, 343–373 (2008); Roberts & Rosenthal,
+  J. Appl. Probab. 44(2), 458–475 (2007) — fester Zielkern nach dem Freeze erfüllt deren Voraussetzung.
+
+---
+
+## Lineage-Append — 2026-10-07: Gate-Log 3.1/3.2 + gepaarter Decoder-A/B (Inkrement 3.3)
+
+- **PyMatching Correlated Matching** (`Matching.from_detector_error_model(dem, enable_correlations=True)`,
+  `decode_batch(..., enable_correlations=True)`; ab PyMatching 2.3.0, 2025-08-10): Two-Pass-Matching, das
+  zerlegte Hyperkanten (z.B. Y-Fehler) im zweiten Pass zum Umgewichten nutzt. API-Doku in
+  `pymatching/matching.py`; lokal gegen PyMatching 2.4.0 geprüft. Daher `[surface]`-Extra jetzt
+  `pymatching>=2.3`. Ohne Hyperkanten im DEM ist Correlated Matching bitgleich zur Baseline (Gate Q6).
+- **Exakter McNemar-Test** (bedingt, b | b+c ~ Bin(b+c, 1/2)); mid-p nur als Diagnose:
+  M. W. Fagerland, S. Lydersen, P. Laake, *The McNemar test for binary matched-pairs data: mid-p and
+  asymptotic are better than exact conditional*, BMC Med. Res. Methodol. 13, 91 (2013),
+  doi:10.1186/1471-2288-13-91. Das Gate nutzt bewusst den konservativen exakten Test; Referenz-
+  implementierung `scipy.stats.binomtest` (Gate Q5).
+- **Clopper-Pearson**: C. J. Clopper, E. S. Pearson, Biometrika 26(4), 404–413 (1934),
+  doi:10.1093/biomet/26.4.404 (exakte Binomial-Intervalle, auch bei k=0 nicht entartet).
+- **Gepaarter Bootstrap**: Multinomial über die 2×2-Tafel == Resampling der Shot-Indizes (Efron &
+  Tibshirani 1993, *An Introduction to the Bootstrap*); getestet gegen explizites Index-Resampling.
+- Methodik übernommen aus dem Wissenstransfer 2026-10-04 (§5.4 „Gepaartes Decoder-A/B", P1-A).
+
+---
+
+## Lineage-Append (append-only) — 2026-10-14: SHA-256-Korrektur Spec-PDF
+
+Der Wert in der Tabelle vom 2026-06-18 für `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf`
+(`c074af55…104d`) passt nicht zur committeten Datei. Die Datei ist seit dem Initial-Commit `87deca5`
+unverändert (`git log -- <pdf>` zeigt nur diesen Commit; 26287 B wie in der Tabelle oben). Der
+notierte Wert stimmte also schon am 2026-06-18 nicht mit der committeten Datei überein; woher er
+stammt, ist aus dem Repo nicht nachvollziehbar. Die Zeile oben bleibt als Lineage stehen; massgeblich
+für die committete Datei ist dieser Wert:
+
+| Datei | SHA-256 |
+|---|---|
+| `spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` | `723bbddb778c6a53a287f0557e9f78ee496ad472c34df6aedcf37fe77b12c766` |
+
+Nachprüfbar mit `sha256sum spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf` (Arbeitsbaum) bzw.
+`git cat-file blob HEAD:spec/AdaptiveRG_QEC_Engine_Spec_v1_0_hardened.pdf | sha256sum`. Der
+`.docx`-Wert der Tabelle (`c45d806f…59d5c`) stimmt.
 
 ---
 

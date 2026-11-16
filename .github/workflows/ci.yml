@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload gate-log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: selftest-gate-log-py${{ matrix.python-version }}
           path: results/selftest-ci.json
@@ -76,7 +76,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -85,5 +85,18 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,surface]"
 
-      - name: Pytest (surface decoder + paired ML-vs-MWPM tests)
-        run: pytest tests/test_surface_decoder.py tests/test_planar_ml.py -v
+      - name: Pytest (surface decoder MWPM + decoder A/B + paired ML-vs-MWPM tests)
+        run: pytest tests/test_surface_decoder.py tests/test_qec_decoder_ab.py tests/test_planar_ml.py -v
+
+      # Inkrement 3.1/3.2/3.3 Gate-Log: exit != 0 bei jedem FAIL; ein fehlendes
+      # Artefakt laesst den Upload (if-no-files-found: error) rot werden.
+      - name: Multi-round + decoder A/B evidence gates (Q1-Q10)
+        run: python -m adaptiverg_qec.qec_evidence --json results/qec-multiround-evidence-ci.json
+
+      - name: Upload multi-round evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qec-multiround-evidence
+          path: results/qec-multiround-evidence-ci.json
+          if-no-files-found: error

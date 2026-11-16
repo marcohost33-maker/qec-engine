@@ -47,7 +47,13 @@ from typing import Any
 
 import numpy as np
 
-from .a_kernel import ChainState, advance_chain, diminishing_step_sizes, new_chain_state
+from .a_kernel import (
+    ChainState,
+    advance_chain,
+    diminishing_step_sizes,
+    new_chain_state,
+    split_phases,
+)
 from .manifest import MANIFEST_SCHEMA, RunManifest, RunResult, postprocess_multichain
 from .mvp_instance import MVPConfig
 
@@ -283,9 +289,15 @@ def resume(
     path = Path(checkpoint_path)
     with checkpoint_lock(path):
         payload = load_checkpoint(path)
-        manifest = RunManifest(**payload["manifest"])
-        if manifest.schema != MANIFEST_SCHEMA:  # pragma: no cover - defensive
-            raise CheckpointError(f"embedded manifest schema mismatch: {manifest.schema!r}")
+        embedded = payload["manifest"]
+        if not isinstance(embedded, dict) or embedded.get("schema") != MANIFEST_SCHEMA:
+            # Issue #51: v1-Checkpoints stammen aus Laeufen mit wanderndem Ziel.
+            got = embedded.get("schema") if isinstance(embedded, dict) else embedded
+            raise CheckpointError(f"embedded manifest schema mismatch: {got!r}")
+        try:
+            manifest = RunManifest(**embedded)
+        except (TypeError, ValueError) as exc:
+            raise CheckpointError(f"embedded manifest invalid: {exc}") from exc
 
         cs = payload["chain_state"]
         state = ChainState(
@@ -343,7 +355,7 @@ def _run_chains(
             beta_traj[: state.t] = partial_beta
         else:
             state, rng = new_chain_state(
-                cfg, seed=manifest.base_seed + c, beta_start=manifest.beta_start
+                cfg, seed=manifest.base_seed + c, beta_start=manifest.effective_beta_start
             )
             if c > 0:
                 # Codex-Review-Fix: Checkpoint an der KETTEN-GRENZE. Ohne ihn
@@ -390,6 +402,7 @@ def _run_chains(
                 t_stop=t_stop,
                 H_out=H_traj,
                 beta_out=beta_traj,
+                freeze_at=manifest.warmup_steps,
             )
             sweeps_done_this_call += state.t - advanced_from
             if state.t < manifest.n_steps:
@@ -408,7 +421,21 @@ def _run_chains(
         done_H.append([float(v) for v in H_traj.tolist()])
         done_beta.append([float(v) for v in beta_traj.tolist()])
 
-    H = np.array([row[manifest.burn_in :] for row in done_H], dtype=np.float64)
+    # Issue #51: derselbe Phasen-Schnitt + Freeze-Pruefung wie im ununterbrochenen
+    # Lauf; ein Checkpoint, dessen Produktions-betas nicht eingefroren sind, faellt.
+    H = np.array(
+        [
+            split_phases(
+                np.asarray(row_H, dtype=np.float64),
+                np.asarray(row_beta, dtype=np.float64),
+                warmup_steps=manifest.warmup_steps,
+                burn_in=manifest.burn_in,
+                beta_star=manifest.beta_target,
+            )[1].H
+            for row_H, row_beta in zip(done_H, done_beta, strict=True)
+        ],
+        dtype=np.float64,
+    )
     result = postprocess_multichain(H)
     # Erfolgreich beendet -> Checkpoint aufraeumen (Lock raeumt der Kontext auf).
     if path.exists():

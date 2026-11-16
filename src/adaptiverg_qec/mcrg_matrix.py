@@ -338,9 +338,9 @@ def estimate_y_t(
     taus = []
     for col in range(n_op):
         for arr in (S[:, col], Sp[:, col]):
-            if np.var(arr) > 0:
-                taus.append(autocorr.integrated_autocorr_time(arr, c_window=c_window).tau_int)
-    tau_max = max(taus) if taus else 0.5
+            # Issue #48: Endlichkeit zuerst; konstante Reihe -> 0.5 (traegt nicht bei).
+            taus.append(autocorr.tau_int_or_half(arr, c_window=c_window))
+    tau_max = max(taus)
 
     if block_size is None:
         block_size = max(1, int(np.ceil(2.0 * tau_max)))

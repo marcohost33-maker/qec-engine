@@ -119,3 +119,79 @@ def test_clt_edge_inputs_raise() -> None:
         clt.ar1_clt_variance(1.0)  # |phi|>=1
     with pytest.raises(ValueError):
         clt.ar1_clt_variance(0.5, sigma_eps=0.0)  # sigma_eps<=0
+
+
+# --- Issue #46: NaN must not pass the sigma2_g guard -------------------------
+@pytest.mark.parametrize(
+    ("mean", "sigma2_g"),
+    [(0.0, float("nan")), (0.0, -1.0), (float("nan"), 1.0), (0.0, float("inf"))],
+)
+def test_confidence_interval_rejects_non_finite_or_negative_inputs(
+    mean: float, sigma2_g: float
+) -> None:
+    with pytest.raises(ValueError):
+        clt.confidence_interval(mean, sigma2_g, 10)
+
+
+def test_confidence_interval_accepts_zero_variance() -> None:
+    assert clt.confidence_interval(1.5, 0.0, 10) == (1.5, 1.5)
+
+
+# --- #46/#47 review: remaining silent-NaN entries ---------------------------
+def test_obm_variance_rejects_non_finite_samples() -> None:
+    x = np.random.default_rng(47).standard_normal(256)
+    x[100] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        clt.obm_variance(x)
+
+
+@pytest.mark.parametrize("sigma_eps", [float("nan"), float("inf"), 0.0, -1.0])
+def test_ar1_clt_variance_rejects_invalid_sigma_eps(sigma_eps: float) -> None:
+    with pytest.raises(ValueError, match="sigma_eps"):
+        clt.ar1_clt_variance(0.5, sigma_eps)
+
+
+def test_confidence_interval_rejects_nan_n() -> None:
+    with pytest.raises(ValueError):
+        clt.confidence_interval(0.0, 1.0, float("nan"))  # type: ignore[arg-type]
+
+
+# --- Issue #48 Nachtraege ----------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_n", [float("inf"), float("-inf")])
+def test_confidence_interval_rejects_infinite_n(bad_n: float) -> None:
+    """n=+inf lieferte (mean, mean): ein Intervall der Breite 0 ohne Fehlermeldung."""
+    assert clt.confidence_interval(1.0, 2.0, 100)[0] < 1.0  # Kontrolle
+    with pytest.raises(ValueError, match="n must be finite"):
+        clt.confidence_interval(1.0, 2.0, bad_n)
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.parametrize("scale", [1e308, -1e308])
+def test_obm_variance_overflow_raises(scale: float) -> None:
+    """Endliche Samples |x| ~ 1e308: vorher NaN (still)."""
+    x = np.array([scale, -scale] * 64)
+    with pytest.raises(ValueError, match="overflow"):
+        clt.obm_variance(x)
+
+
+def test_obm_variance_location_shift_far_from_overflow() -> None:
+    """Metamorph (Kontrolle): Lage-Verschiebung um 1e3 aendert OBM kaum."""
+    rng = np.random.default_rng(5)
+    x = rng.standard_normal(4096)
+    ref = clt.obm_variance(x)
+    assert clt.obm_variance(x + 1e3) == pytest.approx(ref, rel=1e-6)
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 3])
+def test_min_clt_samples_is_its_own_guard(n: int) -> None:
+    """Zensus PR #53: die N<4-Waechter brauchen eine eigene Probe (Meldung), sonst faengt
+    ein nachgelagerter Waechter (Autokorrelation, Batch-Groesse) dieselbe Eingabe."""
+    x = np.arange(float(n))
+    with pytest.raises(ValueError, match="samples for a CLT estimate"):
+        clt.clt_variance(x)
+    with pytest.raises(ValueError, match="samples for OBM"):
+        clt.obm_variance(x)
+    assert clt.MIN_CLT_SAMPLES == 4
+    clt.obm_variance(np.array([0.0, 1.0, 0.0, 2.0]))  # Grenze: N = 4 geht durch

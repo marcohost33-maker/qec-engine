@@ -1,6 +1,34 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-authors:
-  - name: "Coworker Research / Coworkerz"
+type: software
 title: "qec-engine"
+abstract: >-
+  AdaptiveRG-QEC is a research prototype of a Monte-Carlo and
+  Monte-Carlo-renormalization-group (MCRG) verification harness for
+  quantum-error-correction thresholds. It combines an adaptive Metropolis
+  kernel with a Foster-Lyapunov drift guard, MCRG estimators for critical
+  exponents of the Ising model, a random-bond Ising model on the Nishimori
+  line, QEC code diagnostics (repetition code; rotated surface code with
+  MWPM decoding via Stim and PyMatching as an optional extra) and
+  convergence diagnostics (autocorrelation-aware errors, CLT variance,
+  rank-normalized R-hat, exact total-variation mixing). Some gates compare
+  against an independent closed-form or exact oracle; others are
+  consistency checks, directional controls or empirical comparisons. The
+  Phase-5 run and the QEC manifest-v2 path replay bit-identically from a run
+  manifest. It is not a frontier threshold tool.
+authors:
+  - name: "Coworker Research (Coworkerz)"
+# Development version of the current tree (adaptiverg_qec.__version__); the
+# last tagged release is v0.4.0 (2026-06-19) and predates e.g. Phase 7.
+version: "0.5.0.dev0"
 license: Apache-2.0
+repository-code: "https://github.com/marcohost33-maker/qec-engine"
+keywords:
+  - quantum-error-correction
+  - monte-carlo
+  - mcmc
+  - renormalization-group
+  - ising-model
+  - nishimori-line
+  - surface-code
+  - reproducibility

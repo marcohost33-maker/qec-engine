@@ -260,7 +260,7 @@ def _block_size_from_series(series: np.ndarray, *, n: int, floor_blocks: int = 1
         Block-Groesse b >= 1.
     """
     series = np.asarray(series, dtype=np.float64)
-    tau = autocorr.integrated_autocorr_time(series).tau_int if np.var(series) > 0 else 0.5
+    tau = autocorr.tau_int_or_half(series)  # Issue #48: NaN bricht, statt tau=0.5
     b = max(1, int(np.ceil(2.0 * tau)))
     if n // b < floor_blocks:
         b = max(1, n // floor_blocks)
@@ -332,12 +332,7 @@ def multi_rg_y_t(
     # der y_t(n)-PUNKTSCHAETZER nutzt fuer alle Iterationen dasselbe Fenster
     # (vergleichbar + reproduzierbar). Die JACKKNIFE-Blockgroesse wird hingegen
     # PRO ITERATION aus der jeweiligen Stufen-Zeitreihe gewaehlt (Codex-Fix 3).
-    tau0 = []
-    for col in range(n_op):
-        arr = S_levels[0][:, col]
-        if np.var(arr) > 0:
-            tau0.append(autocorr.integrated_autocorr_time(arr).tau_int)
-    tau_max0 = max(tau0) if tau0 else 0.5
+    tau_max0 = max(autocorr.tau_int_or_half(S_levels[0][:, col]) for col in range(n_op))
     keep_block = block_size if block_size is not None else max(1, int(np.ceil(2.0 * tau_max0)))
     if n // keep_block < 16:
         keep_block = max(1, n // 16)
@@ -477,7 +472,7 @@ def estimate_y_h(
 
     # tau_int -> Block-Groesse (ungerade Magnetisierung dekorreliert langsamer).
     arr = od[:, 0]
-    tau = autocorr.integrated_autocorr_time(arr).tau_int if np.var(arr) > 0 else 0.5
+    tau = autocorr.tau_int_or_half(arr)
     if block_size is None:
         block_size = max(1, int(np.ceil(2.0 * tau)))
     if n // block_size < 16:
@@ -588,7 +583,7 @@ def multi_rg_y_h(
     # reproduzierbar). JACKKNIFE-Blockgroesse PRO ITERATION aus der jeweiligen
     # ungeraden Stufen-Reihe (Codex-Fix 3; vorher fix aus od_levels[0][:,0]).
     arr0 = od_levels[0][:, 0]
-    tau0 = autocorr.integrated_autocorr_time(arr0).tau_int if np.var(arr0) > 0 else 0.5
+    tau0 = autocorr.tau_int_or_half(arr0)
     keep_block = block_size if block_size is not None else max(1, int(np.ceil(2.0 * tau0)))
     if n // keep_block < 16:
         keep_block = max(1, n // 16)
