@@ -48,6 +48,8 @@ from .qec_decoder_ab import (
 from .qec_manifest_v2 import QECExperimentManifestV2, StimNoiseProfile
 
 ALPHA_ORDER = 0.01  # 99%-Intervalle fuer die Ordnungs-Gates Q2/Q3.
+# Shots je Zelle der Ordnungs-Gates; bewusst NICHT mit --quick skaliert (Power, s. Q2).
+ORDER_GATE_SHOTS = {"Q2": 60_000, "Q3": 20_000}
 
 
 def _rows_hash(rows: list[dict]) -> str:
@@ -108,7 +110,12 @@ def build_evidence(*, quick: bool = False) -> dict:
     gate("Q1", "zero-noise oracle p_L == 0 (d=3,5,7; x,z)", q1, {"rows": zero})
 
     # --- Q2/Q3 Unterdrueckung vs. Umkehr ------------------------------------------
-    shots_sub = int(60_000 * scale)
+    # Q2/Q3 laufen auch im Quick-Modus mit VOLLEM Budget (ORDER_GATE_SHOTS). Gemessen
+    # 2026-11-16: bei 15'000 Shots (scale 0.25) hat das Paar d=5/d=7 nur ~63 % Power fuer
+    # disjunkte 99%-CP-Intervalle (Raten 2.4e-3 / 6.1e-4) -- das Gate fiel je nach Ziehung,
+    # und Stim zieht mit demselben Seed unter Windows andere Shots als unter Linux. Bei
+    # 60'000 Shots ist die Power ~1; die Kosten sind Sekunden.
+    shots_sub = ORDER_GATE_SHOTS["Q2"]
     sub = QECExperimentManifestV2(
         distances=(3, 5, 7), shots_per_cell=shots_sub, base_seed=31, noise=_phenom(0.01)
     )
@@ -121,7 +128,10 @@ def build_evidence(*, quick: bool = False) -> dict:
         {"rows": sub_rows, "clopper_pearson_99": q2_iv},
     )
     above = QECExperimentManifestV2(
-        distances=(3, 5, 7), shots_per_cell=int(20_000 * scale), base_seed=32, noise=_phenom(0.06)
+        distances=(3, 5, 7),
+        shots_per_cell=ORDER_GATE_SHOTS["Q3"],
+        base_seed=32,
+        noise=_phenom(0.06),
     )
     above_rows = sd.run_experiment_manifest(above)["rows"]
     q3, q3_iv = _ordered(above_rows, increasing=True)
